@@ -1,0 +1,77 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>15 NAT 与网络限制 — LANWEFT</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topnav">
+    <a href="index.html">目录</a>
+    <a href="14-download-flow.html">◀ 14 下载流程</a>
+    <a href="16-mobile-background-limits.html">16 移动端限制 ▶</a>
+    <a href="../spec/15-nat-and-network-limits.md">规范源文</a>
+  </nav>
+
+  <h1>15 NAT 与网络限制</h1>
+
+  <div class="note blue">
+    <strong>本章要点</strong>：协议面向<strong>可信局域网</strong>，
+    <strong>不提供任何穿透能力</strong>；公网 NAT / 蜂窝网络<strong>不支持</strong>。
+    Client <strong>必须</strong>能够主动向 Server 发起 TCP / UDP。
+  </div>
+
+  <h2>支持范围</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>网络形态</th><th>支持</th></tr></thead>
+      <tbody>
+        <tr><td>单一局域网</td><td><strong class="c-chunk">支持</strong></td></tr>
+        <tr><td>二级路由</td><td><strong class="c-len">条件支持</strong></td></tr>
+        <tr><td>跨公网 NAT / 蜂窝网络</td><td><strong class="c-crc">不支持</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>协议假设</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>假设</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td><strong>同一局域网</strong></td><td>双方在同一局域网内可达</td></tr>
+        <tr><td><strong>Client 可主动向 Server 发起 TCP / UDP</strong></td><td>控制面由 Client 主动连接；数据面探测同样由 Client 发起</td></tr>
+        <tr><td><strong>不提供穿透</strong></td><td>不做 NAT 打洞、端口预测或 relay</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="diagram">
+    <div class="fields" style="--cols:2">
+      <div class="cell ruler-title">Client（同一局域网）</div>
+      <div class="cell ruler-title">Server</div>
+      <div class="cell f-type">TCP connect（控制面）</div>
+      <div class="cell f-type">监听控制端口</div>
+      <div class="cell f-type">UDP PROBE（数据面）</div>
+      <div class="cell f-type">PROBE_ACK（从会话数据面端口发出）</div>
+      <div class="cell wide f-muted">Server 以 PROBE 报文的源地址:端口作为该会话的对端数据面地址（见 07 章）</div>
+    </div>
+  </div>
+
+  <h2>实现建议</h2>
+  <ul class="spec">
+    <li>Client <strong>先发 UDP</strong> 建 NAT 映射</li>
+    <li>mDNS 可能失效，需支持<strong>手动配置</strong>地址</li>
+  </ul>
+
+  <div class="note warn">
+    <strong>与 04 章非目标一致</strong>：公网穿透与互联网规模传输不在本协议范围内；
+    跨公网场景需要由实现层（而非协议层）另行解决。
+  </div>
+
+  <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/15-nat-and-network-limits.md">docs/spec/15-nat-and-network-limits.md</a></footer>
+</div>
+</body>
+</html>

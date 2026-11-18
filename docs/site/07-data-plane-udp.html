@@ -1,0 +1,207 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>07 数据面（UDP / TCP Fallback） — LANWEFT</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topnav">
+    <a href="index.html">目录</a>
+    <a href="06-control-plane-tcp.html">◀ 06 控制面</a>
+    <a href="08-packet-format.html">08 数据包格式 ▶</a>
+    <a href="../spec/07-data-plane-udp.md">规范源文</a>
+  </nav>
+
+  <h1>07 数据面（UDP / TCP Fallback）</h1>
+
+  <div class="note blue">
+    <strong>本章要点</strong>：数据面以 <strong>UDP</strong> 为默认传输，原则是
+    <strong>无连接、无逐包 ACK、允许丢包与乱序</strong>，并以 <code>crc32</code> 做包级校验；
+    UDP 不可用时回退到<strong>数据面</strong> TCP 通道（与 06 章的控制面 TCP 长连接<strong>完全无关</strong>）。
+    数据面<strong>不得</strong>改变会话状态，只更新接收侧位图。
+  </div>
+
+  <!-- ============ § UDP 原则 ============ -->
+  <h2>UDP 原则</h2>
+  <ul class="spec">
+    <li><strong>无连接</strong>、<strong>无逐包 ACK</strong>、<strong>允许丢包与乱序</strong></li>
+    <li><code>payload_len ≤ chunk_size</code>（建议 <code>chunk_size ≤ 1400</code>，避免 IP 分片）</li>
+    <li><code>crc32</code> 包级校验</li>
+  </ul>
+
+  <!-- ============ UDP 数据包结构 ============ -->
+  <h2>UDP 数据包结构</h2>
+  <div class="diagram">
+    <div class="fields">
+      <div class="cell ruler-title">UDP Datagram Layout</div>
+
+      <div class="cell bitnum">0-3</div>
+      <div class="cell bitnum">4-7</div>
+      <div class="cell bitnum">8-11</div>
+      <div class="cell bitnum">12…</div>
+
+      <div class="cell half f-session">session_id</div>
+      <div class="cell half f-chunk">chunk_id</div>
+
+      <div class="cell half f-len">payload_len</div>
+      <div class="cell half f-flags">flags</div>
+
+      <div class="cell wide f-payload">payload (Variable Length)</div>
+
+      <div class="cell wide f-crc">crc32</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--b-session)"></i>session_id</span>
+    <span><i class="swatch" style="background:var(--b-chunk)"></i>chunk_id</span>
+    <span><i class="swatch" style="background:var(--b-len)"></i>payload_len</span>
+    <span><i class="swatch" style="background:var(--b-flags)"></i>flags</span>
+    <span><i class="swatch" style="background:var(--b-payload)"></i>payload</span>
+    <span><i class="swatch" style="background:var(--b-crc)"></i>crc32</span>
+  </div>
+  <div class="caption">头部长度 = 4 + 4 + 2 + 2 = 12 字节，随后是 payload 与尾部 crc32；字段级定义见 08 章。</div>
+
+  <!-- ============ 通道对比 ============ -->
+  <h2>两条通道的对比</h2>
+  <div class="diagram">
+    <div class="fields">
+      <div class="cell ruler-title">控制面 TCP 长连接  vs  数据面 UDP</div>
+
+      <div class="cell half f-frame">控制面 · TCP 长连接</div>
+      <div class="cell half f-type">数据面 · UDP</div>
+
+      <div class="cell half f-muted">见 06 章</div>
+      <div class="cell half f-muted">见本章 + 08 章</div>
+
+      <div class="cell half f-body">长连接；端口为控制连接端口</div>
+      <div class="cell half f-payload">无连接、无逐包 ACK、允许丢包与乱序</div>
+
+      <div class="cell half f-body">承载控制面消息（如 <code>udp_ready</code>）</div>
+      <div class="cell half f-payload">承载 chunk 数据包（crc32 包级校验）</div>
+
+      <div class="cell half f-muted">消息集：控制面消息</div>
+      <div class="cell half f-muted">消息集：数据面数据包 / 数据面 TCP 降级帧</div>
+    </div>
+  </div>
+
+  <div class="note warn">
+    <strong>术语澄清</strong>：本章的「TCP 通道」指<strong>数据面</strong>的降级通道，
+    与<strong>控制面</strong>的 TCP 长连接（见 06 章）<strong>完全无关</strong> ——
+    二者是不同的通道、不同的端口、不同的消息。
+  </div>
+
+  <!-- ============ 发送端 / 接收端 ============ -->
+  <h2>发送端与接收端</h2>
+  <div class="cols">
+    <section>
+      <h3 style="margin-top:0">发送端</h3>
+      <ul class="spec">
+        <li><strong>按批次发送</strong>：连续发送 <code>burst_size</code> 个 chunk，批间隔 <code>batch_gap_us</code>
+          （初值 <code>2000 µs</code>；<code>burst_size</code> 初值 = <code>window</code>）。详见 11 章「发送节奏」。</li>
+        <li>批<strong>内</strong>不逐包停顿；间隔施加在<strong>批与批之间</strong>，而非包与包之间。</li>
+        <li><strong>仅对 <code>missing_chunks</code>（<code>mode=report</code>）报告的缺失块重传</strong>，
+          重传优先级<strong>高于新数据</strong></li>
+        <li><strong>数据面不得改变会话状态</strong>，只能更新接收侧位图（见 10 章「推进规则」）</li>
+      </ul>
+    </section>
+
+    <section>
+      <h3 style="margin-top:0">接收端</h3>
+      <ul class="spec">
+        <li>校验头与 <code>crc32</code></li>
+        <li>随机写盘</li>
+        <li>标记位图</li>
+        <li>不直接推进状态机（位图变化只是接收侧状态推进的<strong>输入</strong>）</li>
+      </ul>
+    </section>
+  </div>
+
+  <!-- ============ 探测 ============ -->
+  <h2>UDP 可用性探测</h2>
+
+  <h3>交互流程</h3>
+  <div class="diagram">
+    <div class="fields">
+      <div class="cell ruler-title">UDP Availability Probe</div>
+
+      <div class="cell bitnum">①</div>
+      <div class="cell bitnum">②</div>
+      <div class="cell bitnum">③</div>
+      <div class="cell bitnum">超时</div>
+
+      <div class="cell f-type span4">Client → Server：UDP_PROBE</div>
+      <div class="cell f-type span4">Server → Client：UDP_PROBE_ACK</div>
+      <div class="cell f-frame span4">Server → Client（控制通道）：udp_ready</div>
+      <div class="cell f-crc span4">等待 PROBE_ACK 超时（建议 2 s）→ 判定 UDP 不可用 → 回退到 TCP</div>
+    </div>
+  </div>
+  <div class="caption">探测三步：PROBE → PROBE_ACK → 控制通道下发 udp_ready。</div>
+
+  <div class="cols" style="margin-top:26px">
+    <section>
+      <h3 style="margin-top:0">PROBE 数据包</h3>
+      <ul class="spec">
+        <li><code>flags.bit3 = 1</code></li>
+        <li>payload 为 <code>session_id</code>（u32）的 <strong>4 字节小端编码</strong></li>
+        <li><code>payload_len == 4</code></li>
+      </ul>
+    </section>
+
+    <section>
+      <h3 style="margin-top:0">PROBE_ACK 数据包</h3>
+      <ul class="spec">
+        <li><code>flags.bit3 = 1</code></li>
+        <li>payload 为 <code>session_id</code> + 1 字节状态码（<code>0</code>=成功，<code>1</code>=失败），
+          共 <strong>5 字节</strong></li>
+        <li><code>payload_len == 5</code></li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="note">
+    <strong>判别规则（规范性）</strong>：PROBE 与 PROBE_ACK 共用 <code>flags.bit3</code>，
+    接收方<strong>必须</strong>以 <code>payload_len</code> 区分：<code>payload_len == 4</code> 为 PROBE，
+    <code>payload_len == 5</code> 为 PROBE_ACK。其余长度<strong>必须</strong>按 <code>INVALID_PACKET</code> 丢弃。
+  </div>
+
+  <h3>端口与地址绑定（规范性）</h3>
+  <ul class="spec">
+    <li>Server 的数据面 socket <strong>必须</strong>绑定 accept 消息中下发的 <code>udp_port</code>。</li>
+    <li>Server <strong>必须</strong>以 PROBE 报文的<strong>源地址:端口</strong>作为该会话的对端数据面地址；
+      Server <strong>不得</strong>向未经 PROBE 确认的地址发送数据面数据包（见 20 章）。</li>
+    <li>Server 返回的 PROBE_ACK <strong>必须</strong>从该会话的数据面端口发出，
+      以保证客户端的 NAT 映射命中。</li>
+  </ul>
+
+  <h3>超时</h3>
+  <ul class="spec">
+    <li>Client 等待 PROBE_ACK 超时（建议 <strong>2 s</strong>）则判定 UDP 不可用</li>
+    <li>回退到 TCP</li>
+  </ul>
+
+  <!-- ============ TCP 降级 ============ -->
+  <h2>TCP 降级</h2>
+  <ul class="spec">
+    <li>UDP 不可用或异常时启用</li>
+    <li>保持 chunk 与 bitmap 语义</li>
+    <li><strong>TCP 通道的线路格式在 v0.3.0 中仍未定义</strong>（见 26 章「下一阶段与路线图」）；
+      本版本仅规定其<strong>语义</strong>要求：chunk 边界、bitmap 语义、状态机行为与 UDP 通道一致</li>
+    <li>TCP 端口由 accept 消息的 <code>tcp_port</code> 字段下发；<strong><code>tcp_port = 0</code> 表示不支持 TCP 降级</strong>，
+      此时探测失败即判定传输不可用</li>
+  </ul>
+
+  <div class="note">
+    <strong>本章与其它章的关系</strong>：数据包字节级布局见 08 章；控制通道消息见 06 章；
+    发送节奏与窗口判据见 11 章；位图推进规则见 10 章；数据面地址与 NAT 相关约束见 20 章与 15 章。
+    常见实现陷阱：把<strong>数据面 TCP 降级通道</strong>与<strong>控制面 TCP 长连接</strong>混为一谈。
+  </div>
+
+  <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/07-data-plane-udp.md">docs/spec/07-data-plane-udp.md</a></footer>
+</div>
+</body>
+</html>

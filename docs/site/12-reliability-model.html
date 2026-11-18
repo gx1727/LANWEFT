@@ -1,0 +1,187 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>12 可靠性模型（Reliability Model） — LANWEFT</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topnav">
+    <a href="index.html">目录</a>
+    <a href="11-flow-control.html">◀ 11 流控</a>
+    <a href="13-resume-and-recovery.html">13 恢复 ▶</a>
+    <a href="../spec/12-reliability-model.md">规范源文</a>
+  </nav>
+
+  <h1>12 可靠性模型（Reliability Model）</h1>
+
+  <div class="note blue">
+    <strong>本章要点</strong>：可靠性由「<strong>裁决</strong> + 完整性校验 + 重传 + 恢复 + 提交」五层构成。
+    <strong>裁决是唯一的推进依据（规范性）</strong>：接收方<strong>必须</strong>至少每 <strong>50 ms</strong> 下发一次
+    <code>missing_chunks</code>（<code>mode=report</code>），<strong>包括缺失列表为空的情况</strong>。
+    看门狗与保底轮询使用<strong>同一个 1000 ms 索要规则</strong>。控制连接断开<strong>不得</strong>直接置为
+    <code>ABORTED</code>，只有 60 秒会话活动超时才终止会话。
+  </div>
+
+  <!-- ============ 分层保障 ============ -->
+  <h2>分层保障</h2>
+  <div class="diagram">
+    <div class="fields">
+      <div class="cell ruler-title">可靠性分层（自下而上）</div>
+
+      <div class="cell wide f-session">① 缺失裁决与位图 · 控制面统计缺失并下发 <code>missing_chunks</code>(<code>mode=report</code>)；接收端乱序写盘与位图</div>
+      <div class="cell wide f-crc">② 完整性校验 · <code>crc32</code> 包级完整性；文件级内容 hash 校验（Blake3）</div>
+      <div class="cell wide f-len">③ 重传 · UDP 不即时重传；聚合缺失后统一下发；重传优先级高于新数据</div>
+      <div class="cell wide f-flags">④ 中断与恢复 · 不回滚已写入；恢复后加载位图并补传缺失</div>
+      <div class="cell wide f-chunk">⑤ 完成与提交 · bitmap 全真 → 校验 hash → 原子重命名 → 发布完成消息</div>
+    </div>
+  </div>
+
+  <div class="note">
+    <strong>裁决是唯一的推进依据（规范性）</strong>：接收方<strong>必须</strong>至少每 50 ms 下发一次
+    <code>missing_chunks</code>（<code>mode=report</code>），<strong>包括缺失列表为空的情况</strong>；
+    发送方据此推进窗口。详见 11 章「窗口推进判据」。
+  </div>
+
+  <!-- ============ missing_chunks 结构 ============ -->
+  <h2><code>missing_chunks</code> 消息结构</h2>
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="c-type">mode</td><td class="mono">enum8</td>
+          <td><code>0</code> = <code>report</code>、<code>1</code> = <code>request</code></td>
+        </tr>
+        <tr>
+          <td class="c-chunk">chunks</td><td class="mono">chunk_list</td>
+          <td><code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>；
+            「缺失列表为空」即 <code>chunk_list</code> 的条数为 <code>0</code></td>
+        </tr>
+        <tr>
+          <td class="c-len">missing_count</td><td class="mono">u32</td>
+          <td>位图中<strong>尚未收到</strong>的 chunk <strong>精确总数</strong>，
+            <strong>不是</strong>本批 <code>chunks</code> 的长度</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="caption">见 06 章「missing_chunks」。</div>
+
+  <!-- ============ 时间轴 ============ -->
+  <h2>时间轴：周期、超时与看门狗</h2>
+  <div class="diagram">
+    <div class="fields" style="--cols:4">
+      <div class="cell ruler-title">可靠性相关时间尺度 · 非等比示意</div>
+
+      <div class="cell bitnum">t = 0</div>
+      <div class="cell bitnum">50 ms</div>
+      <div class="cell bitnum">1000 ms</div>
+      <div class="cell bitnum">60 s</div>
+
+      <div class="cell half f-session">裁决周期 50 ms · 接收方至少每 50 ms 下发 <code>missing_chunks</code>(<code>mode=report</code>)，<strong>空列表也必须下发</strong></div>
+      <div class="cell half f-len">索要周期 1000 ms · 发送方每 1000 ms 至少索要一次裁决（看门狗 / 保底轮询共用同一规则）</div>
+
+      <div class="cell wide f-crc">会话活动超时 60 s · 无任何控制面交互或数据面活动 → 置为 <code>ABORTED</code> 并清理（09 章）</div>
+      <div class="cell wide f-muted">控制连接断开 = <strong>中断</strong>（可恢复），<strong>不得</strong>直接置为 ABORTED；位图与临时文件<strong>必须</strong>保留</div>
+    </div>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>数值</th><th>含义</th><th>来源</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="num">50 ms</td><td>接收方至少每 50 ms 下发一次 <code>missing_chunks</code>（<code>mode=report</code>），<strong>包括缺失列表为空的情况</strong></td><td>本章「分层保障」；11 章「窗口推进判据」</td></tr>
+        <tr><td class="num">1000 ms</td><td>发送方每 1000 ms 至少索要一次裁决，直到收到 <code>mode=report</code> 为止</td><td>本章「看门狗」；11 章判据第 4 条</td></tr>
+        <tr><td class="num">1000 ms</td><td>保底轮询<strong>使用</strong>同一个 1000 ms 索要规则</td><td>本章「保底轮询」</td></tr>
+        <tr><td class="num">60 s</td><td>会话活动超时 → 置为 <code>ABORTED</code> 并清理资源</td><td>本章「连接断开的语义」；09 章</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ 保底轮询 ============ -->
+  <h2>保底轮询（Keep-Alive Polling）</h2>
+  <ul class="spec">
+    <li>Client 发送完全部数据后，若 Server 持续返回 <code>missing_chunks</code>（<code>mode=report</code>）
+      且 <code>chunks</code> 为空（缺失列表为空），但<strong>始终未下发</strong> <code>upload_complete</code>，
+      Client 进入保底轮询状态。</li>
+    <li>保底轮询<strong>使用</strong> 11 章判据第 4 条的<strong>同一个 1000 ms 索要规则</strong>：
+      Client <strong>必须</strong>按该周期发布 <code>missing_chunks</code>（<code>mode=request</code>）
+      持续索要缺失列表，直至收到 <code>upload_complete</code> 或触发超时。</li>
+    <li>目的：防止对端状态机卡死导致的会话悬挂。</li>
+  </ul>
+
+  <!-- ============ 连接断开的语义 ============ -->
+  <h2>连接断开的语义（规范性）</h2>
+  <div class="note warn">
+    控制连接断开时，该连接承载的<strong>全部</strong>会话<strong>必须</strong>视为<strong>中断</strong>（可恢复），
+    <strong>不得</strong>直接置为 <code>ABORTED</code>。
+  </div>
+  <ul class="spec">
+    <li>断连<strong>不</strong>回滚已写入的数据，位图与临时文件<strong>必须</strong>保留。</li>
+    <li>Client 重连后通过 <code>login</code> 的恢复列表恢复（见 13 章）。</li>
+    <li>只有会话活动超时（60 秒，见 09 章）才把会话置为 <code>ABORTED</code> 并清理资源。</li>
+  </ul>
+
+  <!-- ============ 看门狗 ============ -->
+  <h2>看门狗（Watchdog）</h2>
+  <ul class="spec">
+    <li>看门狗的职责与 11 章判据第 4 条的索要规则<strong>完全一致</strong>：
+      发送方每 <strong>1000 ms</strong> 至少索要一次裁决，直到收到 <code>mode=report</code> 为止。</li>
+    <li>重复的 <code>mode=request</code> 是<strong>幂等</strong>的，与幂等要求兼容
+      （见 06 章「未识别消息必须忽略，保持幂等性」）。</li>
+  </ul>
+
+  <!-- ============ 完整性校验 ============ -->
+  <h2>完整性校验</h2>
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>层级 / 情形</th><th>规范要求</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td><strong>包级</strong></td>
+          <td>每个 UDP 包尾部携带 CRC32，校验失败直接丢弃，<strong>不得</strong>写入位图</td>
+        </tr>
+        <tr>
+          <td><strong>文件级</strong></td>
+          <td>传输完成后，接收方计算全文件 Blake3 哈希，与请求中的 <code>file_hash</code> 比对
+            （<code>file_hash</code> 为 <strong>32 字节原始 Blake3 摘要</strong>，<code>hash32</code> 类型，非十六进制串）；
+            一致才进入 COMMIT 并发布完成消息（上传方向 <code>upload_complete</code>，
+            下载方向 <code>download_complete</code>）</td>
+        </tr>
+        <tr>
+          <td><strong>文件级校验失败</strong></td>
+          <td>接收方<strong>必须</strong>发布 <code>session_abort</code>（<code>reason</code> = <code>FILE_HASH_MISMATCH</code>）
+            终止会话。<br>
+            这是<strong>接收侧唯一有权发起的终止</strong>（见 10 章「终止权」）；其余终止原因一律由 Server 发起。<br>
+            由于包级 CRC32 已经过校验，文件级失配通常意味着<strong>会话参数错误</strong>
+            （如 <code>chunk_size</code> 协商不一致）而非个别数据损坏，因此<strong>不作为可重传事件处理</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>秒传路径</strong></td>
+          <td>跳过数据传输时没有位图，完成条件为「既有文件校验通过并原子提交」（见 10 章「秒传路径」）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <strong>本章与其它章的关系</strong>：窗口推进与索要判据见 11 章；会话状态与终止权见 10 章；
+    断线恢复见 13 章；会话超时阈值见 09 章；包级校验与包头布局见 07 章与 08 章。
+    常见实现陷阱：把 50 ms 的裁决周期当成「有缺失才下发」，或把 <code>missing_count</code> 误当作本批
+    <code>chunks</code> 的长度。
+  </div>
+
+  <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/12-reliability-model.md">docs/spec/12-reliability-model.md</a></footer>
+</div>
+</body>
+</html>

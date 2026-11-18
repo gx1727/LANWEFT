@@ -1,0 +1,247 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>06 TCP 控制帧结构 (Control Frame Format) — LANWEFT</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topnav">
+    <a href="index.html">目录</a>
+    <a href="05-protocol-stack.html">◀ 05 协议栈</a>
+    <a href="07-data-plane-udp.html">07 数据面 ▶</a>
+    <a href="../spec/06-control-plane-tcp.md">规范源文</a>
+  </nav>
+
+  <h1>TCP 控制帧结构 (Control Frame Format)</h1>
+
+  <!-- ============ frame diagram ============ -->
+  <div class="diagram">
+    <div class="fields" style="--cols:8">
+      <div class="cell ruler-title">Frame Header = 8 Bytes · 小端序 (Little-Endian)</div>
+
+      <div class="cell bitnum">0</div>
+      <div class="cell bitnum">1</div>
+      <div class="cell bitnum">2</div>
+      <div class="cell bitnum">3</div>
+      <div class="cell bitnum">4</div>
+      <div class="cell bitnum">5</div>
+      <div class="cell bitnum">6</div>
+      <div class="cell bitnum">7</div>
+
+      <div class="cell span4 f-frame">frame_len (u32, 4 bytes)</div>
+      <div class="cell f-type">msg_type</div>
+      <div class="cell f-flags">flags</div>
+      <div class="cell f-payload">body_version</div>
+      <div class="cell f-muted">reserved</div>
+
+      <div class="cell wide f-body">body (消息体：定长区 ‖ 变长区，长度 = frame_len − 8)</div>
+      <div class="cell wide f-ext">扩展区 Extension (可选，接收方必须忽略)</div>
+    </div>
+  </div>
+  <div class="caption">
+    frame_len 的字节 0 为最低有效字节 (LSB first)：字节序 0 → 1 → 2 → 3 依次存放 u32 的 bit0–7 → bit8–15 → bit16–23 → bit24–31。
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--b-frame)"></i>frame_len</span>
+    <span><i class="swatch" style="background:var(--b-type)"></i>msg_type</span>
+    <span><i class="swatch" style="background:var(--b-flags)"></i>flags</span>
+    <span><i class="swatch" style="background:var(--b-payload)"></i>body_version</span>
+    <span><i class="swatch" style="background:var(--b-ext)"></i>reserved / 扩展区</span>
+    <span><i class="swatch" style="background:var(--b-body)"></i>body</span>
+  </div>
+
+  <!-- ============ 帧头字段 & 错误处理 ============ -->
+  <div class="cols">
+    <section>
+      <h2 style="margin-top:32px">帧头字段定义</h2>
+      <div class="card">
+        <table>
+          <thead>
+            <tr><th>字段</th><th>偏移</th><th>大小</th><th>类型</th><th>说明</th></tr>
+          </thead>
+          <tbody>
+            <tr><td class="c-frame">frame_len</td><td class="num">0-3</td><td class="num">4</td><td class="mono">u32</td><td>本帧总字节数（含帧头）</td></tr>
+            <tr><td class="c-type">msg_type</td><td class="num">4</td><td class="num">1</td><td class="mono">u8</td><td>消息类型编号</td></tr>
+            <tr><td class="c-flags">flags</td><td class="num">5</td><td class="num">1</td><td class="mono">u8</td><td>帧级标志位；bit0-7 全部保留</td></tr>
+            <tr><td class="c-payload">body_version</td><td class="num">6</td><td class="num">1</td><td class="mono">u8</td><td>消息体布局版本号；初值 0</td></tr>
+            <tr><td class="c-muted">reserved</td><td class="num">7</td><td class="num">1</td><td class="mono">u8</td><td>保留字节</td></tr>
+            <tr><td class="c-body">body</td><td class="num">8..</td><td class="num">N</td><td class="mono">bytes</td><td>消息体，长度 = frame_len − 8</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>帧级错误处理</h2>
+      <div class="card">
+        <table>
+          <thead><tr><th>情况</th><th>处理</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">frame_len == 0</td><td>丢弃并<strong>关闭连接</strong>（帧边界不可信）</td></tr>
+            <tr><td class="mono">frame_len &gt; max_frame_len</td><td>丢弃并<strong>关闭连接</strong>（帧边界不可信）</td></tr>
+            <tr><td class="mono">frame_len &lt; 8</td><td>按 <code>SERIALIZATION_ERROR</code> 丢弃该帧，连接保持</td></tr>
+            <tr><td class="mono">msg_type 未知</td><td>按「未识别消息必须忽略」丢弃该帧，连接保持</td></tr>
+            <tr><td>定长区长度不足</td><td>按 <code>SERIALIZATION_ERROR</code> 丢弃该帧，连接保持</td></tr>
+            <tr><td>变长区长度越界</td><td>按 <code>SERIALIZATION_ERROR</code> 丢弃该帧，连接保持</td></tr>
+            <tr><td>reserved ≠ 0</td><td><strong>必须忽略</strong>，不得视为错误，连接保持</td></tr>
+            <tr><td>定长区数值违反取值约束</td><td>按 <code>SERIALIZATION_ERROR</code> 丢弃该帧，连接保持</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2 style="margin-top:32px">消息体编码约定</h2>
+      <div class="card">
+        <table>
+          <thead><tr><th>类型</th><th>编码</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">u8 / u16 / u32 / u64</td><td>小端序定长整数</td></tr>
+            <tr><td class="mono">bool</td><td><code>u8</code>，0 = 假，1 = 真；其他取值非法</td></tr>
+            <tr><td class="mono">enum8</td><td><code>u8</code>，取值见枚举表</td></tr>
+            <tr><td class="mono">str</td><td><code>u16</code> 长度 + UTF-8 字节（不含 NUL）；长度 0 表示无值</td></tr>
+            <tr><td class="mono">hash32</td><td><strong>32 字节原始 Blake3 摘要</strong>（非十六进制串）</td></tr>
+            <tr><td class="mono">chunk_list</td><td><code>u32</code> 条数 + 条数 × <code>u32</code> chunk_id（升序）</td></tr>
+            <tr><td class="mono">record[]</td><td><code>u16</code> 条数 + 条数 × 定长记录</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>枚举</h2>
+      <div class="card">
+        <table>
+          <tbody>
+            <tr><td class="mono">result</td><td>0 = fail，1 = success</td></tr>
+            <tr><td class="mono">direction</td><td>0 = upload，1 = download</td></tr>
+            <tr><td class="mono">state</td><td>0 INIT · 1 NEGOTIATING · 2 TRANSFERRING · 3 PAUSED · 4 VERIFY · 5 COMMIT · 6 COMPLETED · 7 ABORTED</td></tr>
+            <tr><td class="mono">missing_chunks.mode</td><td>0 = report，1 = request</td></tr>
+            <tr><td class="mono">proto_version</td><td>三个 <code>u8</code>：major / minor / patch</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>TCP 特有约束</h2>
+      <ul class="spec">
+        <li>控制连接<strong>必须</strong>启用 <code>TCP_NODELAY</code>（禁止 Nagle 合并）</li>
+        <li><strong>不得</strong>假设一帧一次 <code>recv</code> 到达 —— 必须按 <code>frame_len</code> 读满后再解析</li>
+        <li><strong>不得</strong>按换行或任何字节模式切分帧</li>
+        <li>多帧可合并为一次 write，但<strong>不得</strong>延迟发送超过 <strong>50 ms</strong></li>
+        <li><strong>无 CRC</strong>：TCP 自带字节流校验和与重传，控制帧不重复 CRC32</li>
+        <li>心跳 <code>ping</code> 每 <strong>10 s</strong>；<strong>30 s</strong> 内无任何消息则关闭连接</li>
+      </ul>
+    </section>
+  </div>
+
+  <!-- ============ 消息体布局示例 ============ -->
+  <h2>消息体布局示例</h2>
+  <p style="margin:0 0 4px;font-size:13.5px;color:var(--ink-2)">
+    每条消息体 = <strong>定长区</strong>（偏移与长度见各消息表）‖ <strong>变长区</strong>（按固定顺序排列）；其后的剩余字节为扩展区，接收方必须忽略。
+  </p>
+
+  <h3>login（<code>0x01</code>）· 定长区 8 字节</h3>
+  <div class="diagram">
+    <div class="fields" style="--cols:8">
+      <div class="cell bitnum">0</div>
+      <div class="cell bitnum">1</div>
+      <div class="cell bitnum">2</div>
+      <div class="cell bitnum">3</div>
+      <div class="cell bitnum">4</div>
+      <div class="cell bitnum">5</div>
+      <div class="cell bitnum">6</div>
+      <div class="cell bitnum">7</div>
+      <div class="cell f-type">proto_major</div>
+      <div class="cell f-type">proto_minor</div>
+      <div class="cell f-type">proto_patch</div>
+      <div class="cell f-muted">reserved</div>
+      <div class="cell span2 f-len">resume_count (u16)</div>
+      <div class="cell span2 f-muted">reserved</div>
+      <div class="cell wide f-body">变长区：device_id (str) ‖ token (str) ‖ resume[] (每条 16 字节)</div>
+    </div>
+  </div>
+
+  <h3>missing_chunks（<code>0x07</code>）· 定长区 16 字节</h3>
+  <div class="diagram">
+    <div class="fields" style="--cols:8">
+      <div class="cell bitnum">0</div>
+      <div class="cell bitnum">1</div>
+      <div class="cell bitnum">2</div>
+      <div class="cell bitnum">3</div>
+      <div class="cell bitnum">4</div>
+      <div class="cell bitnum">5</div>
+      <div class="cell bitnum">6</div>
+      <div class="cell bitnum">7</div>
+      <div class="cell span4 f-session">session_id (u32)</div>
+      <div class="cell f-type">mode</div>
+      <div class="cell f-flags">flags</div>
+      <div class="cell span2 f-muted">reserved</div>
+      <div class="cell span4 f-len">missing_count (u32)</div>
+      <div class="cell span4 f-len">chunk_count (u32)</div>
+      <div class="cell wide f-body">变长区：chunks (chunk_list = u32 条数 + 条数 × u32 chunk_id，升序)</div>
+    </div>
+  </div>
+
+  <h3>progress_update（<code>0x0A</code>）· 定长区 20 字节</h3>
+  <div class="diagram">
+    <div class="fields" style="--cols:8">
+      <div class="cell bitnum">0</div>
+      <div class="cell bitnum">1</div>
+      <div class="cell bitnum">2</div>
+      <div class="cell bitnum">3</div>
+      <div class="cell bitnum">4</div>
+      <div class="cell bitnum">5</div>
+      <div class="cell bitnum">6</div>
+      <div class="cell bitnum">7</div>
+      <div class="cell span4 f-session">session_id (u32)</div>
+      <div class="cell span4 f-chunk">received (u64)</div>
+      <div class="cell span8 f-chunk">total (u64)</div>
+      <div class="cell wide f-body">无变长区</div>
+    </div>
+  </div>
+  <div class="caption">received 与 total 各占 8 字节；图中按等宽示意（字节刻度仅对应 session_id 所在的第 0–3 字节）。</div>
+
+  <!-- ============ 消息类型编号 ============ -->
+  <h2>消息类型编号（<code>msg_type</code>）</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>编号</th><th>消息</th><th>方向</th><th>定长区</th><th>变长区</th><th>用途</th></tr></thead>
+      <tbody>
+        <tr><td class="num">0x01</td><td class="mono">login</td><td>Client→Server</td><td class="num">8 B</td><td class="mono">device_id, token, resume[]</td><td>连接握手、认证与恢复请求</td></tr>
+        <tr><td class="num">0x02</td><td class="mono">login_ack</td><td>Server→Client</td><td class="num">10 B</td><td class="mono">code, sessions[]</td><td>握手结果与权威快照</td></tr>
+        <tr><td class="num">0x03</td><td class="mono">upload_start</td><td>Client→Server</td><td class="num">24 B</td><td class="mono">file_hash, file_name</td><td>发起上传</td></tr>
+        <tr><td class="num">0x04</td><td class="mono">upload_accept</td><td>Server→Client</td><td class="num">24 B</td><td class="mono">file_hash</td><td>接受上传，返回会话参数</td></tr>
+        <tr><td class="num">0x05</td><td class="mono">download_start</td><td>Client→Server</td><td class="num">24 B</td><td class="mono">file_hash, file_name</td><td>发起下载</td></tr>
+        <tr><td class="num">0x06</td><td class="mono">download_accept</td><td>Server→Client</td><td class="num">24 B</td><td class="mono">file_hash</td><td>接受下载，返回会话参数</td></tr>
+        <tr><td class="num">0x07</td><td class="mono">missing_chunks</td><td>双向</td><td class="num">16 B</td><td class="mono">chunks</td><td>缺失 chunk 报告 / 索要</td></tr>
+        <tr><td class="num">0x08</td><td class="mono">resume_session</td><td>Client→Server</td><td class="num">16 B</td><td class="mono">—</td><td>恢复会话（显式暂停后的恢复）</td></tr>
+        <tr><td class="num">0x09</td><td class="mono">resume_ack</td><td>Server→Client</td><td class="num">20 B</td><td class="mono">code</td><td>恢复确认与权威状态</td></tr>
+        <tr><td class="num">0x0A</td><td class="mono">progress_update</td><td>双向</td><td class="num">20 B</td><td class="mono">—</td><td>传输进度更新（发布方恒为接收方）</td></tr>
+        <tr><td class="num">0x0B</td><td class="mono">udp_ready</td><td>Server→Client</td><td class="num">8 B</td><td class="mono">—</td><td>UDP 可用性通知</td></tr>
+        <tr><td class="num">0x0C</td><td class="mono">upload_complete</td><td>Server→Client</td><td class="num">8 B</td><td class="mono">code, file_hash, asset_id</td><td>上传完成（接收方 Server 上报）</td></tr>
+        <tr><td class="num">0x0D</td><td class="mono">download_complete</td><td>Client→Server</td><td class="num">8 B</td><td class="mono">code, file_hash</td><td>下载完成（接收方 Client 上报）</td></tr>
+        <tr><td class="num">0x0E</td><td class="mono">session_pause</td><td>双向</td><td class="num">4 B</td><td class="mono">—</td><td>暂停会话</td></tr>
+        <tr><td class="num">0x0F</td><td class="mono">session_abort</td><td>双向</td><td class="num">8 B</td><td class="mono">reason, detail</td><td>终止会话（发布方受限）</td></tr>
+        <tr><td class="num">0x10</td><td class="mono">asset_recall</td><td>Client→Server</td><td class="num">4 B</td><td class="mono">file_hash, asset_id</td><td>请求撤回已上传的素材记录</td></tr>
+        <tr><td class="num">0x11</td><td class="mono">asset_recall_complete</td><td>Server→Client</td><td class="num">4 B</td><td class="mono">file_hash, asset_id, code, detail</td><td>撤回处理结果回执</td></tr>
+        <tr><td class="num">0x12</td><td class="mono">ping</td><td>双向</td><td class="num">8 B</td><td class="mono">—</td><td>心跳</td></tr>
+        <tr><td class="num">0x13</td><td class="mono">pong</td><td>双向</td><td class="num">8 B</td><td class="mono">—</td><td>心跳应答</td></tr>
+        <tr><td class="num c-muted">0x00, 0x14–0xFF</td><td class="c-muted">—</td><td class="c-muted">—</td><td class="num c-muted">—</td><td class="c-muted">—</td><td class="c-muted">保留，接收方必须忽略</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note blue">
+    <strong>帧长约束</strong>：<code>frame_len ≥ 8</code>（最小帧长即帧头长度）、<code>frame_len ≤ 1 MiB</code>（<code>max_frame_len</code>）。
+    <code>body_version</code> 与协议版本 <code>proto_version</code> 相互独立，当前所有消息的 <code>body_version</code> 必须为 <code>0</code>。
+  </div>
+
+  <div class="note warn">
+    <strong>定长区一旦发布即冻结</strong>：新增字段只能追加在扩展区，既有字段的偏移与大小不得变更；接收方必须忽略扩展区的全部内容。
+  </div>
+
+  <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/06-control-plane-tcp.md">docs/spec/06-control-plane-tcp.md</a></footer>
+</div>
+</body>
+</html>

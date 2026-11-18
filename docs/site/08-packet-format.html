@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>08 UDP 数据包结构 (Packet Format) — LANWEFT</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topnav">
+    <a href="index.html">目录</a>
+    <a href="07-data-plane-udp.html">◀ 07 数据面</a>
+    <a href="09-session-model.html">09 会话模型 ▶</a>
+    <a href="../spec/08-packet-format.md">规范源文</a>
+  </nav>
+
+  <h1>UDP 数据包结构 (Packet Format)</h1>
+
+  <!-- ============ diagram ============ -->
+  <div class="diagram">
+    <div class="fields">
+      <div class="cell ruler-title">32 Bits Width</div>
+
+      <div class="cell bitnum">0-7</div>
+      <div class="cell bitnum">8-15</div>
+      <div class="cell bitnum">16-23</div>
+      <div class="cell bitnum">24-31</div>
+
+      <div class="cell wide f-session">session_id (32 bit, u32)</div>
+      <div class="cell wide f-chunk">chunk_id (32 bit)</div>
+
+      <div class="cell half f-len">payload_len (16)</div>
+      <div class="cell half f-flags">flags (16)</div>
+
+      <div class="cell wide f-payload">payload (Variable Length: N bytes)</div>
+
+      <div class="cell wide f-crc">crc32 (32 bit)</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--b-session)"></i>session_id</span>
+    <span><i class="swatch" style="background:var(--b-chunk)"></i>chunk_id</span>
+    <span><i class="swatch" style="background:var(--b-len)"></i>payload_len</span>
+    <span><i class="swatch" style="background:var(--b-flags)"></i>flags</span>
+    <span><i class="swatch" style="background:var(--b-payload)"></i>payload</span>
+    <span><i class="swatch" style="background:var(--b-crc)"></i>crc32</span>
+  </div>
+
+  <!-- ============ two columns ============ -->
+  <div class="cols">
+
+    <!-- left: field definitions -->
+    <section>
+      <h2 style="margin-top:30px">字段定义</h2>
+      <div class="card">
+        <table>
+          <thead>
+            <tr>
+              <th>字段</th>
+              <th>位宽</th>
+              <th>偏移<br>(BYTE)</th>
+              <th>说明</th>
+            </tr>
+          </thead>
+          <tbody>
+            <tr>
+              <td class="c-session">session_id</td>
+              <td class="mono">32</td>
+              <td class="mono">0</td>
+              <td>会话唯一标识 (u32)，与 MQTT Session 一致</td>
+            </tr>
+            <tr>
+              <td class="c-chunk">chunk_id</td>
+              <td class="mono">32</td>
+              <td class="mono">4</td>
+              <td>数据块索引，从 0 开始</td>
+            </tr>
+            <tr>
+              <td class="c-len">payload_len</td>
+              <td class="mono">16</td>
+              <td class="mono">8</td>
+              <td>Payload 实际字节数</td>
+            </tr>
+            <tr>
+              <td class="c-flags">flags</td>
+              <td class="mono">16</td>
+              <td class="mono">10</td>
+              <td>控制位掩码 (见右侧)</td>
+            </tr>
+            <tr>
+              <td class="c-payload">payload</td>
+              <td class="mono">N</td>
+              <td class="mono">12</td>
+              <td>原始文件数据</td>
+            </tr>
+            <tr>
+              <td class="c-crc">crc32</td>
+              <td class="mono">32</td>
+              <td class="mono">12+N</td>
+              <td>完整性校验 (Header + Payload)</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <!-- right: flags + rules -->
+    <section>
+      <h2 style="margin-top:30px">Flags 定义 (16 bits)</h2>
+      <div class="card">
+        <table class="flags-tb">
+          <tbody>
+            <tr><td>Bit 0</td><td>DATA</td><td>普通数据包</td></tr>
+            <tr><td>Bit 1</td><td>RESEND</td><td>重传数据包</td></tr>
+            <tr><td>Bit 2</td><td>LAST_CHUNK</td><td>最后一个 Chunk</td></tr>
+            <tr><td>Bit 3</td><td>PROBE</td><td>探测 / 测试包</td></tr>
+            <tr class="reserved"><td>Bit 4-15</td><td>RESERVED</td><td>保留位 (Must be 0)</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>错误处理规范 (Error Handling)</h2>
+      <ul class="spec">
+        <li>所有多字节字段必须使用 <strong>小端序 (Little-Endian)</strong></li>
+        <li>CRC32 校验失败的包 必须丢弃 (<strong>MUST discard</strong>)</li>
+        <li>Session ID 不匹配的包 必须丢弃 (<strong>MUST discard</strong>)</li>
+        <li>Payload Length 非法的包 必须丢弃 (<strong>MUST discard</strong>)</li>
+        <li>chunk_id ≥ chunk_count 的包 必须丢弃 (<strong>MUST discard</strong>)</li>
+      </ul>
+
+      <h2>CRC32 变体 (CRC Variant)</h2>
+      <ul class="spec">
+        <li>必须使用 <strong>CRC-32/ISO-HDLC</strong> (zlib crc32)</li>
+        <li>多项式 <code>0x04C11DB7</code> (反射 <code>0xEDB88320</code>)</li>
+        <li>初值与末尾异或均为 <code>0xFFFFFFFF</code>，输入输出均反射</li>
+        <li>校验值: <code>"123456789"</code> → <code>0xCBF43926</code></li>
+        <li>覆盖区间: <strong>12 字节头 + payload</strong>，不含尾部 CRC 字段本身</li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="note">
+    头部长度 <code>HEADER_SIZE = 4 + 4 + 2 + 2 = 12</code> 字节，<code>CRC_SIZE = 4</code> 字节；
+    <code>payload_len ≤ 1400</code> 且 <code>payload_len ≤ 协商 chunk_size</code>，推荐 chunk_size = <code>1200</code> 字节。
+  </div>
+
+  <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/08-packet-format.md">docs/spec/08-packet-format.md</a></footer>
+</div>
+</body>
+</html>

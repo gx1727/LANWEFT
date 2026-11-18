@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>LANWEFT · 规范可视化</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topnav">
+    <a class="active" href="index.html">目录</a>
+    <a href="00-overview.html">00 概览</a>
+    <a href="06-control-plane-tcp.html">06 控制面</a>
+    <a href="08-packet-format.html">08 数据包格式</a>
+    <a href="24-sequence-diagrams.html">24 端到端时序</a>
+  </nav>
+
+  <h1>LANWEFT · 规范可视化</h1>
+
+  <div class="note blue">
+    <strong>说明</strong>：本页把 <code>docs/spec/</code> 下的 26 篇规范做成同风格的静态网页（纯 HTML + CSS，无外部依赖，可离线打开）。
+    每页底部均链接回对应<strong>规范源文</strong>；页面内容为规范正文的可视化整理，<strong>以源文为准</strong>。
+  </div>
+
+  <h2>图示页</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>页面</th><th>内容</th><th>源文</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><a href="06-control-plane-tcp.html">06 TCP 控制帧结构</a></td>
+          <td>8 字节帧头位域图、消息体布局示例（login / missing_chunks / progress_update）、帧级错误处理、消息类型编号总表</td>
+          <td class="mono">06-control-plane-tcp.md</td>
+        </tr>
+        <tr>
+          <td><a href="08-packet-format.html">08 UDP 数据包结构</a></td>
+          <td>32 位宽位域图、字段定义表、Flags 位定义、错误处理规范、CRC32 变体</td>
+          <td class="mono">08-packet-format.md</td>
+        </tr>
+        <tr>
+          <td><a href="24-sequence-diagrams.html">24 端到端时序图</a></td>
+          <td>可切换<strong>上传 / 下载</strong>方向的 SVG 时序图：控制连接建立 → 会话建立 → UDP 探测 → 数据传输 → 缺失裁决 → 校验提交 → 中断恢复</td>
+          <td class="mono">24-sequence-diagrams.md</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>全部章节</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>章</th><th>标题</th><th>主题</th><th>源文</th></tr></thead>
+      <tbody>
+        <tr><td class="num">00</td><td><a href="00-overview.html">概览</a></td><td>核心特性、表示形式、角色与视角、文档约定、版本</td><td class="mono">00-overview.md</td></tr>
+        <tr><td class="num">01</td><td><a href="01-architecture.html">系统架构</a></td><td>分层结构、组件关系、部署形态</td><td class="mono">01-architecture.md</td></tr>
+        <tr><td class="num">02</td><td><a href="02-terminology.html">术语</a></td><td>字段与核心概念的权威定义</td><td class="mono">02-terminology.md</td></tr>
+        <tr><td class="num">03</td><td><a href="03-design-goals.html">设计目标</a></td><td>协议追求的目标</td><td class="mono">03-design-goals.md</td></tr>
+        <tr><td class="num">04</td><td><a href="04-non-goals.html">非目标</a></td><td>明确不做的事情</td><td class="mono">04-non-goals.md</td></tr>
+        <tr><td class="num">05</td><td><a href="05-protocol-stack.html">协议栈</a></td><td>分层结构、职责划分、通道成熟度</td><td class="mono">05-protocol-stack.md</td></tr>
+        <tr><td class="num">06</td><td><a href="06-control-plane-tcp.html">控制面（TCP）</a></td><td>帧格式、消息体布局、消息类型编号、认证与心跳</td><td class="mono">06-control-plane-tcp.md</td></tr>
+        <tr><td class="num">07</td><td><a href="07-data-plane-udp.html">数据面（UDP / TCP 兜底）</a></td><td>发送与接收端、UDP 探测、TCP 降级语义</td><td class="mono">07-data-plane-udp.md</td></tr>
+        <tr><td class="num">08</td><td><a href="08-packet-format.html">UDP 数据包格式</a></td><td>包头位域、Flags、CRC32 变体、错误处理</td><td class="mono">08-packet-format.md</td></tr>
+        <tr><td class="num">09</td><td><a href="09-session-model.html">会话模型</a></td><td>会话参数、超时与回收、持久化</td><td class="mono">09-session-model.md</td></tr>
+        <tr><td class="num">10</td><td><a href="10-state-machine.html">Session 状态机</a></td><td>状态定义、视角、合法转移、推进规则、秒传路径</td><td class="mono">10-state-machine.md</td></tr>
+        <tr><td class="num">11</td><td><a href="11-flow-control.html">流控</a></td><td>滑动窗口、窗口推进判据、AIMD</td><td class="mono">11-flow-control.md</td></tr>
+        <tr><td class="num">12</td><td><a href="12-reliability-model.html">可靠性模型</a></td><td>可靠性来源、校验、周期与超时</td><td class="mono">12-reliability-model.md</td></tr>
+        <tr><td class="num">13</td><td><a href="13-resume-and-recovery.html">中断与恢复</a></td><td>两条恢复路径、权威快照、空洞块补发</td><td class="mono">13-resume-and-recovery.md</td></tr>
+        <tr><td class="num">14</td><td><a href="14-download-flow.html">下载流程</a></td><td>下载时序、端口优先级、与上传的对称性</td><td class="mono">14-download-flow.md</td></tr>
+        <tr><td class="num">15</td><td><a href="15-nat-and-network-limits.html">NAT 与网络限制</a></td><td>支持范围、协议假设、实现建议</td><td class="mono">15-nat-and-network-limits.md</td></tr>
+        <tr><td class="num">16</td><td><a href="16-mobile-background-limits.html">移动端后台限制</a></td><td>Android / iOS 后台行为与恢复衔接</td><td class="mono">16-mobile-background-limits.md</td></tr>
+        <tr><td class="num">17</td><td><a href="17-memory-and-disk-model.html">存储与内存模型</a></td><td>临时文件、乱序写、内存解耦、原子提交</td><td class="mono">17-memory-and-disk-model.md</td></tr>
+        <tr><td class="num">18</td><td><a href="18-bitmap-and-chunk-map.html">位图与块图</a></td><td>位图结构、空洞、chunk map</td><td class="mono">18-bitmap-and-chunk-map.md</td></tr>
+        <tr><td class="num">19</td><td><a href="19-error-codes.html">错误码</a></td><td>错误码全表与上线路径</td><td class="mono">19-error-codes.md</td></tr>
+        <tr><td class="num">20</td><td><a href="20-security-model.html">安全模型</a></td><td>信任边界、数据面与控制面安全要求</td><td class="mono">20-security-model.md</td></tr>
+        <tr><td class="num">21</td><td><a href="21-acl-and-auth.html">访问控制与认证</a></td><td>凭据、ACL、越权处理</td><td class="mono">21-acl-and-auth.md</td></tr>
+        <tr><td class="num">23</td><td><a href="23-client-identity.html">客户端身份</a></td><td>device_id、绑定与生命周期</td><td class="mono">23-client-identity.md</td></tr>
+        <tr><td class="num">24</td><td><a href="24-sequence-diagrams.html">端到端时序</a></td><td>全流程时序图（可切换方向）</td><td class="mono">24-sequence-diagrams.md</td></tr>
+        <tr><td class="num">25</td><td><a href="25-normative-marking.html">非规范性内容标注规范</a></td><td>规范性用语强度分级</td><td class="mono">25-normative-marking.md</td></tr>
+        <tr><td class="num">26</td><td><a href="26-roadmap.html">下一阶段与路线图</a></td><td>已知限制、下一阶段任务、修订记录、版本策略</td><td class="mono">26-roadmap.md</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>推荐阅读顺序</h2>
+  <div class="cols">
+    <section>
+      <h3 style="margin-top:0">首次了解</h3>
+      <ul class="spec">
+        <li><a href="00-overview.html">00 概览</a> → <a href="01-architecture.html">01 架构</a> → <a href="05-protocol-stack.html">05 协议栈</a> → <a href="10-state-machine.html">10 状态机</a> → <a href="12-reliability-model.html">12 可靠性</a> → <a href="24-sequence-diagrams.html">24 端到端时序</a></li>
+      </ul>
+      <h3>实现 Server</h3>
+      <ul class="spec">
+        <li><a href="06-control-plane-tcp.html">06</a> → <a href="08-packet-format.html">08</a> → <a href="09-session-model.html">09</a> → <a href="10-state-machine.html">10</a> → <a href="11-flow-control.html">11</a> → <a href="13-resume-and-recovery.html">13</a> → <a href="18-bitmap-and-chunk-map.html">18</a> → <a href="19-error-codes.html">19</a> → <a href="21-acl-and-auth.html">21</a></li>
+      </ul>
+    </section>
+    <section>
+      <h3 style="margin-top:0">实现 Client</h3>
+      <ul class="spec">
+        <li><a href="06-control-plane-tcp.html">06</a> → <a href="08-packet-format.html">08</a> → <a href="11-flow-control.html">11</a> → <a href="14-download-flow.html">14</a> → <a href="16-mobile-background-limits.html">16</a> → <a href="17-memory-and-disk-model.html">17</a> → <a href="23-client-identity.html">23</a></li>
+      </ul>
+      <h3>规范正文</h3>
+      <ul class="spec">
+        <li>全部源文位于 <code>docs/spec/</code>（含 <code>99-glossary.md</code> 术语表）</li>
+        <li>页面顶部与底部均有「规范源文」链接</li>
+      </ul>
+    </section>
+  </div>
+
+  <footer>LANWEFT · 规范文档可视化 · 规范正文见 <a href="../spec/">docs/spec/</a></footer>
+</div>
+</body>
+</html>

@@ -54,6 +54,36 @@
 - **实现 Server**：06 → 08 → 09 → 10 → 11 → 13 → 18 → 19 → 21
 - **实现 Client**：06 → 08 → 11 → 14 → 16 → 17 → 23
 
+### 网页版可视化
+
+全部 26 章的**可视化网页**位于 [`docs/site/`](docs/site/)，入口：
+[`docs/site/index.html`](docs/site/index.html)（纯静态 HTML + CSS，无外部依赖，可离线打开）。
+
+- [06 TCP 控制帧结构](docs/site/06-control-plane-tcp.html) · [08 UDP 数据包结构](docs/site/08-packet-format.html) · [24 端到端时序图](docs/site/24-sequence-diagrams.html)
+
+**在线浏览**：<https://gx1727.github.io/LANWEFT/>
+
+### 网页版部署（GitHub Pages）
+
+站点由 GitHub Actions 构建并发布（见 `.github/workflows/pages.yml`）：
+
+1. 仓库设置 → **Pages** → Build and deployment → Source 选择 **GitHub Actions**（一次性设置）
+2. `main` 分支推送时自动构建部署；也可在 Actions 页面手动触发（workflow_dispatch）
+
+构建脚本 `scripts/build-site.sh`（本地与 CI 共用）会：
+
+- 把 `docs/site/*.html` 与 `style.css` 复制到 `_site/`（站点根）
+- 把 `docs/spec/*.md` 复制到 `_site/spec/`，使页面内的「规范源文」链接在站点内可用
+- 把站内链接 `../spec/` 改写为 `spec/`（仓库内保持 `../spec/`，便于直接浏览源码）
+- 生成 `404.html` 兜底页与 `.nojekyll`
+
+本地预览：
+
+```bash
+scripts/build-site.sh          # 生成 _site/
+python3 -m http.server -d _site 8000
+```
+
 ## 状态
 
 | 项 | 值 |

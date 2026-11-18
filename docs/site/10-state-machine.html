@@ -1,0 +1,388 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>10 Session 状态机 — LANWEFT</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .sm-svg{display:block;width:100%;height:auto}
+  .sm-box{fill:#fff;stroke:#c7d2e0;stroke-width:1.6}
+  .sm-box.rx{fill:#eefaf1;stroke:#9fd8b0}
+  .sm-box.pa{fill:#fdf6e3;stroke:#e6cf92}
+  .sm-box.ab{fill:#fdeeed;stroke:#efb0ad}
+  .sm-name{font-family:var(--mono);font-size:13.5px;font-weight:700;fill:var(--ink)}
+  .sm-sub{font-family:var(--sans);font-size:10.5px;fill:var(--ink-2)}
+  .sm-edge{stroke:#5b6478;stroke-width:1.7;fill:none}
+  .sm-edge.sp{stroke:#a855f7;stroke-width:1.6;stroke-dasharray:6 5;fill:none}
+  .sm-edge.ab{stroke:#dc2626;stroke-width:1.6;stroke-dasharray:3 4;fill:none}
+  .sm-lbl{font-family:var(--mono);font-size:11.5px;fill:var(--ink)}
+  .sm-lbl.sp{fill:#7e22ce}
+  .sm-lbl.ab{fill:#b91c1c}
+  .sm-hd{fill:#334155}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topnav">
+    <a href="index.html">目录</a>
+    <a href="09-session-model.html">◀ 09 会话模型</a>
+    <a href="11-flow-control.html">11 流控 ▶</a>
+    <a href="../spec/10-state-machine.md">规范源文</a>
+  </nav>
+
+  <h1>10 Session 状态机</h1>
+
+  <div class="note blue">
+    <strong>本章要点</strong>：本章定义传输会话的 8 个状态与合法状态转移，控制面（TCP）负责裁决与同步。
+    同一个会话在<strong>发送侧</strong>与<strong>接收侧</strong>各自持有一份状态视图：接收侧使用全部状态，
+    发送侧<strong>不存在</strong> <code>VERIFY</code> 与 <code>COMMIT</code>。
+    <code>ABORTED</code> 是<strong>终态</strong>，没有出边；<strong>Server 是会话状态的唯一仲裁者</strong>。
+    状态在控制消息中以 <code>state</code> 字段承载（<code>enum8</code>）。
+  </div>
+
+  <!-- ============ 状态机图 ============ -->
+  <h2>状态机图</h2>
+  <div class="diagram">
+    <svg class="sm-svg" viewBox="0 0 1120 600" role="img" aria-label="Session 状态机：INIT、NEGOTIATING、TRANSFERRING、PAUSED、VERIFY、COMMIT、COMPLETED、ABORTED 及带触发消息的转移边">
+      <defs>
+        <marker id="sm-arrow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#5b6478"></path>
+        </marker>
+        <marker id="sm-arrow-sp" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#a855f7"></path>
+        </marker>
+        <marker id="sm-arrow-ab" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+          <path d="M 0 0 L 10 5 L 0 10 z" fill="#dc2626"></path>
+        </marker>
+      </defs>
+
+      <!-- ===== 节点 ===== -->
+      <g>
+        <rect class="sm-box" x="30" y="60" width="120" height="56" rx="12"></rect>
+        <text class="sm-name" x="90" y="83" text-anchor="middle">INIT</text>
+        <text class="sm-sub" x="90" y="101" text-anchor="middle">双方</text>
+      </g>
+      <g>
+        <rect class="sm-box" x="190" y="60" width="170" height="56" rx="12"></rect>
+        <text class="sm-name" x="275" y="83" text-anchor="middle">NEGOTIATING</text>
+        <text class="sm-sub" x="275" y="101" text-anchor="middle">双方</text>
+      </g>
+      <g>
+        <rect class="sm-box" x="400" y="60" width="180" height="56" rx="12"></rect>
+        <text class="sm-name" x="490" y="83" text-anchor="middle">TRANSFERRING</text>
+        <text class="sm-sub" x="490" y="101" text-anchor="middle">双方</text>
+      </g>
+      <g>
+        <rect class="sm-box rx" x="620" y="60" width="120" height="56" rx="12"></rect>
+        <text class="sm-name" x="680" y="83" text-anchor="middle">VERIFY</text>
+        <text class="sm-sub" x="680" y="101" text-anchor="middle">仅接收侧</text>
+      </g>
+      <g>
+        <rect class="sm-box rx" x="780" y="60" width="120" height="56" rx="12"></rect>
+        <text class="sm-name" x="840" y="83" text-anchor="middle">COMMIT</text>
+        <text class="sm-sub" x="840" y="101" text-anchor="middle">仅接收侧</text>
+      </g>
+      <g>
+        <rect class="sm-box" x="940" y="60" width="170" height="56" rx="12"></rect>
+        <text class="sm-name" x="1025" y="83" text-anchor="middle">COMPLETED</text>
+        <text class="sm-sub" x="1025" y="101" text-anchor="middle">双方</text>
+      </g>
+      <g>
+        <rect class="sm-box pa" x="400" y="240" width="180" height="56" rx="12"></rect>
+        <text class="sm-name" x="490" y="263" text-anchor="middle">PAUSED</text>
+        <text class="sm-sub" x="490" y="281" text-anchor="middle">双方</text>
+      </g>
+      <g>
+        <rect class="sm-box ab" x="30" y="430" width="180" height="56" rx="12"></rect>
+        <text class="sm-name" x="120" y="453" text-anchor="middle">ABORTED</text>
+        <text class="sm-sub" x="120" y="471" text-anchor="middle">终态 · 无出边</text>
+      </g>
+
+      <!-- ===== 常规转移 ===== -->
+      <path class="sm-edge" d="M 150,88 H 186" marker-end="url(#sm-arrow)"></path>
+      <text class="sm-lbl" x="170" y="46" text-anchor="middle">upload_start / download_start</text>
+
+      <path class="sm-edge" d="M 360,88 H 396" marker-end="url(#sm-arrow)"></path>
+      <text class="sm-lbl" x="380" y="46" text-anchor="middle">upload_accept / download_accept</text>
+
+      <path class="sm-edge" d="M 580,88 H 616" marker-end="url(#sm-arrow)"></path>
+      <text class="sm-lbl" x="600" y="46" text-anchor="middle">位图全真（接收侧）</text>
+
+      <path class="sm-edge" d="M 740,88 H 776" marker-end="url(#sm-arrow)"></path>
+      <text class="sm-lbl" x="760" y="46" text-anchor="middle">Blake3 校验通过</text>
+
+      <path class="sm-edge" d="M 900,88 H 936" marker-end="url(#sm-arrow)"></path>
+      <text class="sm-lbl" x="930" y="28" text-anchor="middle">原子重命名完成 → upload_complete / download_complete</text>
+
+      <!-- 暂停 / 恢复 -->
+      <path class="sm-edge" d="M 470,116 V 240" marker-end="url(#sm-arrow)"></path>
+      <text class="sm-lbl" x="462" y="184" text-anchor="end">session_pause</text>
+      <path class="sm-edge" d="M 510,240 V 116" marker-end="url(#sm-arrow)"></path>
+      <text class="sm-lbl" x="518" y="184" text-anchor="start">resume_session / resume_ack</text>
+
+      <!-- missing_chunks 自环（维持 TRANSFERRING，触发补发） -->
+      <path class="sm-edge" d="M 412,116 C 412,152 448,152 448,116" marker-end="url(#sm-arrow)"></path>
+      <text class="sm-lbl" x="402" y="142" text-anchor="end">missing_chunks</text>
+      <text class="sm-lbl" x="402" y="157" text-anchor="end">(mode=report) 触发补发</text>
+
+      <!-- 秒传（接收侧）NEGOTIATING → VERIFY -->
+      <path class="sm-edge sp" d="M 275,60 V 20 H 680 V 56" marker-end="url(#sm-arrow-sp)"></path>
+      <text class="sm-lbl sp" x="477" y="13" text-anchor="middle">秒传 file_exists（接收侧）：NEGOTIATING → VERIFY</text>
+
+      <!-- 秒传（发送侧）NEGOTIATING → COMPLETED -->
+      <path class="sm-edge sp" d="M 250,116 V 340 H 980 V 116" marker-end="url(#sm-arrow-sp)"></path>
+      <text class="sm-lbl sp" x="640" y="330" text-anchor="middle">秒传 file_exists（发送侧）：NEGOTIATING → COMPLETED</text>
+
+      <!-- 任意状态 → ABORTED -->
+      <path class="sm-edge ab" d="M 90,116 V 430" marker-end="url(#sm-arrow-ab)"></path>
+      <text class="sm-lbl ab" x="100" y="300" text-anchor="start">session_abort</text>
+
+      <path class="sm-edge ab" d="M 1060,116 V 560 H 175 V 486" marker-end="url(#sm-arrow-ab)"></path>
+      <text class="sm-lbl ab" x="620" y="552" text-anchor="middle">session_abort：任意状态 → ABORTED（终态，无出边）</text>
+    </svg>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:#fff;border-color:#c7d2e0"></i>双方共用的状态</span>
+    <span><i class="swatch" style="background:#eefaf1;border-color:#9fd8b0"></i>仅接收侧的状态（VERIFY / COMMIT）</span>
+    <span><i class="swatch" style="background:#fdf6e3;border-color:#e6cf92"></i>双方共用的 PAUSED</span>
+    <span><i class="swatch" style="background:#fdeeed;border-color:#efb0ad"></i>终态 ABORTED</span>
+    <span><i class="swatch" style="background:#fff;border-color:#a855f7"></i>虚线 = 秒传路径（file_exists = 1）</span>
+    <span><i class="swatch" style="background:#fff;border-color:#dc2626"></i>红色虚线 = session_abort</span>
+  </div>
+  <p class="caption">图 10-1　Session 状态机。ABORTED 位于左侧，VERIFY / COMMIT 位于右侧；发送侧不经过 VERIFY / COMMIT。</p>
+
+  <!-- ============ 状态定义 ============ -->
+  <h2>状态定义</h2>
+  <div class="card">
+    <table class="sym">
+      <thead><tr><th>状态</th><th class="num">编码</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">INIT</td><td class="num">0</td><td>初始化状态 - 会话刚创建</td></tr>
+        <tr><td class="mono">NEGOTIATING</td><td class="num">1</td><td>协商状态 - 正在协商传输参数</td></tr>
+        <tr><td class="mono">TRANSFERRING</td><td class="num">2</td><td>传输状态 - 正在收发数据</td></tr>
+        <tr><td class="mono">PAUSED</td><td class="num">3</td><td>暂停状态 - 会话被显式暂停，位图与临时文件保留</td></tr>
+        <tr><td class="mono">VERIFY</td><td class="num">4</td><td>验证状态 - 正在做文件级完整性校验</td></tr>
+        <tr><td class="mono">COMMIT</td><td class="num">5</td><td>提交状态 - 正在原子提交（重命名）</td></tr>
+        <tr><td class="mono">COMPLETED</td><td class="num">6</td><td>完成状态 - 传输成功完成</td></tr>
+        <tr><td class="mono">ABORTED</td><td class="num">7</td><td>中止状态 - 传输被终止；终态，无出边</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <strong>状态的编码表示</strong>：状态在控制消息中以 <code>state</code> 字段承载，类型为 <code>enum8</code>（u8），
+    取值 <code>0</code> INIT、<code>1</code> NEGOTIATING、<code>2</code> TRANSFERRING、<code>3</code> PAUSED、
+    <code>4</code> VERIFY、<code>5</code> COMMIT、<code>6</code> COMPLETED、<code>7</code> ABORTED（见 06 章「枚举」）。
+  </div>
+
+  <!-- ============ 视角定义 ============ -->
+  <h2>视角定义（规范性）</h2>
+  <p>同一个会话在<strong>发送侧</strong>与<strong>接收侧</strong>各自持有一份状态视图：</p>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>视角</th><th>定义</th><th>上传方向</th><th>下载方向</th></tr></thead>
+      <tbody>
+        <tr><td><strong>发送侧</strong></td><td>发送数据的一方</td><td>Client</td><td>Server</td></tr>
+        <tr><td><strong>接收侧</strong></td><td>持有位图与临时文件的一方</td><td>Server</td><td>Client</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <ul class="spec">
+    <li><strong>接收侧</strong>使用全部状态（INIT / NEGOTIATING / TRANSFERRING / PAUSED / VERIFY / COMMIT / COMPLETED / ABORTED）。</li>
+    <li><strong>发送侧</strong>只使用 INIT / NEGOTIATING / TRANSFERRING / PAUSED / COMPLETED / ABORTED ——
+      发送侧不持有位图，<strong>不存在</strong> VERIFY 与 COMMIT 状态：文件级校验与原子提交
+      天然发生在接收侧。</li>
+    <li>「Server 为最终裁决者」指<strong>终止权</strong>：任何进入 ABORTED 的转换只能由 Server 通过
+      <code>session_abort</code> 发起（发送侧收到 <code>session_abort</code> 后同样转入 ABORTED）。</li>
+  </ul>
+
+  <!-- ============ 合法状态转移 ============ -->
+  <h2>合法状态转移</h2>
+  <p><strong>每个状态对每个视角都要有合法转移</strong>。下表逐视角列出：</p>
+
+  <div class="card">
+    <table class="sym">
+      <thead><tr><th>从状态</th><th>到状态</th><th>视角</th><th>触发</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">INIT</td><td class="mono">NEGOTIATING</td><td>发送侧</td><td><code>upload_start</code> / <code>download_start</code></td></tr>
+        <tr><td class="mono">INIT</td><td class="mono">NEGOTIATING</td><td>接收侧</td><td><code>upload_start</code> / <code>download_start</code>（收到传输请求）</td></tr>
+        <tr><td class="mono">INIT</td><td class="mono">ABORTED</td><td>双方</td><td><code>session_abort</code></td></tr>
+        <tr><td class="mono">NEGOTIATING</td><td class="mono">TRANSFERRING</td><td>发送侧</td><td><code>upload_accept</code> / <code>download_accept</code></td></tr>
+        <tr><td class="mono">NEGOTIATING</td><td class="mono">TRANSFERRING</td><td>接收侧</td><td><code>upload_accept</code> / <code>download_accept</code>（发送 accept 后进入常规传输）</td></tr>
+        <tr><td class="mono">NEGOTIATING</td><td class="mono">VERIFY</td><td>接收侧</td><td>秒传：accept 携带 <code>file_exists = 1</code>（bool），跳过数据传输</td></tr>
+        <tr><td class="mono">NEGOTIATING</td><td class="mono">COMPLETED</td><td>发送侧</td><td>秒传：accept 携带 <code>file_exists = 1</code>（bool），不发送任何数据</td></tr>
+        <tr><td class="mono">NEGOTIATING</td><td class="mono">ABORTED</td><td>双方</td><td><code>session_abort</code></td></tr>
+        <tr><td class="mono">TRANSFERRING</td><td class="mono">VERIFY</td><td>接收侧</td><td>位图全真，进入文件级校验</td></tr>
+        <tr><td class="mono">TRANSFERRING</td><td class="mono">PAUSED</td><td>双方</td><td><code>session_pause</code></td></tr>
+        <tr><td class="mono">TRANSFERRING</td><td class="mono">COMPLETED</td><td>发送侧</td><td><code>upload_complete</code> / <code>download_complete</code></td></tr>
+        <tr><td class="mono">TRANSFERRING</td><td class="mono">ABORTED</td><td>双方</td><td><code>session_abort</code></td></tr>
+        <tr><td class="mono">PAUSED</td><td class="mono">TRANSFERRING</td><td>双方</td><td><code>resume_session</code>（发送侧发起）/ <code>resume_ack</code>（接收侧应答后）</td></tr>
+        <tr><td class="mono">PAUSED</td><td class="mono">ABORTED</td><td>双方</td><td><code>session_abort</code></td></tr>
+        <tr><td class="mono">VERIFY</td><td class="mono">COMMIT</td><td>接收侧</td><td>文件级 Blake3 校验通过</td></tr>
+        <tr><td class="mono">VERIFY</td><td class="mono">ABORTED</td><td>双方</td><td><code>session_abort</code>（<code>reason</code> = <code>FILE_HASH_MISMATCH</code>）</td></tr>
+        <tr><td class="mono">COMMIT</td><td class="mono">COMPLETED</td><td>接收侧</td><td>原子重命名完成，发布 <code>upload_complete</code> / <code>download_complete</code></td></tr>
+        <tr><td class="mono">COMMIT</td><td class="mono">ABORTED</td><td>双方</td><td><code>session_abort</code></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>两个视角的合法路径（对比）</h3>
+  <div class="card">
+    <table class="sym">
+      <thead><tr><th>路径</th><th>发送侧</th><th>接收侧</th></tr></thead>
+      <tbody>
+        <tr>
+          <td>常规传输</td>
+          <td class="mono">INIT → NEGOTIATING → TRANSFERRING → COMPLETED</td>
+          <td class="mono">INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED</td>
+        </tr>
+        <tr>
+          <td>秒传（<code>file_exists = 1</code>）</td>
+          <td class="mono">INIT → NEGOTIATING → COMPLETED</td>
+          <td class="mono">INIT → NEGOTIATING → VERIFY → COMMIT → COMPLETED</td>
+        </tr>
+        <tr>
+          <td>中止</td>
+          <td class="mono">任意状态 → ABORTED</td>
+          <td class="mono">任意状态 → ABORTED</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn">
+    <strong>ABORTED 是终态（规范性）</strong>：没有出边，也不存在 <code>ABORTED → ABORTED</code>。
+    清理动作（删除临时文件 / 位图 / 元数据）在进入 ABORTED 之后执行
+    （见 09 章「超时与回收」、13 章「失败与清理」）。
+  </div>
+
+  <div class="note">
+    <strong>每个视角都必须能从 INIT 走到 COMPLETED（规范性）</strong>：转移表必须对<strong>两个视角</strong>
+    都给出完整路径。接收侧同样需要 <code>NEGOTIATING → TRANSFERRING</code> ——
+    否则它只能从 <code>NEGOTIATING</code> 直接跳到 <code>VERIFY</code>（秒传路径），
+    常规传输的「位图全真 → VERIFY」在接收侧<strong>不可达</strong>。
+  </div>
+
+  <div class="note">
+    <strong>两个视角的状态序列不同（规范性）</strong>：接收侧经过 VERIFY / COMMIT，发送侧不经过
+    （发送侧没有位图，无法做文件级校验）。把两侧日志对齐时，
+    发送侧的 <code>TRANSFERRING → COMPLETED</code> 与接收侧的
+    <code>TRANSFERRING → VERIFY → COMMIT → COMPLETED</code> 对应<strong>同一次完成</strong>，
+    中间的 VERIFY / COMMIT 对发送侧不可见。
+  </div>
+
+  <!-- ============ 终止权 ============ -->
+  <h2>终止权</h2>
+  <ul class="spec">
+    <li><strong>Server 是会话状态的唯一仲裁者</strong>：会话参数、状态、超时的裁决都由 Server 做出。</li>
+    <li><strong><code>session_abort</code> 的发布方有两类</strong>：
+      <ul>
+        <li><strong>Server</strong> —— 可因任意原因终止会话（超时、ACL、状态非法、资源不足等）；</li>
+        <li><strong>接收侧</strong> —— <strong>仅限</strong>检测到不可恢复的数据完整性失败
+          （<code>reason</code> = <code>FILE_HASH_MISMATCH</code>）。这是接收侧唯一有权发起的终止。</li>
+      </ul>
+    </li>
+    <li>发送侧<strong>不得</strong>主动发布 <code>session_abort</code>（除非它也是该会话的接收侧）。
+      发送侧需要终止时，<strong>必须</strong>发布 <code>session_pause</code> 或等待 Server 的裁决。</li>
+    <li><code>session_abort</code> 的 <code>reason</code> 以 <code>str</code> 承载 19 章的错误码<strong>符号名</strong>
+      （如 <code>FILE_HASH_MISMATCH</code>），<strong>不得</strong>填写自由文本（见 06 章「session_abort」）。</li>
+  </ul>
+
+  <!-- ============ 推进规则 ============ -->
+  <h2>推进规则</h2>
+  <ul class="spec">
+    <li><strong>发送侧状态仅由收到的控制面消息推进</strong>。UDP 数据包不得改变发送侧状态。</li>
+    <li><strong>接收侧状态由本地事件推进</strong>（位图全真 / Blake3 校验通过 / 原子重命名完成），
+      但接收侧<strong>每一次推进必须紧接着通过控制通道向发送侧发布一条控制消息</strong>：</li>
+  </ul>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>接收侧推进</th><th>必须发布的控制消息</th></tr></thead>
+      <tbody>
+        <tr><td>位图出现缺失</td><td><code>missing_chunks</code>（<code>mode=report</code>），携带缺失 chunk 列表</td></tr>
+        <tr><td>位图全真 → VERIFY</td><td>无需单独消息；随后的 <code>upload_complete</code> / <code>download_complete</code> 隐含告知</td></tr>
+        <tr><td>VERIFY → COMMIT</td><td>无需单独消息</td></tr>
+        <tr><td>COMMIT → COMPLETED</td><td><code>upload_complete</code>（上传方向）/ <code>download_complete</code>（下载方向）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <code>missing_chunks</code> 的 <code>mode</code> 为 <code>enum8</code>（<code>0</code> = report、<code>1</code> = request）；
+    <code>chunks</code> 为 <code>chunk_list</code>（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>），
+    接收方在 <code>mode=report</code> 时给出的是<strong>自己尚未收到</strong>的块
+    （见 06 章「missing_chunks」）。
+  </div>
+
+  <ul class="spec">
+    <li><strong>数据面（UDP）只能更新位图</strong>，不得直接触发状态转移。
+      位图变化是接收侧推进的<strong>输入</strong>，不是状态转移本身。</li>
+    <li><strong>状态转换必须符合上述转移规则</strong>；任何实现都不得进入表外的状态组合。</li>
+  </ul>
+
+  <!-- ============ 秒传路径 ============ -->
+  <h2>秒传路径（<code>file_exists</code>）</h2>
+  <p>当 Server 侧已存在相同 <code>file_hash</code> 的完整文件时：</p>
+  <ul class="spec">
+    <li>Server <strong>必须</strong>在生成 <code>upload_accept</code> <strong>之前</strong>完成既有文件的校验：
+      对已存在的同 <code>file_hash</code> 文件重新计算 Blake3 并与 <code>upload_start.file_hash</code> 比对。</li>
+    <li>校验<strong>通过</strong>时，Server 在 <code>upload_accept</code> 中置 <code>file_exists</code> = <code>1</code>（bool）；
+      校验<strong>不通过</strong>时<strong>不得</strong>置该标志，按常规传输路径下发 <code>file_exists</code> = <code>0</code>。
+      （<code>file_exists</code> 是单向发布的消息字段，一旦上线即不可撤回 ——
+      因此校验必须发生在发布之前。）</li>
+    <li>发送侧：NEGOTIATING → COMPLETED（<strong>不发送任何数据</strong>，直接等待完成通知）。</li>
+    <li>接收侧：NEGOTIATING → VERIFY → COMMIT → COMPLETED → 发布 <code>upload_complete</code>。</li>
+  </ul>
+
+  <div class="note warn">
+    秒传路径<strong>不产生位图</strong>，因此「bitmap 全真」这一完成条件<strong>不适用于</strong>秒传路径；
+    它的完成条件是「既有文件校验通过并原子提交」。
+    这与常规路径的完成条件是同一件事，只是数据来源不同。
+  </div>
+
+  <!-- ============ 暂停与恢复 ============ -->
+  <h2>暂停与恢复</h2>
+  <ul class="spec">
+    <li><code>session_pause</code> 使会话进入 PAUSED；位图、临时文件与已传输数据<strong>全部保留</strong>。</li>
+    <li>PAUSED 状态下双方<strong>必须</strong>停止发送数据面数据包。</li>
+    <li>恢复<strong>只有一条路径</strong>：发送侧发布 <code>resume_session</code>，对端回 <code>resume_ack</code>
+      （含续传起点与数据面端口），双方回到 TRANSFERRING。</li>
+    <li><code>session_pause</code> <strong>不是</strong>切换开关：重复发布是幂等的
+      （已处于 <code>PAUSED</code> 时不产生状态变化）。</li>
+    <li><code>session_pause</code> 与 <code>session_abort</code> 的区别：暂停<strong>可恢复</strong>，中止<strong>不可恢复</strong>。</li>
+    <li><code>session_pause</code> 与 <code>resume_session</code> 的区别：<code>session_pause</code> 是<strong>显式暂停</strong>，
+      <code>resume_session</code> 是<strong>异常中断后的恢复</strong>。两者的恢复动作相同（回到 TRANSFERRING）。</li>
+  </ul>
+
+  <!-- ============ 典型触发消息 ============ -->
+  <h2>典型触发消息</h2>
+  <div class="card">
+    <table class="sym">
+      <thead><tr><th>消息</th><th>视角</th><th>状态效果</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">upload_start / download_start</td><td>发送侧</td><td>INIT → NEGOTIATING</td></tr>
+        <tr><td class="mono">upload_accept / download_accept</td><td>发送侧</td><td>NEGOTIATING → TRANSFERRING（或秒传 → COMPLETED）</td></tr>
+        <tr><td class="mono">missing_chunks（mode=report）</td><td>接收侧</td><td>维持 TRANSFERRING，触发补发</td></tr>
+        <tr><td class="mono">session_pause</td><td>双方</td><td>TRANSFERRING ⇄ PAUSED</td></tr>
+        <tr><td class="mono">resume_session / resume_ack</td><td>发送侧</td><td>PAUSED → TRANSFERRING（或恢复中断的会话）</td></tr>
+        <tr><td class="mono">upload_complete / download_complete</td><td>发送侧</td><td>TRANSFERRING → COMPLETED</td></tr>
+        <tr><td class="mono">session_abort</td><td>双方</td><td>任意状态 → ABORTED</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note blue">
+    <strong>与其它章的关系</strong>：本页只定义状态与转移；位图语义见 18 章，缺失裁决节奏见 11 章，
+    中断与恢复流程见 13 章，控制帧字段与枚举见 06 章。
+  </div>
+
+  <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/10-state-machine.md">docs/spec/10-state-machine.md</a></footer>
+</div>
+</body>
+</html>

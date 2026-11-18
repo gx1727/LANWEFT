@@ -1,0 +1,448 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>24 端到端时序图 (End-to-End Sequence) — LANWEFT</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .seq-wrap{
+    background:#fff;border:1px solid var(--line);border-radius:14px;
+    padding:8px 10px 14px;overflow-x:auto;
+    box-shadow:0 1px 2px rgba(16,24,40,.04),0 8px 24px rgba(16,24,40,.04);
+  }
+  .seq-wrap svg{display:block;width:100%;height:auto;min-width:880px}
+  .toolbar{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px}
+  .seg{display:inline-flex;background:#eceff4;border-radius:999px;padding:3px}
+  .seg button{
+    border:0;background:transparent;cursor:pointer;font:inherit;font-size:13.5px;
+    color:var(--ink-2);padding:5px 16px;border-radius:999px;
+  }
+  .seg button.active{background:var(--ink);color:#fff}
+  .toolbar label.chk{display:inline-flex;align-items:center;gap:6px;font-size:13.5px;color:var(--ink-2);cursor:pointer}
+  .lane-title{font-weight:700;font-size:14px}
+  .lane-sub{font-size:11.5px;fill:var(--ink-2)}
+  .msg-t{font-size:12.5px;fill:var(--ink)}
+  .msg-t.bold{font-weight:700}
+  .note-t{font-size:12.5px;fill:#7a5a12}
+  .chip-t{font-size:12px;fill:var(--ink-2)}
+  .sep-t{font-size:12.5px;fill:var(--ink-2);font-weight:700;letter-spacing:.4px}
+  .lifeline{stroke:var(--line-2);stroke-width:2;stroke-dasharray:5 6}
+  .a-tcp{stroke:#4b5563;stroke-width:1.8;fill:none}
+  .a-udp{stroke:#0d9488;stroke-width:1.8;stroke-dasharray:7 5;fill:none}
+  .a-conn{stroke:#4338ca;stroke-width:2.2;fill:none}
+  .arrow-tcp{fill:#4b5563}
+  .arrow-udp{fill:#0d9488}
+  .arrow-conn{fill:#4338ca}
+  .bg-note{fill:#fffbeb;stroke:#f2e2b6}
+  .bg-chip{fill:#f2f4f8;stroke:#e2e6ee}
+  .hl{fill:#eef3ff;stroke:#cfdcfb}
+  .phase-bg{fill:#fafbfc}
+  table.sym td:first-child{white-space:nowrap}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topnav">
+    <a href="index.html">目录</a>
+    <a href="23-client-identity.html">◀ 23 客户端身份</a>
+    <a href="25-normative-marking.html">25 标注规范 ▶</a>
+    <a href="../spec/24-sequence-diagrams.md">规范源文</a>
+  </nav>
+
+  <h1>端到端时序图 (End-to-End Sequence)</h1>
+
+  <div class="toolbar">
+    <div class="seg" id="dir">
+      <button data-dir="upload" class="active">上传方向 · Client → Server</button>
+      <button data-dir="download">下载方向 · Server → Client</button>
+    </div>
+    <label class="chk"><input type="checkbox" id="states" checked> 显示状态标注</label>
+    <span style="font-size:12.5px;color:var(--ink-2)">
+      实线 = 控制面 TCP 帧 · 虚线 = 数据面 UDP 包 · 灰框 = 说明 · 胶囊 = 状态转移
+    </span>
+  </div>
+
+  <div class="seq-wrap">
+    <svg id="seq" viewBox="0 0 1000 1200" role="img" aria-label="端到端时序图"></svg>
+  </div>
+
+  <div class="cols" style="margin-top:30px">
+    <section>
+      <h2 style="margin-top:0">阶段与规范要点</h2>
+      <div class="card">
+        <table>
+          <thead><tr><th>阶段</th><th>规范要点</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">① 控制连接建立</td><td><code>login</code> 必须是连接上的<strong>第一条</strong>消息；Server 之前的一切消息必须丢弃。<code>login_ack.sessions</code> 是<strong>权威快照</strong>。</td></tr>
+            <tr><td class="mono">② 会话建立</td><td>Server 下发 <code>session_id</code> / <code>chunk_count</code> / <code>window</code> / <code>chunk_size</code> / <code>udp_port</code> / <code>tcp_port</code>；<code>file_exists = 1</code> 即走<strong>秒传</strong>路径。</td></tr>
+            <tr><td class="mono">③ UDP 探测</td><td>PROBE 与 PROBE_ACK 共用 <code>flags.bit3</code>，以 <code>payload_len</code> 区分（4 / 5）；Server 必须以 PROBE 的源地址:端口作为对端数据面地址。</td></tr>
+            <tr><td class="mono">④ 数据传输</td><td>无逐包 ACK；批量发送（<code>burst_size</code>，间隔 <code>batch_gap_us</code> 初值 2000 µs）；数据面<strong>不得</strong>改变状态机。</td></tr>
+            <tr><td class="mono">⑤ 缺失裁决</td><td>接收方<strong>至少每 50 ms</strong> 下发 <code>missing_chunks</code>(report)，<strong>空列表也必须下发</strong>；发送方 1000 ms 未收到裁决须发 <code>mode=request</code> 索要。</td></tr>
+            <tr><td class="mono">⑥ 校验与提交</td><td>位图全真 → <code>VERIFY</code>（Blake3）→ <code>COMMIT</code>（原子重命名）→ 发布完成消息；<strong>完成消息一律由接收方发布</strong>。</td></tr>
+            <tr><td class="mono">⑦ 中断与恢复</td><td>断线重连走 <code>login</code> 恢复列表 + <code>login_ack</code> 权威快照；暂停后恢复走 <code>resume_session</code> / <code>resume_ack</code>；两者都使双方回到 <code>TRANSFERRING</code>。</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <section>
+      <h2 style="margin-top:0">上传 / 下载对称性</h2>
+      <div class="card">
+        <table class="sym">
+          <thead><tr><th>阶段</th><th>上传 (C→S)</th><th>下载 (S→C)</th></tr></thead>
+          <tbody>
+            <tr><td>会话建立</td><td class="mono">upload_start</td><td class="mono">download_start</td></tr>
+            <tr><td>参数下发</td><td class="mono">upload_accept</td><td class="mono">download_accept</td></tr>
+            <tr><td>数据方向</td><td>Client → Server</td><td>Server → Client</td></tr>
+            <tr><td>缺失报告</td><td>Server → Client</td><td>Client → Server</td></tr>
+            <tr><td>缺失索要</td><td>Client → Server</td><td>Server → Client</td></tr>
+            <tr><td>进度上报</td><td>Server（接收方）</td><td>Client（接收方）</td></tr>
+            <tr><td>完成通知</td><td class="mono">upload_complete（Server）</td><td class="mono">download_complete（Client）</td></tr>
+            <tr><td>恢复提示来源</td><td>Server 自有位图</td><td>Client 自有位图（必须携带）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h2>状态机（10 章）</h2>
+      <div class="card">
+        <table>
+          <tbody>
+            <tr><td class="mono">INIT → NEGOTIATING</td><td class="mono">upload_start / download_start</td></tr>
+            <tr><td class="mono">NEGOTIATING → TRANSFERRING</td><td class="mono">upload_accept / download_accept</td></tr>
+            <tr><td class="mono">NEGOTIATING → COMPLETED</td><td>秒传（<code>file_exists = 1</code>）</td></tr>
+            <tr><td class="mono">TRANSFERRING → VERIFY</td><td>位图全真（<strong>仅接收侧</strong>）</td></tr>
+            <tr><td class="mono">TRANSFERRING ⇄ PAUSED</td><td class="mono">session_pause / resume_session</td></tr>
+            <tr><td class="mono">VERIFY → COMMIT → COMPLETED</td><td>Blake3 通过 → 原子重命名（<strong>仅接收侧</strong>）</td></tr>
+            <tr><td class="mono">任意 → ABORTED</td><td class="mono">session_abort（终态，无出边）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note">
+        <strong>两个视角的状态序列不同</strong>：接收侧经过 <code>VERIFY</code> / <code>COMMIT</code>，发送侧不经过；
+        发送侧的 <code>TRANSFERRING → COMPLETED</code> 与接收侧的 <code>TRANSFERRING → VERIFY → COMMIT → COMPLETED</code> 对应<strong>同一次完成</strong>。
+      </div>
+    </section>
+  </div>
+
+  <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/24-sequence-diagrams.md">docs/spec/24-sequence-diagrams.md</a></footer>
+</div>
+
+<script>
+(function(){
+  const LANE = {
+    C:{x:250, label:'Client', sub:''},
+    S:{x:860, label:'Server', sub:''}
+  };
+  const W = 1160;
+
+  /* ---------- 上传方向：Client = 发送侧，Server = 接收侧 ---------- */
+  const UPLOAD = [
+    {sep:'① 控制连接建立（TCP 长连接）'},
+    {from:'C', to:'S', type:'conn', label:'TCP connect'},
+    {from:'C', to:'S', type:'tcp', label:'login {proto_major/minor/patch, device_id, token, resume[]}'},
+    {from:'S', to:'S', type:'self', label:'校验认证与协议版本（21 章）'},
+    {from:'S', to:'C', type:'tcp', label:'login_ack {result, code, proto_*, sessions[] 权威快照}'},
+
+    {sep:'② 会话建立'},
+    {from:'C', to:'S', type:'tcp', label:'upload_start {session_id=0, size, mtime, file_hash, file_name}',
+      chip:{side:'C', text:'Client: INIT → NEGOTIATING'}, chip2:{side:'S', text:'Server: INIT → NEGOTIATING'}},
+    {from:'S', to:'S', type:'self', label:'既有 file_hash 校验（秒传判定）'},
+    {from:'S', to:'C', type:'tcp', label:'upload_accept {session_id, chunk_count, window, chunk_size, udp_port, tcp_port, file_exists}',
+      chip:{side:'C', text:'Client: NEGOTIATING → TRANSFERRING'}, chip2:{side:'S', text:'Server: NEGOTIATING → TRANSFERRING'}},
+    {note:'若 file_exists = 1：发送侧直接 NEGOTIATING → COMPLETED；接收侧 NEGOTIATING → VERIFY → COMMIT → COMPLETED（秒传不产生位图）'},
+
+    {sep:'③ UDP 可用性探测（数据面）'},
+    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {flags.bit3=1, payload_len=4, session_id}'},
+    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {flags.bit3=1, payload_len=5, status=0}'},
+    {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
+    {note:'等待 PROBE_ACK 超时（建议 2s）→ 回退数据面 TCP；tcp_port = 0 表示不支持降级，即判定传输不可用'},
+
+    {sep:'④ 数据传输（数据面 UDP，无逐包 ACK）'},
+    {from:'C', to:'S', type:'udp', label:'chunk #0 … #N（批量 burst_size，批间隔 batch_gap_us = 2000µs）',
+      chip:{side:'C', text:'Client: 发送侧，仅更新「在途量」估计'}, chip2:{side:'S', text:'Server: 接收侧'}},
+    {from:'S', to:'S', type:'self', label:'校验头 + crc32 → 随机写盘 → 标记位图'},
+
+    {sep:'⑤ 缺失裁决与重传（可靠性由接收方裁决提供）'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, chunks=[]} —— 空列表也必须下发'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, chunks=[…]} —— 报告自己尚未收到的块'},
+    {from:'C', to:'S', type:'udp', label:'重传缺失 chunk（重传优先级高于新数据）'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=request} —— 1000ms 未收到裁决时索要'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report} —— 50ms 内应答'},
+    {from:'S', to:'C', type:'tcp', label:'progress_update {received, total} —— 约 500ms，供发送侧估算丢包率并驱动 AIMD'},
+
+    {sep:'⑥ 校验与提交（完成消息由接收方发布）'},
+    {from:'S', to:'S', type:'self', label:'位图全真 → VERIFY：文件级 Blake3 校验',
+      chip:{side:'S', text:'Server: TRANSFERRING → VERIFY'}},
+    {from:'S', to:'S', type:'self', label:'COMMIT：原子重命名'},
+    {from:'S', to:'C', type:'tcp', label:'upload_complete {result, code, file_hash, asset_id}',
+      chip:{side:'C', text:'Client: TRANSFERRING → COMPLETED'}, chip2:{side:'S', text:'Server: COMMIT → COMPLETED'}},
+
+    {sep:'⑦ 中断与恢复'},
+    {note:'路径一 · 断线重连（连接重建）：走 login 的恢复列表 + login_ack 的权威快照'},
+    {from:'C', to:'S', type:'conn', label:'TCP connect（重建）'},
+    {from:'C', to:'S', type:'tcp', label:'login {…, resume[]{session_id, next_chunk_id, missing_count}}'},
+    {from:'S', to:'C', type:'tcp', label:'login_ack {…, sessions[]{权威快照：位图 / 续传位置 / 数据面端口}}'},
+    {note:'路径二 · 暂停后恢复（连接存活）：走 resume_session / resume_ack'},
+    {from:'C', to:'S', type:'tcp', label:'session_pause → resume_session {session_id, …}',
+      chip:{side:'C', text:'双方: TRANSFERRING → PAUSED'}},
+    {from:'S', to:'C', type:'tcp', label:'resume_ack {result, next_chunk_id, missing_count, udp_port}',
+      chip:{side:'S', text:'双方: PAUSED → TRANSFERRING'}}
+  ];
+
+  /* ---------- 下载方向：Server = 发送侧，Client = 接收侧 ---------- */
+  const DOWNLOAD = [
+    {sep:'① 控制连接建立（TCP 长连接）'},
+    {from:'C', to:'S', type:'conn', label:'TCP connect'},
+    {from:'C', to:'S', type:'tcp', label:'login {proto_major/minor/patch, device_id, token, resume[]}'},
+    {from:'S', to:'S', type:'self', label:'校验认证与协议版本（21 章）'},
+    {from:'S', to:'C', type:'tcp', label:'login_ack {result, code, proto_*, sessions[] 权威快照}'},
+
+    {sep:'② 会话建立'},
+    {from:'C', to:'S', type:'tcp', label:'download_start {session_id=0, size, chunk_size, file_hash, file_name}',
+      chip:{side:'C', text:'Client: INIT → NEGOTIATING'}, chip2:{side:'S', text:'Server: INIT → NEGOTIATING'}},
+    {from:'S', to:'C', type:'tcp', label:'download_accept {session_id, chunk_count, window, chunk_size, udp_port, tcp_port}',
+      chip:{side:'C', text:'Client: NEGOTIATING → TRANSFERRING'}, chip2:{side:'S', text:'Server: NEGOTIATING → TRANSFERRING'}},
+
+    {sep:'③ UDP 可用性探测（数据面）'},
+    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {flags.bit3=1, payload_len=4, session_id}'},
+    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {flags.bit3=1, payload_len=5, status=0}'},
+    {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
+    {note:'Server 以 PROBE 报文的源地址:端口作为该会话的对端数据面地址；Client 端口取用优先级：login_ack 快照 > resume_ack > udp_ready > download_accept'},
+
+    {sep:'④ 数据传输（数据面 UDP，方向与上传相反）'},
+    {from:'S', to:'C', type:'udp', label:'chunk #0 … #N（Server 批量发送，burst_size / batch_gap_us）',
+      chip:{side:'S', text:'Server: 发送侧'}, chip2:{side:'C', text:'Client: 接收侧'}},
+    {from:'C', to:'C', type:'self', label:'校验头 + crc32 → 随机写盘 → 标记位图'},
+
+    {sep:'⑤ 缺失裁决与重传（裁决方恒为接收方）'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report, chunks=[]} —— 空列表也必须下发'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report, chunks=[…]} —— Client 报告自己尚未收到的块'},
+    {from:'S', to:'C', type:'udp', label:'Server 重传缺失 chunk（优先级高于新数据）'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=request} —— 1000ms 未收到裁决时索要'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report} —— 50ms 内应答'},
+    {from:'C', to:'S', type:'tcp', label:'progress_update {received, total} —— 约 500ms，由接收方 Client 发布'},
+
+    {sep:'⑥ 校验与提交（完成消息由接收方 Client 发布）'},
+    {from:'C', to:'C', type:'self', label:'位图全真 → VERIFY：文件级 Blake3 校验',
+      chip:{side:'C', text:'Client: TRANSFERRING → VERIFY'}},
+    {from:'C', to:'C', type:'self', label:'COMMIT：原子重命名'},
+    {from:'C', to:'S', type:'tcp', label:'download_complete {result, code, file_hash}',
+      chip:{side:'C', text:'Client: COMMIT → COMPLETED'}, chip2:{side:'S', text:'Server: TRANSFERRING → COMPLETED'}},
+
+    {sep:'⑦ 中断与恢复'},
+    {note:'路径一 · 断线重连：恢复提示由 Client（接收方）提供 —— Server 没有 Client 的位图'},
+    {from:'C', to:'S', type:'conn', label:'TCP connect（重建）'},
+    {from:'C', to:'S', type:'tcp', label:'login {…, resume[]{session_id, next_chunk_id, missing_count}}（必须携带）'},
+    {from:'S', to:'C', type:'tcp', label:'login_ack {…, sessions[]{权威快照：位图 / 续传位置 / 数据面端口}}'},
+    {note:'路径二 · 暂停后恢复：resume_session 恒由 Client 发起'},
+    {from:'C', to:'S', type:'tcp', label:'session_pause → resume_session {session_id, …}'},
+    {from:'S', to:'C', type:'tcp', label:'resume_ack {result, next_chunk_id, missing_count, udp_port}',
+      chip:{side:'C', text:'双方: PAUSED → TRANSFERRING'}}
+  ];
+
+  /* ---------- SVG 渲染 ---------- */
+  const NS = 'http://www.w3.org/2000/svg';
+  function el(name, attrs, text){
+    const n = document.createElementNS(NS, name);
+    for(const k in attrs) n.setAttribute(k, attrs[k]);
+    if(text != null) n.textContent = text;
+    return n;
+  }
+  function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
+  /* 把 **粗体** 标记解析为 tspan */
+  function rich(parent, text, cls, x, y, anchor){
+    const parts = String(text).split(/\*\*/);
+    parts.forEach(function(p,i){
+      if(!p) return;
+      const t = el('tspan', {'font-weight': i%2 ? '700' : 'normal'}, p);
+      parent.appendChild(t);
+    });
+    if(anchor) parent.setAttribute('text-anchor', anchor);
+    parent.setAttribute('x', x); parent.setAttribute('y', y);
+    if(cls) parent.setAttribute('class', cls);
+  }
+
+  const ARROW = {
+    tcp:  {cls:'a-tcp',  head:'arrow-tcp'},
+    udp:  {cls:'a-udp',  head:'arrow-udp'},
+    conn: {cls:'a-conn', head:'arrow-conn'}
+  };
+
+  /* 估算文本宽度：中日韩字符按 13px，其余按 7px */
+  function textWidth(s){
+    let w = 0;
+    for(const ch of s) w += (ch.charCodeAt(0) > 255 ? 13 : 7);
+    return w;
+  }
+  /* 按像素宽度折行（保留 ** 粗体标记的宽度忽略） */
+  function wrap(text, maxWidth){
+    const clean = String(text).replace(/\*\*/g, '');
+    if(textWidth(clean) <= maxWidth) return [text];
+    const lines = [];
+    let cur = '', curW = 0, bold = false;
+    const tokens = String(text).split(/(\*\*)/);
+    for(const tk of tokens){
+      if(tk === '**'){ bold = !bold; continue; }
+      for(const ch of tk){
+        const w = (ch.charCodeAt(0) > 255 ? 13 : 7);
+        if(curW + w > maxWidth && cur.length){
+          lines.push(cur); cur = ''; curW = 0;
+        }
+        cur += ch; curW += w;
+      }
+    }
+    if(cur) lines.push(cur);
+    return lines;
+  }
+
+  function render(seq, showStates, laneSubs){
+    const svg = document.getElementById('seq');
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+
+    const defs = el('defs');
+    ['tcp','udp','conn'].forEach(function(k){
+      const m = el('marker', {id:'mk-'+k, viewBox:'0 0 10 10', refX:'9', refY:'5',
+        markerWidth:'7', markerHeight:'7', orient:'auto-start-reverse'});
+      m.appendChild(el('path', {d:'M 0 0 L 10 5 L 0 10 z', fill:ARROW[k].head}));
+      defs.appendChild(m);
+    });
+    svg.appendChild(defs);
+
+    let y = 54;
+    const lanes = ['C','S'];
+
+    /* 泳道标题 */
+    lanes.forEach(function(id){
+      const L = LANE[id];
+      svg.appendChild(el('rect', {x:L.x-118, y:14, width:236, height:44, rx:12,
+        fill:'#fff', stroke:'#d8dde6'}));
+      svg.appendChild(el('text', {x:L.x, y:36, 'text-anchor':'middle', class:'lane-title'}, L.label));
+      const sub = laneSubs[id];
+      if(sub) svg.appendChild(el('text', {x:L.x, y:52, 'text-anchor':'middle', class:'lane-sub'}, sub));
+    });
+
+    seq.forEach(function(it){
+      if(it.sep){
+        y += 26;
+        svg.appendChild(el('line', {x1:40, y1:y, x2:W-40, y2:y, stroke:'#e2e6ee', 'stroke-width':1}));
+        svg.appendChild(el('text', {x:40, y:y-8, class:'sep-t'}, it.sep));
+        y += 22;
+        return;
+      }
+
+      if(it.note){
+        const lines = wrap(it.note, W - 200);
+        const h = 14 + lines.length * 19;
+        svg.appendChild(el('rect', {x:80, y:y, width:W-160, height:h, rx:8, class:'bg-note'}));
+        lines.forEach(function(ln, i){
+          const t = el('text', {x:96, y:y+22+i*19, class:'note-t'});
+          rich(t, ln, 'note-t', 96, y+22+i*19);
+          svg.appendChild(t);
+        });
+        y += h + 18;
+        return;
+      }
+
+      const L1 = LANE[it.from], L2 = LANE[it.to];
+      const lineY = y;
+
+      /* 状态胶囊（可关闭） */
+      let chipH = 0;
+      const isSelf = (it.from === it.to);
+      const mid = isSelf ? L1.x : (L1.x + L2.x)/2;
+
+      if(it.from === it.to){
+        const x = L1.x, w = 34, r = 11;
+        const d = `M ${x},${lineY} h ${w-12} a ${r},${r} 0 0 1 ${r},${r} v ${24} a ${r},${r} 0 0 1 ${-r},${r} h ${-(w-12)}`;
+        svg.appendChild(el('path', {d:d, class:'a-tcp', 'marker-end':'url(#mk-tcp)'}));
+        const tx = x + w + 18;
+        const lines = wrap(it.label, 420);
+        lines.forEach(function(ln, i){
+          const t = el('text', {x:tx, y:lineY+16+i*17, 'text-anchor':'start', class:'msg-t'});
+          rich(t, ln, 'msg-t', tx, lineY+16+i*17, 'start');
+          svg.appendChild(t);
+        });
+        if(showStates && it.chip){
+          drawChip(svg, it.chip, lineY + 56, x);
+          chipH = 24;
+          if(it.chip2){ drawChip(svg, it.chip2, lineY + 80, x); chipH = 48; }
+        }
+        y += 46 + chipH + 14;
+        return;
+      }
+
+      const a = ARROW[it.type] || ARROW.tcp;
+      svg.appendChild(el('line', {x1:L1.x, y1:lineY, x2:L2.x, y2:lineY, class:a.cls,
+        'marker-end':'url(#mk-'+(it.type||'tcp')+')'}));
+      const lines = wrap(it.label, 540);
+      if(showStates && it.chip){
+        drawChip(svg, it.chip, lineY + 16, mid);
+        chipH = 22;
+        if(it.chip2){ drawChip(svg, it.chip2, lineY + 40, mid); chipH = 46; }
+      }
+      lines.forEach(function(ln, i){
+        const t = el('text', {x:mid, y:lineY-12-(lines.length-1-i)*16, 'text-anchor':'middle', class:'msg-t'});
+        rich(t, ln, 'msg-t', mid, lineY-12-(lines.length-1-i)*16, 'middle');
+        svg.appendChild(t);
+      });
+      y += 34 + lines.length * 4 + chipH + 14;
+    });
+
+    /* 泳道线 */
+    const bottom = y + 10;
+    lanes.forEach(function(id){
+      const L = LANE[id];
+      svg.appendChild(el('line', {x1:L.x, y1:66, x2:L.x, y2:bottom, class:'lifeline'}));
+    });
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + bottom);
+  }
+
+  function drawChip(svg, chip, y, centerX){
+    const text = chip.text;
+    const approx = textWidth(text.replace(/\*\*/g,'')) + 26;
+    const x = centerX - approx/2;
+    const g = el('g');
+    g.appendChild(el('rect', {x:x, y:y, width:approx, height:19, rx:9.5, class:'bg-chip'}));
+    const t = el('text', {x:x+13, y:y+13.5, class:'chip-t'});
+    rich(t, text, 'chip-t', x+13, y+13.5);
+    g.appendChild(t);
+    svg.appendChild(g);
+  }
+
+  const SUBS = {
+    upload:   {C:'发送侧 (upload)', S:'接收侧 (upload)'},
+    download: {C:'接收侧 (download)', S:'发送侧 (download)'}
+  };
+
+  let dir = 'upload';
+  function paint(){
+    const showStates = document.getElementById('states').checked;
+    const seq = (dir === 'upload' ? UPLOAD : DOWNLOAD);
+    render(seq, showStates, SUBS[dir]);
+  }
+
+  function setDir(d){
+    dir = (d === 'download') ? 'download' : 'upload';
+    Array.prototype.forEach.call(document.querySelectorAll('#dir button'), function(b){
+      b.classList.toggle('active', b.dataset.dir === dir);
+    });
+    paint();
+  }
+
+  document.getElementById('dir').addEventListener('click', function(e){
+    const b = e.target.closest('button');
+    if(!b) return;
+    setDir(b.dataset.dir);
+  });
+  document.getElementById('states').addEventListener('change', paint);
+
+  const params = new URLSearchParams(location.search);
+  if(params.get('states') === '0') document.getElementById('states').checked = false;
+  setDir(params.get('dir') || 'upload');
+})();
+</script>
+</body>
+</html>

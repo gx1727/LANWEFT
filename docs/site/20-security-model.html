@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>20 安全模型（Security Model） — LANWEFT</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .sec-tag{font-family:var(--mono);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ========== 顶部导航：目录 / 上一章 / 下一章 ========== -->
+  <nav class="topnav">
+    <a href="index.html">目录</a>
+    <a href="19-error-codes.html">◀ 19 错误码</a>
+    <a href="21-acl-and-auth.html">21 认证与 ACL ▶</a>
+    <a href="../spec/20-security-model.md">规范源文</a>
+  </nav>
+
+  <!-- ========== 标题 ========== -->
+  <h1>20 安全模型（Security Model）</h1>
+
+  <div class="note blue">
+    <strong>本章要点</strong>：安全模型建立在<strong>可信局域网</strong>、Server 与客户端受控、不穿透公网三项假设之上。
+    控制通道<strong>必须</strong>支持 TLS、<strong>应当</strong>启用；认证在<strong>连接握手</strong>阶段完成并绑定唯一 <code>device_id</code>。
+    数据面使用 CRC32 只提供<strong>完整性</strong>而非安全性；文件级 hash（Blake3）<strong>必须</strong>以 32 字节原始摘要承载。
+  </div>
+
+  <!-- ========== 假设 ========== -->
+  <h2>假设</h2>
+
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>前提</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="c-type">可信局域网</td><td>网络环境被视为可信局域网</td></tr>
+        <tr><td class="c-type">Server 与客户端受控</td><td>Server 与客户端均处于受控之下</td></tr>
+        <tr><td class="c-type">不穿透公网</td><td>协议<strong>不</strong>用于穿透公网</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ========== 控制面 ========== -->
+  <h2>控制面</h2>
+
+  <ul class="spec">
+    <li>控制通道<strong>必须</strong>支持 TLS；<strong>应当</strong>启用（见 21 章）。</li>
+    <li>认证在<strong>连接握手</strong>阶段完成，绑定唯一 <code>device_id</code>
+      （共享令牌或客户端证书，见 21 章）。</li>
+    <li><strong>一条控制连接只承载一个 <code>device_id</code></strong>；
+      跨 <code>device_id</code> 的会话在协议层无法表达。</li>
+    <li>凭据<strong>不得</strong>由 <code>device_id</code> 直接推导（见 23 章「隐私」）。</li>
+  </ul>
+
+  <h3>表示形式（规范性）</h3>
+
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>项目</th>
+          <th>承载方式</th>
+          <th>约束</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="c-session">认证凭据</td>
+          <td><code>login</code> 的 <code>token</code> 字段，类型为 <code>str</code>
+            （<code>u16</code> 长度 + UTF-8）</td>
+          <td>采用客户端证书时<strong>必须</strong>为空串（长度 0）</td>
+        </tr>
+        <tr>
+          <td class="c-chunk"><code>device_id</code></td>
+          <td>同样以 <code>str</code> 承载</td>
+          <td>一条控制连接<strong>只承载一个</strong> <code>device_id</code></td>
+        </tr>
+        <tr>
+          <td class="c-len">协议版本</td>
+          <td>三个 <code>u8</code>：<code>proto_major</code> / <code>proto_minor</code> / <code>proto_patch</code></td>
+          <td>载于 <code>login</code> 与 <code>login_ack</code>（见 06 章）</td>
+        </tr>
+        <tr>
+          <td class="c-flags">错误码</td>
+          <td>以<strong>符号名字符串</strong>承载（<code>code</code> / <code>reason</code> 字段，类型为 <code>str</code>）</td>
+          <td><strong>不得</strong>填写自由文本</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ========== 数据面 ========== -->
+  <h2>数据面</h2>
+
+  <ul class="spec">
+    <li>UDP 使用 CRC32（<strong>完整性非安全性</strong>）：CRC32 无密钥，任何能发包的主机都能伪造合法包。</li>
+    <li>文件级内容 hash（Blake3）：<strong>32 字节原始摘要</strong>（<code>hash32</code>），
+      <strong>禁止</strong>以十六进制串承载；日志与 UI 展示时由实现自行转十六进制（见 06 章）。</li>
+  </ul>
+
+  <h3>数据加密</h3>
+
+  <ul class="spec">
+    <li>数据加密由实现层自选。</li>
+    <li><strong>约束</strong>：应用层加密<strong>不得</strong>改变 chunk 与文件偏移的映射关系。
+      若加密改变了 payload 长度或边界，则 <code>offset = chunk_id × chunk_size</code>
+      的随机写盘语义失效。</li>
+    <li>加密单元必须与 chunk 边界对齐，且密文长度<strong>必须</strong>恰好等于 <code>chunk_size</code>（末块除外）。</li>
+  </ul>
+
+  <div class="diagram">
+    <div class="fields" style="--cols:12">
+      <div class="cell wide ruler-title">加密与写盘映射的约束（chunk 边界必须对齐）</div>
+
+      <div class="cell span4 f-session">chunk_id = 0<br>offset = 0 × chunk_size</div>
+      <div class="cell span4 f-chunk">chunk_id = 1<br>offset = 1 × chunk_size</div>
+      <div class="cell span4 f-len">chunk_id = 2<br>offset = 2 × chunk_size</div>
+
+      <div class="cell span4 f-payload">密文长度 = chunk_size</div>
+      <div class="cell span4 f-payload">密文长度 = chunk_size</div>
+      <div class="cell span4 f-muted">末块（除外）</div>
+    </div>
+  </div>
+
+  <div class="caption">
+    加密单元与 chunk 边界对齐、密文长度恰好等于 <code>chunk_size</code>（末块除外）时，
+    <code>offset = chunk_id × chunk_size</code> 的随机写盘语义才不被破坏。
+  </div>
+
+  <h3>源地址校验</h3>
+
+  <ul class="spec">
+    <li>数据面地址必须做<strong>源地址校验</strong>：接收方<strong>必须</strong>校验 UDP 包的源地址:端口
+      与该会话经 PROBE 确认的对端地址一致，不一致即丢弃。</li>
+    <li>这不能替代认证（地址可伪造），但能挡住非定向的误发与扫描。</li>
+  </ul>
+
+  <h3>重放保护</h3>
+
+  <ul class="spec">
+    <li>接收方<strong>必须</strong>拒绝 <code>chunk_id</code> <strong>≥</strong> 该会话 <code>chunk_count</code> 的包
+      （越界，见 08 章）。</li>
+    <li>接收方<strong>必须</strong>校验 <code>session_id</code> 与本会话一致。</li>
+    <li>两者之外的重放由位图幂等性兜底（重复 chunk 静默丢弃）。</li>
+  </ul>
+
+  <div class="note">
+    <strong>完整性 ≠ 安全性</strong>：CRC32 与 Blake3 的作用是发现损坏 / 不一致，
+    并<strong>不</strong>提供防伪能力；任何能发包的主机都能伪造 CRC32 合法的包，
+    因此防伪依赖控制面的认证与 ACL（见 21 章）。
+  </div>
+
+  <!-- ========== 状态与权限 ========== -->
+  <h2>状态与权限</h2>
+
+  <ul class="spec">
+    <li>UDP 会话<strong>必须</strong>绑定到发起它的控制连接（及其 <code>device_id</code>）。</li>
+    <li>Server 不向未知端口发送 UDP；目标地址必须来自 PROBE 报文（见 07 章）。</li>
+    <li>TCP 数据面降级需重校验权限。</li>
+  </ul>
+
+  <!-- ========== 审计 ========== -->
+  <h2>审计</h2>
+
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>审计对象</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="c-crc">认证失败尝试</td><td>记录认证失败尝试</td></tr>
+        <tr><td class="c-crc">跨 <code>device_id</code> 的会话操作</td><td>记录跨 <code>device_id</code> 的会话操作</td></tr>
+        <tr><td class="c-crc"><code>session_abort</code> 原因</td><td>记录 <code>session_abort</code> 原因</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn">
+    <strong>常见实现陷阱</strong>：把 CRC32 当作防伪手段；用十六进制串承载 Blake3 摘要；
+    加密改变了 chunk 边界导致 <code>offset = chunk_id × chunk_size</code> 失效；
+    跳过 UDP 源地址校验；由 <code>device_id</code> 直接推导凭据（<strong>不得</strong>）。
+  </div>
+
+  <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/20-security-model.md">docs/spec/20-security-model.md</a></footer>
+</div>
+</body>
+</html>

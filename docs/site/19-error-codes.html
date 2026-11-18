@@ -1,0 +1,376 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>19 错误码（Error Codes） — LANWEFT</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .ec-code{font-family:var(--mono);font-weight:700;white-space:nowrap;font-size:13px}
+  .ec-cat td:first-child{font-family:var(--mono)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ========== 顶部导航：目录 / 上一章 / 下一章 ========== -->
+  <nav class="topnav">
+    <a href="index.html">目录</a>
+    <a href="18-bitmap-and-chunk-map.html">◀ 18 位图与块图</a>
+    <a href="20-security-model.html">20 安全模型 ▶</a>
+    <a href="../spec/19-error-codes.md">规范源文</a>
+  </nav>
+
+  <!-- ========== 标题 ========== -->
+  <h1>19 错误码（Error Codes）</h1>
+
+  <div class="note blue">
+    <strong>本章要点</strong>：本章的错误码<strong>必须</strong>通过控制面消息上线路，
+    字段映射见下表；发送方与接收方<strong>必须</strong>按错误码做分支判断，<strong>不得</strong>解析 <code>detail</code> 自由文本。
+    <code>result</code> 字段只表达「成功 / 失败」，<strong>不承载</strong>错误码；
+    <strong>未列在本章的错误码</strong>一律视为 <code>UNKNOWN_ERROR</code>。
+  </div>
+
+  <!-- ========== 分类 ========== -->
+  <h2>分类</h2>
+
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>分类</th>
+          <th>说明</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="c-type">SESSION</td><td>会话级错误</td></tr>
+        <tr><td class="c-type">TRANSPORT</td><td>传输层错误（UDP/TCP）</td></tr>
+        <tr><td class="c-type">INTEGRITY</td><td>完整性校验错误</td></tr>
+        <tr><td class="c-type">AUTH</td><td>认证与 ACL 错误</td></tr>
+        <tr><td class="c-type">TIMEOUT</td><td>超时错误</td></tr>
+        <tr><td class="c-type">STORAGE</td><td>持久化与文件系统错误</td></tr>
+        <tr><td class="c-type">PROTOCOL</td><td>协议格式与状态错误</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ========== 上线路 ========== -->
+  <h2>错误码上线路（规范性）</h2>
+
+  <p>本章的错误码<strong>必须</strong>通过控制面消息上线路，字段映射如下：</p>
+
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th>消息</th>
+          <th>字段</th>
+          <th>语义</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="c-frame"><code>session_abort</code></td>
+          <td class="c-len"><code>reason</code></td>
+          <td>终止原因，<strong>必填</strong>（<code>str</code>），取值来自本章</td>
+        </tr>
+        <tr>
+          <td class="c-frame"><code>session_abort</code></td>
+          <td class="c-muted"><code>detail</code></td>
+          <td>可读补充说明（<code>str</code>），仅用于日志与 UI，<strong>不得</strong>用于逻辑判断</td>
+        </tr>
+        <tr>
+          <td class="c-frame"><code>upload_complete</code></td>
+          <td class="c-len"><code>code</code></td>
+          <td>失败时的错误码（符号名，<code>str</code>）；成功时为空串（长度 0）</td>
+        </tr>
+        <tr>
+          <td class="c-frame"><code>download_complete</code></td>
+          <td class="c-len"><code>code</code></td>
+          <td>失败时的错误码（符号名，<code>str</code>）；成功时为空串（长度 0）</td>
+        </tr>
+        <tr>
+          <td class="c-frame"><code>asset_recall_complete</code></td>
+          <td class="c-len"><code>code</code></td>
+          <td>未删除时的错误码（符号名，<code>str</code>）；成功删除时为空串（长度 0）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <ul class="spec">
+    <li>发送方与接收方<strong>必须</strong>按错误码做分支判断，<strong>不得</strong>解析 <code>detail</code> 自由文本。</li>
+    <li><code>result</code> 字段只表达「成功 / 失败」，<strong>不承载</strong>错误码；
+      <code>code</code> / <code>reason</code> 字段<strong>必须</strong>是本章中定义过的标识符。</li>
+    <li><strong>未列在本章的错误码</strong>一律视为 <code>UNKNOWN_ERROR</code>。</li>
+  </ul>
+
+  <!-- ========== 错误码总表 ========== -->
+  <h2>建议错误码（完整清单）</h2>
+
+  <h3>SESSION · 会话级错误</h3>
+  <div class="card">
+    <table class="ec-cat sym">
+      <thead>
+        <tr>
+          <th>错误码符号名</th>
+          <th>含义</th>
+          <th>触发场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ec-code">SESSION_NOT_FOUND</td>
+          <td>会话不存在或已终止</td>
+          <td>对不存在的 / 已终止的会话发起操作</td>
+        </tr>
+        <tr>
+          <td class="ec-code">SESSION_ABORTED</td>
+          <td>会话被服务端终止</td>
+          <td>Server 主动终止会话</td>
+        </tr>
+        <tr>
+          <td class="ec-code">INVALID_STATE</td>
+          <td>当前状态不允许该操作</td>
+          <td>在当前会话状态下执行了该操作不允许的动作</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>TRANSPORT · 传输层错误（UDP/TCP）</h3>
+  <div class="card">
+    <table class="ec-cat sym">
+      <thead>
+        <tr>
+          <th>错误码符号名</th>
+          <th>含义</th>
+          <th>触发场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ec-code">UDP_UNAVAILABLE</td>
+          <td>UDP 探测失败</td>
+          <td>UDP 探测（PROBE）阶段失败</td>
+        </tr>
+        <tr>
+          <td class="ec-code">TCP_ERROR</td>
+          <td>TCP 数据面降级通道错误</td>
+          <td>TCP 数据面降级通道上发生错误</td>
+        </tr>
+        <tr>
+          <td class="ec-code">BIND_FAILED</td>
+          <td>数据面端口绑定失败</td>
+          <td>数据面端口绑定失败</td>
+        </tr>
+        <tr>
+          <td class="ec-code">CONNECTION_FAILED</td>
+          <td>控制通道连接失败</td>
+          <td>控制通道建立连接失败</td>
+        </tr>
+        <tr>
+          <td class="ec-code">CONNECTION_CLOSED</td>
+          <td>控制连接已关闭</td>
+          <td>对端断开或超时</td>
+        </tr>
+        <tr>
+          <td class="ec-code">NETWORK_ERROR</td>
+          <td>网络错误</td>
+          <td>一般性网络错误</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>INTEGRITY · 完整性校验错误</h3>
+  <div class="card">
+    <table class="ec-cat sym">
+      <thead>
+        <tr>
+          <th>错误码符号名</th>
+          <th>含义</th>
+          <th>触发场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ec-code">CRC32_INVALID</td>
+          <td>包级校验失败</td>
+          <td>丢弃该包，<strong>不</strong>标记位图</td>
+        </tr>
+        <tr>
+          <td class="ec-code">FILE_HASH_MISMATCH</td>
+          <td>文件级内容哈希不一致</td>
+          <td><strong>必须</strong>以 <code>session_abort</code> 终止会话（见 12 章）</td>
+        </tr>
+        <tr>
+          <td class="ec-code">INVALID_CHUNK</td>
+          <td>chunk_id 越界或非法</td>
+          <td>收到越界或非法的 <code>chunk_id</code></td>
+        </tr>
+        <tr>
+          <td class="ec-code">CHUNK_ALREADY_RECEIVED</td>
+          <td>重复 chunk</td>
+          <td>幂等丢弃</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>AUTH · 认证与 ACL 错误</h3>
+  <div class="card">
+    <table class="ec-cat sym">
+      <thead>
+        <tr>
+          <th>错误码符号名</th>
+          <th>含义</th>
+          <th>触发场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ec-code">ACL_DENY</td>
+          <td>ACL 拒绝访问</td>
+          <td>访问控制校验未通过</td>
+        </tr>
+        <tr>
+          <td class="ec-code">CLIENT_ID_INVALID</td>
+          <td>client_id 非法</td>
+          <td>客户端身份非法 / 与认证凭据绑定身份不一致</td>
+        </tr>
+        <tr>
+          <td class="ec-code">LOGIN_FAILED</td>
+          <td>登录认证失败</td>
+          <td><code>login</code> 中的认证凭据校验失败</td>
+        </tr>
+        <tr>
+          <td class="ec-code">PROTO_VERSION_UNSUPPORTED</td>
+          <td>协议版本不受支持</td>
+          <td>见 06 章 <code>login</code> / <code>login_ack</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>TIMEOUT · 超时错误</h3>
+  <div class="card">
+    <table class="ec-cat sym">
+      <thead>
+        <tr>
+          <th>错误码符号名</th>
+          <th>含义</th>
+          <th>触发场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ec-code">TIMEOUT_NO_ACTIVITY</td>
+          <td>长时间无活动导致超时</td>
+          <td>会话级，60 秒</td>
+        </tr>
+        <tr>
+          <td class="ec-code">TIMEOUT_PROBE</td>
+          <td>UDP 探测超时</td>
+          <td>UDP 探测未在期限内完成</td>
+        </tr>
+        <tr>
+          <td class="ec-code">TIMEOUT_HEARTBEAT</td>
+          <td>控制连接心跳超时</td>
+          <td>30 秒无任何消息（见 06 章）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>STORAGE · 持久化与文件系统错误</h3>
+  <div class="card">
+    <table class="ec-cat sym">
+      <thead>
+        <tr>
+          <th>错误码符号名</th>
+          <th>含义</th>
+          <th>触发场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ec-code">DATABASE_ERROR</td>
+          <td>SQLite 持久化失败</td>
+          <td>SQLite 持久化操作失败</td>
+        </tr>
+        <tr>
+          <td class="ec-code">FILESYSTEM_ERROR</td>
+          <td>文件系统操作失败</td>
+          <td>文件系统读写等操作失败</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>PROTOCOL · 协议格式与状态错误</h3>
+  <div class="card">
+    <table class="ec-cat sym">
+      <thead>
+        <tr>
+          <th>错误码符号名</th>
+          <th>含义</th>
+          <th>触发场景</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="ec-code">INVALID_PACKET</td>
+          <td>数据包格式非法</td>
+          <td>长度不足、越界等</td>
+        </tr>
+        <tr>
+          <td class="ec-code">SESSION_ID_MISMATCH</td>
+          <td>session_id 不匹配</td>
+          <td>收到的包 <code>session_id</code> 与本会话不一致</td>
+        </tr>
+        <tr>
+          <td class="ec-code">FILE_ID_MISMATCH</td>
+          <td>file_hash 不匹配</td>
+          <td>文件哈希与预期不符</td>
+        </tr>
+        <tr>
+          <td class="ec-code">SERIALIZATION_ERROR</td>
+          <td>控制帧解码失败</td>
+          <td>定长区长度不足、变长区越界、取值违反约束等</td>
+        </tr>
+        <tr>
+          <td class="ec-code">CONTROL_ERROR</td>
+          <td>控制面错误</td>
+          <td>控制面处理出错</td>
+        </tr>
+        <tr>
+          <td class="ec-code">UNKNOWN_ERROR</td>
+          <td>未分类错误</td>
+          <td>未列在本章的错误码一律视为 <code>UNKNOWN_ERROR</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ========== 行为 ========== -->
+  <h2>行为</h2>
+
+  <ul class="spec">
+    <li>错误记录日志。</li>
+    <li>INTEGRITY 错误包直接丢弃，且<strong>不得</strong>写入位图。</li>
+    <li>SESSION 错误触发 <code>session_abort</code>（<code>reason</code> 填对应错误码）。</li>
+    <li><code>CHUNK_ALREADY_RECEIVED</code> 属幂等情形，静默丢弃即可。</li>
+    <li>同一错误<strong>不得</strong>导致状态机进入非法状态。</li>
+  </ul>
+
+  <div class="note warn">
+    <strong>常见实现陷阱</strong>：把自由文本写进 <code>code</code> / <code>reason</code>（<strong>不得</strong>，必须是本章定义过的标识符）；
+    用 <code>result</code> 承载错误码；依赖 <code>detail</code> 做分支判断；
+    INTEGRITY 错误包仍写入位图（<strong>不得</strong>）。
+  </div>
+
+  <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/19-error-codes.md">docs/spec/19-error-codes.md</a></footer>
+</div>
+</body>
+</html>

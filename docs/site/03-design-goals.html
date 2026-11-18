@@ -1,0 +1,127 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>03 设计目标（Design Goals） — LANWEFT</title>
+<link rel="stylesheet" href="style.css">
+<style>
+.dg-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(230px,1fr));gap:14px;margin-top:14px}
+.dg-card{background:var(--panel);border:1px solid var(--line);border-left:3px solid var(--c-session);
+  border-radius:12px;padding:14px 16px;box-shadow:0 1px 2px rgba(16,24,40,.03)}
+.dg-card .dg-idx{display:block;font-family:var(--mono);font-size:11.5px;color:var(--ink-3);letter-spacing:1px;margin-bottom:5px}
+.dg-card .dg-title{display:block;font-size:15px;font-weight:700;color:var(--ink);line-height:1.4}
+.dg-card .dg-en{display:block;margin-top:4px;font-size:12px;color:var(--ink-3)}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topnav">
+    <a href="index.html">目录</a>
+    <a href="02-terminology.html">◀ 02 术语</a>
+    <a href="04-non-goals.html">04 非目标 ▶</a>
+    <a href="../spec/03-design-goals.md">规范源文</a>
+  </nav>
+
+  <h1>03 设计目标（Design Goals）</h1>
+
+  <div class="note blue">
+    <strong>本章要点</strong>：本章给出 LANWEFT 的设计目标清单，共 7 项：高效大文件同步、可恢复、乱序写盘、
+    重传裁决清晰、内存与文件大小解耦、分层清晰、发送端策略简化与稳定。
+    本章为<strong>目标清单</strong>，不含具体条款；与之互补的范围边界见
+    <a href="04-non-goals.html">04 非目标（Non-Goals）</a>。
+  </div>
+
+  <!-- ============ 目标清单 ============ -->
+  <h2>设计目标清单</h2>
+  <div class="card">
+    <table>
+      <thead>
+        <tr>
+          <th class="mono" style="width:64px">#</th>
+          <th>设计目标</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr><td class="num">1</td><td><strong>高效大文件同步</strong></td></tr>
+        <tr><td class="num">2</td><td><strong>可恢复</strong></td></tr>
+        <tr><td class="num">3</td><td><strong>乱序写盘</strong></td></tr>
+        <tr><td class="num">4</td><td><strong>重传裁决清晰</strong></td></tr>
+        <tr><td class="num">5</td><td><strong>内存与文件大小解耦</strong></td></tr>
+        <tr><td class="num">6</td><td><strong>分层清晰</strong></td></tr>
+        <tr><td class="num">7</td><td><strong>发送端策略简化与稳定</strong></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ 目标卡片视图 ============ -->
+  <h2>目标卡片</h2>
+  <div class="dg-grid">
+    <div class="dg-card">
+      <span class="dg-idx">GOAL 01</span>
+      <span class="dg-title">高效大文件同步</span>
+    </div>
+    <div class="dg-card">
+      <span class="dg-idx">GOAL 02</span>
+      <span class="dg-title">可恢复</span>
+    </div>
+    <div class="dg-card">
+      <span class="dg-idx">GOAL 03</span>
+      <span class="dg-title">乱序写盘</span>
+    </div>
+    <div class="dg-card">
+      <span class="dg-idx">GOAL 04</span>
+      <span class="dg-title">重传裁决清晰</span>
+    </div>
+    <div class="dg-card">
+      <span class="dg-idx">GOAL 05</span>
+      <span class="dg-title">内存与文件大小解耦</span>
+    </div>
+    <div class="dg-card">
+      <span class="dg-idx">GOAL 06</span>
+      <span class="dg-title">分层清晰</span>
+    </div>
+    <div class="dg-card">
+      <span class="dg-idx">GOAL 07</span>
+      <span class="dg-title">发送端策略简化与稳定</span>
+    </div>
+  </div>
+
+  <!-- ============ 目标 vs 非目标 ============ -->
+  <h2>目标与非目标的对照</h2>
+  <div class="cols">
+    <section>
+      <h3 style="margin-top:8px">本章目标（03）</h3>
+      <ul class="spec">
+        <li>高效大文件同步</li>
+        <li>可恢复</li>
+        <li>乱序写盘</li>
+        <li>重传裁决清晰</li>
+        <li>内存与文件大小解耦</li>
+        <li>分层清晰</li>
+        <li>发送端策略简化与稳定</li>
+      </ul>
+    </section>
+    <section>
+      <h3 style="margin-top:8px">对应非目标（04）</h3>
+      <ul class="spec">
+        <li>公网穿透与互联网规模传输</li>
+        <li>数据面的复杂拥塞控制与逐包 ACK</li>
+        <li>多租户不可信网络</li>
+        <li>移动端长期后台无 UI 传输</li>
+        <li>端到端加密作为协议内建能力</li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="note warn">
+    <strong>注意</strong>：本页仅呈现 <a href="../spec/03-design-goals.md">docs/spec/03-design-goals.md</a> 中的目标条目，
+    不含额外的解释性结论或数值；各项目标的规范性条款分布在后续章节（例如协议栈分层见
+    <a href="05-protocol-stack.html">05 协议栈</a>，数据面格式见 <a href="08-packet-format.html">08 数据包格式</a>）。
+  </div>
+
+  <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/03-design-goals.md">docs/spec/03-design-goals.md</a></footer>
+</div>
+</body>
+</html>

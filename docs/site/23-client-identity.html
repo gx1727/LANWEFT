@@ -1,0 +1,176 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>23 客户端身份（Client Identity） — LANWEFT</title>
+<link rel="stylesheet" href="style.css">
+<style>
+  .ci-id{font-family:var(--mono);font-size:12.5px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <!-- ========== 顶部导航：目录 / 上一章 / 下一章 ========== -->
+  <nav class="topnav">
+    <a href="index.html">目录</a>
+    <a href="21-acl-and-auth.html">◀ 21 认证与 ACL</a>
+    <a href="24-sequence-diagrams.html">24 端到端时序 ▶</a>
+    <a href="../spec/23-client-identity.md">规范源文</a>
+  </nav>
+
+  <!-- ========== 标题 ========== -->
+  <h1>23 客户端身份（Client Identity）</h1>
+
+  <div class="note blue">
+    <strong>本章要点</strong>：客户端身份应当<strong>全局唯一、稳定可复用、设备级粒度、低耦合、安全可控</strong>。
+    <code>client_id</code> 一旦分配即固定，<strong>不得</strong>因设备重装、换网或升级而改变；
+    它与文件哈希（Blake3，32 字节原始摘要）<strong>无关</strong>，两者不可互相推导。
+    <code>login</code> 中的 <code>device_id</code> <strong>必须</strong>与认证凭据绑定的身份一致，
+    否则 Server <strong>必须</strong>以 <code>CLIENT_ID_INVALID</code> 拒绝登录。
+  </div>
+
+  <!-- ========== 目标 ========== -->
+  <h2>目标</h2>
+
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>目标</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="c-chunk">全局唯一</td><td>身份在全网范围内唯一</td></tr>
+        <tr><td class="c-chunk">稳定可复用</td><td>可跨重启 / 跨会话稳定复用</td></tr>
+        <tr><td class="c-chunk">设备级粒度</td><td>以设备为粒度，而不是以账号或安装为粒度</td></tr>
+        <tr><td class="c-chunk">低耦合</td><td>与文件内容、账号体系等解耦</td></tr>
+        <tr><td class="c-chunk">安全可控</td><td>标识本身不泄露敏感信息，且不可用于直接认证</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ========== 生成 ========== -->
+  <h2>生成</h2>
+
+  <ul class="spec">
+    <li>base32(UUIDv4) 或 hash(<code>device_uuid</code> + salt)，持久化安全存储，<strong>不得</strong>重启重生成。</li>
+    <li><code>client_id</code> 与文件哈希（Blake3，32 字节原始摘要）<strong>无关</strong>，两者不可互相推导。</li>
+    <li><code>client_id</code> 一旦分配即固定，<strong>不得</strong>因设备重装、换网或升级而改变。</li>
+  </ul>
+
+  <div class="diagram">
+    <div class="fields" style="--cols:12">
+      <div class="cell wide ruler-title">client_id 的生成与持久化</div>
+
+      <div class="cell span4 f-session">device_uuid + salt<span class="ci-id"><br>（或 UUIDv4）</span></div>
+      <div class="cell span4 f-chunk">hash / base32</div>
+      <div class="cell span4 f-len">client_id<span class="ci-id"><br>持久化安全存储</span></div>
+
+      <div class="cell span4 f-muted">重启<span class="ci-id"><br>不得重生成</span></div>
+      <div class="cell span4 f-muted">重装 / 换网 / 升级<span class="ci-id"><br>不得改变</span></div>
+      <div class="cell span4 f-muted">与文件哈希无关<span class="ci-id"><br>不可互相推导</span></div>
+    </div>
+  </div>
+
+  <!-- ========== 生命周期与存储 ========== -->
+  <h2>生命周期与存储</h2>
+
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>平台</th><th>安全存储位置</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="c-type">Android</td><td class="c-session">EncryptedSharedPreferences / Keystore</td></tr>
+        <tr><td class="c-type">iOS</td><td class="c-session">Keychain</td></tr>
+        <tr><td class="c-type">桌面</td><td class="c-session">加密文件</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ========== 与认证身份的一致性 ========== -->
+  <h2>与认证身份的一致性</h2>
+
+  <ul class="spec">
+    <li><code>login</code> 消息变长区中的 <code>device_id</code>（<code>str</code>）<strong>必须</strong>与认证凭据绑定的身份一致。</li>
+    <li>不一致时 Server <strong>必须</strong>以 <code>CLIENT_ID_INVALID</code> 拒绝登录（见 19 章）。</li>
+    <li>该等价关系是访问控制（21 章）与跨 <code>client_id</code> 审计（20 章）的基础，
+      两者都依赖「<strong>连接绑定的身份即为已认证的设备身份</strong>」。</li>
+  </ul>
+
+  <div class="note blue">
+    <strong>等价关系</strong>：<code>login.device_id</code> ≡ 认证凭据绑定的身份 ≡ 连接绑定身份 ≡ 已认证的设备身份。
+    四个身份<strong>必须</strong>始终指向同一个设备，否则访问控制与审计都失去依据。
+  </div>
+
+  <!-- ========== 多设备 ========== -->
+  <h2>多设备</h2>
+
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>关系</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="c-chunk">1 Device ⇔ 1 <code>client_id</code></td><td>一台设备对应一个客户端身份</td></tr>
+        <tr><td class="c-chunk">1 Account ⇔ N <code>client_id</code></td><td>一个账号可对应多个客户端身份；协议<strong>不</strong>感知账号</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ========== 与 Session ========== -->
+  <h2>与 Session</h2>
+
+  <ul class="spec">
+    <li><code>client_id</code> 可并发多 session；<strong>不得</strong>跨 <code>client_id</code> 使用；Server 校验一致性。</li>
+    <li>同一 <code>client_id</code> 的多个会话<strong>可以</strong>承载在同一条控制连接上（见 09 章）。</li>
+  </ul>
+
+  <!-- ========== 与控制通道 ========== -->
+  <h2>与控制通道</h2>
+
+  <ul class="spec">
+    <li>认证在连接握手时完成，连接与 <code>client_id</code> <strong>一一绑定</strong>。</li>
+    <li>连接存续期间<strong>不得</strong>变更绑定身份。</li>
+  </ul>
+
+  <!-- ========== 隐私 ========== -->
+  <h2>隐私</h2>
+
+  <ul class="spec">
+    <li><strong>不得</strong>包含敏感信息；推荐随机或哈希派生。</li>
+    <li><strong>认证凭据不得</strong>由 <code>client_id</code> 直接推导 —— 设备标识不应等价于凭据
+      （见 21 章「认证」）。</li>
+  </ul>
+
+  <!-- ========== 非法行为 ========== -->
+  <h2>非法行为</h2>
+
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>非法行为</th><th>处理</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="c-crc"><code>client_id</code> 非法</td>
+          <td>Server 以 <code>CLIENT_ID_INVALID</code> 拒绝登录（见 19 章）</td>
+        </tr>
+        <tr>
+          <td class="c-crc">跨 <code>client_id</code> 的会话操作</td>
+          <td>Server 校验一致性并拒绝</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn">
+    <strong>常见实现陷阱</strong>：重启即重新生成 <code>client_id</code>（<strong>不得</strong>）；
+    用文件哈希派生 <code>client_id</code>；把 <code>client_id</code> 直接当作认证凭据；
+    在连接存续期间变更绑定身份。
+  </div>
+
+  <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/23-client-identity.md">docs/spec/23-client-identity.md</a></footer>
+</div>
+</body>
+</html>

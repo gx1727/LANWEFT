@@ -1,0 +1,226 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>09 会话模型（Session Model） — LANWEFT</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<div class="wrap">
+
+  <nav class="topnav">
+    <a href="index.html">目录</a>
+    <a href="08-packet-format.html">◀ 08 数据包格式</a>
+    <a href="10-state-machine.html">10 状态机 ▶</a>
+    <a href="../spec/09-session-model.md">规范源文</a>
+  </nav>
+
+  <h1>09 会话模型（Session Model）</h1>
+
+  <div class="note blue">
+    <strong>本章要点</strong>：会话由一组固定字段描述，其中 <code>direction</code> 是<strong>必需</strong>的，
+    用于区分「我是接收方」还是「我是发送方」。<code>session_id</code> <strong>由 Server 生成</strong>且在 Server 生命周期内<strong>必须</strong>唯一；
+    同一 <code>client_id + file_hash</code> 正在同步时<strong>必须</strong>复用既有会话。接收方<strong>必须</strong>持久化
+    临时文件、位图与会话元数据，以便进程 / 设备重启后恢复。
+  </div>
+
+  <!-- ============ 会话参数 ============ -->
+  <h2>会话参数</h2>
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>字段</th><th>类型</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="c-session">session_id</td><td class="mono">u32</td><td>会话唯一标识，Server 生成</td></tr>
+        <tr><td class="c-session">client_id</td><td class="mono">str</td><td>客户端设备 ID；<strong>必须</strong>等于控制连接绑定的身份（见 21 章）</td></tr>
+        <tr><td class="c-type">direction</td><td class="mono">enum8</td><td><code>0</code> = <code>upload</code>、<code>1</code> = <code>download</code> —— <strong>接收方 / 发送方角色</strong></td></tr>
+        <tr><td class="c-payload">file_hash</td><td class="mono">hash32</td><td>文件哈希（<strong>32 字节原始 Blake3 摘要</strong>）</td></tr>
+        <tr><td class="c-payload">file_name</td><td class="mono">str</td><td>文件名</td></tr>
+        <tr><td class="c-len">size</td><td class="mono">u64</td><td>文件大小（字节）</td></tr>
+        <tr><td class="c-len">mtime</td><td class="mono">u64</td><td>文件修改时间戳</td></tr>
+        <tr><td class="c-flags">state</td><td class="mono">enum8</td><td>会话状态（见 10 章）</td></tr>
+        <tr><td class="c-len">chunk_size</td><td class="mono">u32</td><td>Chunk 大小（字节）</td></tr>
+        <tr><td class="c-len">window</td><td class="mono">u32</td><td>滑动窗口大小（<strong>在途上限</strong>）</td></tr>
+        <tr><td class="c-chunk">chunk_count</td><td class="mono">u32</td><td>总 chunk 数量 = <code>ceil(size / chunk_size)</code></td></tr>
+        <tr><td class="c-type">udp_port</td><td class="mono">u16</td><td>UDP 端口号</td></tr>
+        <tr><td class="c-type">tcp_port</td><td class="mono">u16</td><td>TCP 端口号</td></tr>
+        <tr><td class="c-muted">last_activity</td><td class="mono">u64</td><td>最后活动时间戳</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ direction ============ -->
+  <h2><code>direction</code> 字段（规范性）</h2>
+  <div class="note">
+    <strong><code>direction</code> 字段是必需的（规范性）</strong>：本协议的 <code>missing_chunks</code> 是<strong>双向</strong>消息，
+    其含义依赖会话方向（见 06 章）。Server 侧的会话记录<strong>必须</strong>能区分
+    「我是接收方」还是「我是发送方」，否则无法正确解释对端的缺失报告。
+  </div>
+
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>direction</th><th>接收方</th><th>发送方</th><th>完成消息发布方</th></tr>
+      </thead>
+      <tbody>
+        <tr><td class="mono">upload</td><td>Server</td><td>Client</td><td>Server（<code>upload_complete</code>）</td></tr>
+        <tr><td class="mono">download</td><td>Client</td><td>Server</td><td>Client（<code>download_complete</code>）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ 与控制连接的关系 ============ -->
+  <h2>与控制连接的关系（规范性）</h2>
+  <ul class="spec">
+    <li>一个 <code>device_id</code>（一条控制连接）<strong>可以</strong>承载<strong>多个并发会话</strong>；
+      <code>session_id</code> 用于区分。</li>
+    <li>Server <strong>必须</strong>为每个会话记录其所属的控制连接；
+      连接断开时，该连接上承载的<strong>全部</strong>会话进入<strong>中断</strong>处理（见 13 章）。</li>
+    <li>会话<strong>不得</strong>跨连接迁移 —— 恢复只能通过 <code>login</code> 的恢复列表
+      重新建立关联（见 06 章、13 章）。</li>
+    <li><strong>数据面端口可以被多个会话共用</strong>：UDP 包头中的 <code>session_id</code> 足以区分（见 08 章）。</li>
+  </ul>
+
+  <div class="diagram">
+    <div class="fields" style="--cols:4">
+      <div class="cell ruler-title">控制连接 → 会话（1 : N）</div>
+
+      <div class="cell wide f-frame">控制连接（device_id）</div>
+
+      <div class="cell f-session">session_id A</div>
+      <div class="cell f-session">session_id B</div>
+      <div class="cell f-session">session_id C</div>
+      <div class="cell f-muted">…</div>
+
+      <div class="cell wide f-muted">数据面端口可被多个会话共用（UDP 包头中的 session_id 足以区分）</div>
+    </div>
+  </div>
+
+  <!-- ============ 创建规则 ============ -->
+  <h2>创建规则</h2>
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>#</th><th>规则</th><th>说明</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td class="num">1</td>
+          <td><strong><code>session_id</code> 由 Server 生成</strong></td>
+          <td>
+            Server <strong>必须</strong>保证在自身生命周期内 <code>session_id</code> 唯一；
+            冲突时<strong>必须</strong>重新生成而不是复用。<br>
+            u32 的空间有限，实现<strong>不得</strong>使用裸时间戳低 32 位
+            （秒级回绕 136 年、毫秒级回绕 49 天）。推荐使用「随机高位 + 递增低位」或 Snowflake（含机器位）等方式。<br>
+            冲突后果严重：<code>session_id</code> 同时是控制面关联键与 UDP 头字段（见 08 章），
+            串号会导致跨会话数据污染。
+          </td>
+        </tr>
+        <tr>
+          <td class="num">2</td>
+          <td><strong>同文件正在同步 → 返回现有会话</strong></td>
+          <td>
+            「同文件」的判定键为 <code>client_id + file_hash</code>（同一客户端的同一内容）。<br>
+            返回现有会话时，<code>upload_accept</code> <strong>必须</strong>复用既有的 <code>session_id</code>，
+            并重新下发当前的 <code>window</code> / <code>chunk_size</code> / <code>udp_port</code>。
+          </td>
+        </tr>
+        <tr>
+          <td class="num">3</td>
+          <td><strong>已存在完整文件 → 秒传</strong></td>
+          <td>
+            Server 侧已存在相同 <code>file_hash</code> 的完整文件时，<code>upload_accept.file_exists = 1</code>（bool 真），
+            走 10 章定义的秒传路径（<strong>不进入 TRANSFERRING，不产生位图</strong>）。
+          </td>
+        </tr>
+        <tr>
+          <td class="num">4</td>
+          <td><strong>否则新建会话并生成新的 <code>session_id</code></strong></td>
+          <td>—</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ 持久化 ============ -->
+  <h2>持久化（规范性）</h2>
+  <p style="margin-top:0">接收方<strong>必须</strong>持久化以下状态，使其在进程重启或设备重启后仍可恢复：</p>
+  <ul class="spec">
+    <li><strong>临时文件</strong>（含已写入的数据）</li>
+    <li><strong>位图</strong>（各 <code>chunk_id</code> 的接收状态）</li>
+    <li><strong>会话元数据</strong>（<code>session_id</code> / <code>direction</code> / <code>chunk_size</code> / <code>chunk_count</code> / 临时文件路径）</li>
+  </ul>
+  <ul class="spec">
+    <li>位图<strong>必须</strong>能写入持久化副本并从该副本恢复；持久化格式与存储位置由实现决定。</li>
+    <li>写入与位图更新的<strong>先后顺序</strong>由实现决定，但必须保证：
+      位图标记为「已接收」的块，其数据<strong>已经</strong>落在临时文件中
+      —— 否则恢复后会把未落盘的块当作已接收，导致空洞永不重传（见 13 章「空洞块的补发」）。</li>
+  </ul>
+
+  <div class="note warn">
+    <strong>注意</strong>：位图标记与数据落盘的顺序由实现决定，但「先落盘、后标记」是保证不产生空洞块的唯一前提。
+  </div>
+
+  <!-- ============ 超时与回收 ============ -->
+  <h2>超时与回收</h2>
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>层级</th><th>阈值</th><th>触发后行为</th><th>可否恢复</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>控制连接的空闲超时（见 06 章「心跳与超时」）</td>
+          <td class="num">30 s</td>
+          <td>连接先断开</td>
+          <td>会话转为<strong>中断</strong>，可恢复</td>
+        </tr>
+        <tr>
+          <td>会话活动超时</td>
+          <td class="num">60 s</td>
+          <td>Server <strong>必须</strong>将其置为 <code>ABORTED</code> 并清理临时文件 / 位图 / 元数据</td>
+          <td><code>ABORTED</code> 是终态，<strong>不可</strong>恢复</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="diagram">
+    <div class="fields" style="--cols:4">
+      <div class="cell ruler-title">超时层级（规范性）· 非等比示意</div>
+
+      <div class="cell bitnum">t = 0</div>
+      <div class="cell bitnum">30 s</div>
+      <div class="cell bitnum">60 s</div>
+      <div class="cell bitnum">终态</div>
+
+      <div class="cell half f-len">控制连接空闲超时 30 s</div>
+      <div class="cell half f-crc">会话活动超时 60 s → ABORTED</div>
+
+      <div class="cell wide f-session">连接先断开 → 会话转为<strong>中断</strong>（可恢复）</div>
+      <div class="cell wide f-muted">随后才由会话超时兜底清理 → 转为 <strong>ABORTED</strong>（不可恢复）· 对应 19 章 <code>TIMEOUT_NO_ACTIVITY</code></div>
+    </div>
+  </div>
+
+  <ul class="spec">
+    <li><strong>会话活动超时</strong>：<strong>60 秒</strong>内无任何控制面交互或数据面活动的会话，
+      Server <strong>必须</strong>将其置为 <code>ABORTED</code> 并清理临时文件 / 位图 / 元数据。</li>
+    <li><strong>超时层级（规范性）</strong>：控制连接的空闲超时（<strong>30 秒</strong>，见 06 章「心跳与超时」）
+      <strong>必须</strong>早于会话活动超时（60 秒）触发。</li>
+    <li>客户端在超时前可经 <code>login</code> 的恢复列表恢复；超时后恢复<strong>不合法</strong>
+      （<code>ABORTED</code> 是终态，见 10 章）。</li>
+    <li>该阈值对应 19 章的 <code>TIMEOUT_NO_ACTIVITY</code>。</li>
+  </ul>
+
+  <div class="note">
+    <strong>本章与其它章的关系</strong>：会话状态与推进规则见 10 章；窗口与发送节奏见 11 章；
+    断线恢复路径见 13 章；数据面端口与地址绑定见 07 章；<code>session_id</code> 在 UDP 包头中的位置见 08 章。
+    常见实现陷阱：用裸时间戳低 32 位生成 <code>session_id</code>（回绕后跨会话串号）。
+  </div>
+
+  <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/09-session-model.md">docs/spec/09-session-model.md</a></footer>
+</div>
+</body>
+</html>
