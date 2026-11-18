@@ -25,3 +25,6 @@ rustc-ice-*.txt
 
 # GitHub Pages 构建产物
 _site/
+
+# 临时截图目录
+.tmp-shot/
