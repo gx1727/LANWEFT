@@ -63,11 +63,13 @@
 
 **在线浏览**：<https://gx1727.github.io/LANWEFT/>
 
+[![Pages](https://github.com/gx1727/LANWEFT/actions/workflows/pages.yml/badge.svg)](https://github.com/gx1727/LANWEFT/actions/workflows/pages.yml)
+
 ### 网页版部署（GitHub Pages）
 
 站点由 GitHub Actions 构建并发布（见 `.github/workflows/pages.yml`）：
 
-1. 仓库设置 → **Pages** → Build and deployment → Source 选择 **GitHub Actions**（一次性设置）
+1. 仓库 Pages 的 Source 已设为 **GitHub Actions**（已配置完成）
 2. `main` 分支推送时自动构建部署；也可在 Actions 页面手动触发（workflow_dispatch）
 
 构建脚本 `scripts/build-site.sh`（本地与 CI 共用）会：
