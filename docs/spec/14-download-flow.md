@@ -22,7 +22,7 @@
 
 Client 发送 download_start → Server 返回 download_accept（含 `session_id`（`u64`）/
 `chunk_count`（`u32`）/ `window`（`u32`）/ `connection_window`（`u32`）/
-`chunk_digest`（`enum8`）/ `udp_port`（`u16`）/ `tcp_port`（`u16`））
+`udp_port`（`u16`）/ `tcp_port`（`u16`））
 
 ### 2. UDP 探测
 
@@ -51,7 +51,6 @@ Client **不得**自行推断。
 ### 3. 数据传输
 
 Server 按 `window` 连续发送 UDP chunk（批量发送，节奏见 11 章），
-每个数据包**必须**携带 `chunk_digest`（见 08 章）。
 Server **必须**同时遵守连接级的 `connection_window`
 （该连接上所有会话的在途量之和，见 11 章）。
 

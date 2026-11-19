@@ -273,7 +273,7 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | 8 | 1 | result | enum8 | 该会话的恢复结果 |
 | 9 | 1 | direction | enum8 | 会话方向 |
 | 10 | 1 | state | enum8 | 会话当前状态（见 10 章）；`result` = fail 时**必须**为 ABORTED |
-| 11 | 1 | chunk_digest | enum8 | 逐块摘要开关：`0` = 关闭、`1` = 启用；**规范默认值 1**（见 09 章） |
+| 11 | 1 | reserved | u8 | 保留 |
 | 12 | 4 | chunk_count | u32 | 会话参数 |
 | 16 | 4 | chunk_size | u32 | 会话参数 |
 | 20 | 4 | window | u32 | 会话参数 |
@@ -323,8 +323,7 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | 24 | 2 | udp_port | u16 | 数据面 UDP 端口；Client **必须**以该端口作为数据面目的端口 |
 | 26 | 2 | tcp_port | u16 | **数据面** TCP 降级通道端口；**0 表示不支持 TCP 降级**。**不是**控制面端口 |
 | 28 | 1 | file_exists | bool | 秒传标志：Server 侧已存在相同 `file_hash` 时为 `1`（真），Client 可跳过上传（见 10 章秒传路径） |
-| 29 | 1 | chunk_digest | enum8 | 逐块摘要开关：`0` = 关闭、`1` = 启用；**规范默认值 1**（见 09 章） |
-| 30 | 2 | reserved | — | 保留 |
+| 29 | 3 | reserved | — | 保留 |
 
 **变长区（顺序固定）**
 
@@ -361,8 +360,7 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | 24 | 2 | udp_port | u16 | 数据面 UDP 端口；Server 向该端口推送 chunk，Client **必须**以它作为数据面端口 |
 | 26 | 2 | tcp_port | u16 | **数据面** TCP 降级通道端口；**0 表示不支持 TCP 降级**。**不是**控制面端口 |
 | 28 | 1 | file_exists | bool | 秒传标志；下载方向**必须**为 0（真） |
-| 29 | 1 | chunk_digest | enum8 | 逐块摘要开关：`0` = 关闭、`1` = 启用；**规范默认值 1**（见 09 章） |
-| 30 | 2 | reserved | — | 保留 |
+| 29 | 3 | reserved | — | 保留 |
 
 **变长区（顺序固定）**
 
@@ -370,8 +368,7 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 
 **与 `upload_accept` 的字段对称性（规范性）**：`upload_accept` 与 `download_accept` **必须**携带
 同构的字段集合 —— `file_hash` / `session_id` / `chunk_count` / `window` /
-`connection_window` / `udp_port` / `tcp_port` / `chunk_size` / `file_exists` /
-`chunk_digest`；
+`connection_window` / `udp_port` / `tcp_port` / `chunk_size` / `file_exists`；
 下载方向的 `file_exists` **必须**为 0。
 数据面端口与 `chunk_size` **必须**出现在两个 accept 消息中：
 缺端口则数据通路无法建立（Server 不得向未知端口发送 UDP，见 20 章），
@@ -484,8 +481,7 @@ Client 是会话对端，Server 不主动发起恢复。
 |------|------|------|------|------|
 | 0 | 8 | session_id | u64 | 会话 ID |
 | 8 | 1 | result | enum8 | `0` = fail，`1` = success |
-| 9 | 1 | chunk_digest | enum8 | 逐块摘要开关：`0` = 关闭、`1` = 启用（见 09 章） |
-| 10 | 2 | reserved | — | 保留 |
+| 9 | 3 | reserved | — | 保留 |
 | 12 | 4 | next_chunk_id | u32 | **续传顺序起点**：**接收方**位图中**第一个尚未收到的 chunk_id**；位图已全真时为 `chunk_count` |
 | 16 | 4 | missing_count | u32 | **接收方**位图中尚未收到的 chunk 总数（精确值） |
 | 20 | 2 | udp_port | u16 | 数据面 UDP 端口；会话重建后端口可能变化，**Client 必须使用回执中的端口** |
@@ -724,10 +720,7 @@ Client 可用 `file_hash` 单独定位，也可用 `asset_id` 精确定位到某
 11. **定长区一旦发布即冻结**：新增字段只能追加在扩展区；既有字段的偏移与大小不得变更
 12. **连接级在途上限**：同一控制连接上所有会话的数据面在途量之和**必须**不超过
     `connection_window`（见 11 章）；Client **不得**擅自修改该值
-13. **逐块摘要开关**：`chunk_digest` 由 Server 在 accept 中下发，
-    **规范默认值 1**；Client **不得**擅自修改；该值**必须**随权威快照与
-    `resume_ack` 传递（见 09 章、13 章）
-14. **待决请求唯一**：Client 在同一控制连接上同一时刻**必须**只保留一个待决的
+13. **待决请求唯一**：Client 在同一控制连接上同一时刻**必须**只保留一个待决的
     `upload_start` / `download_start`；因此 Server 对该请求的拒绝
     （以 `session_abort` 表达，见 19 章 `FILE_TOO_LARGE`）**必须**能被 Client 唯一归属
 

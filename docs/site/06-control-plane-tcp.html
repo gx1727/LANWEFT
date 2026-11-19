@@ -106,7 +106,6 @@
             <tr><td class="mono">hash32</td><td><strong>32 字节原始 Blake3 摘要</strong>（非十六进制串）</td></tr>
             <tr><td class="mono">chunk_list</td><td><code>u32</code> 条数 + 条数 × <code>u32</code> chunk_id（升序）</td></tr>
     <tr><td class="mono">session_id</td><td><strong>u64</strong>，跨 Server 进程重启不复用（见 09 章）</td></tr>
-    <tr><td class="mono">chunk_digest</td><td>逐块摘要开关（enum8）：<code>0</code> = 关闭、<code>1</code> = 启用，<strong>规范默认值 1</strong>；由 Server 在 accept 中下发</td></tr>
             <tr><td class="mono">record[]</td><td><code>u16</code> 条数 + 条数 × 定长记录</td></tr>
           </tbody>
         </table>

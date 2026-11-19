@@ -64,7 +64,6 @@
         <tr><td class="c-payload">bitmap</td><td>—</td><td>接收进度位图；记录各 <code>chunk_id</code> 的接收状态（见 18 章）</td></tr>
         <tr><td class="c-len">window</td><td class="mono">u32</td><td>滑动窗口大小（<strong>会话级在途上限</strong>，Server 下发，Client 不得修改，见 11 章）</td></tr>
         <tr><td class="c-len">connection_window</td><td class="mono">u32</td><td><strong>连接级</strong>在途上限；一条控制连接上<strong>所有会话</strong>的在途量之和不得超过该值（见 11 章）</td></tr>
-        <tr><td class="c-digest">chunk_digest</td><td class="mono">8 bytes</td><td>逐块端到端摘要；BLAKE3 XOF-8，仅覆盖 payload（见 08 章）</td></tr>
         <tr><td class="c-flags">复核轮</td><td>—</td><td>文件级失配后接收方要求发送方<strong>重新读取源文件并全量重发</strong>的恢复过程，<strong>至多一次</strong>（见 12 章）</td></tr>
         <tr><td class="c-len">在途量</td><td>—</td><td>已发出但尚未被对端确认接收的 chunk 数；<strong>不得超过 <code>window</code></strong>（见 11 章）</td></tr>
         <tr><td class="c-crc">missing_chunks</td><td class="mono">chunk_list</td><td>缺失数据块列表（<code>u32</code> 条数 + <code>u32</code> 数组，<strong>必须</strong>升序）；语义为「<strong>发布方自己尚未收到的块</strong>」<br>· 发布方恒为<strong>接收方</strong>（<code>mode=report</code>）；发送方发布时（<code>mode=request</code>）该列表<strong>必须</strong>为空列表</td></tr>

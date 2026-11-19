@@ -249,7 +249,7 @@
     <li><strong>同一版本号下的三套线路格式</strong>：按上游指示，修订<strong>未</strong>变更版本号。
       因此 <code>v0.3.0</code> 这一版本号先后指代了 <strong>JSON</strong>、
       <strong>二进制定长（<code>session_id</code> = u32）</strong>与
-      <strong>二进制定长（<code>session_id</code> = u64 + 逐块摘要 + TCP 数据面帧）</strong>
+      <strong>二进制定长（<code>session_id</code> = u64 + TCP 数据面帧）</strong>
       三套互不兼容的格式。
       实现<strong>必须</strong>以 06、07、08 章正文为准，不得仅凭版本号判断可互通性。</li>
     <li>控制帧现为<strong>二进制定长布局</strong>（见 06 章）：定长帧头 + 定长区 + 变长区，
@@ -317,7 +317,7 @@
   <ul class="spec">
     <li><strong>结论</strong>：<strong>已实施</strong>。TCP 数据面帧格式见 07 章「TCP 数据面线路格式」：
       <code>u32 frame_len</code> + <code>u64 session_id</code> + <code>u32 chunk_id</code> +
-      <code>u16 payload_len</code> + <code>u16 flags</code> + payload + <code>chunk_digest</code>；
+      <code>u16 payload_len</code> + <code>u16 flags</code> + payload；
       不携带 crc32（TCP 已提供字节流校验）。绑定帧 <code>FLAG_BIND</code> 用于会话绑定与权限校验。</li>
   </ul>
 
@@ -345,14 +345,13 @@
       <tbody>
         <tr>
           <td class="mono">—</td>
-          <td><strong>P0 修订</strong>：①新增逐块端到端摘要 <code>chunk_digest</code>（BLAKE3 8 字节），
-            数据包与 TCP 帧均携带；②文件级失配<strong>不再</strong>立即终止，改为<strong>复核轮</strong>
+          <td><strong>P0 修订</strong>：①文件级失配<strong>不再</strong>立即终止，改为<strong>复核轮</strong>
             （清空位图 → 全量重读重发 → 重新校验），<strong>至多一次</strong>；
-            ③<code>session_id</code> 由 u32 扩为 <strong>u64</strong>，要求<strong>跨 Server 进程重启不复用</strong>；
-            ④新增<strong>连接级</strong>在途上限 <code>connection_window</code>；
-            ⑤补齐文件大小上限与新错误码 <code>FILE_TOO_LARGE</code>；
-            ⑥<strong>TCP 数据面线路格式定稿</strong>；⑦1 Gbps 的 <code>window</code> 推荐值 4096 → <strong>8192</strong>；
-            ⑧01 章「终止权」与 10 章对齐。<strong>版本号不变</strong>（按上游指示）</td>
+            ②<code>session_id</code> 由 u32 扩为 <strong>u64</strong>，要求<strong>跨 Server 进程重启不复用</strong>；
+            ③新增<strong>连接级</strong>在途上限 <code>connection_window</code>；
+            ④补齐文件大小上限与新错误码 <code>FILE_TOO_LARGE</code>；
+            ⑤<strong>TCP 数据面线路格式定稿</strong>；⑥1 Gbps 的 <code>window</code> 推荐值 4096 → <strong>8192</strong>；
+            ⑦01 章「终止权」与 10 章对齐。<strong>版本号不变</strong>（按上游指示）</td>
           <td>00、01、02、05、06、07、08、09、10、11、12、13、14、17、18、19、20、24、26、99、README</td>
         </tr>
         <tr>

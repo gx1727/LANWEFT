@@ -33,7 +33,7 @@
       <div class="cell ruler-title">可靠性分层（自下而上）</div>
 
       <div class="cell wide f-session">① 缺失裁决与位图 · 控制面统计缺失并下发 <code>missing_chunks</code>(<code>mode=report</code>)；接收端乱序写盘与位图</div>
-      <div class="cell wide f-crc">② 完整性校验 · <code>crc32</code> 包级 + <code>chunk_digest</code> 逐块端到端 + 文件级 Blake3</div>
+      <div class="cell wide f-crc">② 完整性校验 · <code>crc32</code> 包级 + 文件级 Blake3</div>
       <div class="cell wide f-len">③ 重传 · UDP 不即时重传；聚合缺失后统一下发；重传优先级高于新数据</div>
       <div class="cell wide f-flags">④ 中断与恢复 · 不回滚已写入；恢复后加载位图并补传缺失</div>
       <div class="cell wide f-chunk">⑤ 完成与提交 · bitmap 全真 → 校验 hash → 原子重命名 → 发布完成消息</div>
@@ -149,13 +149,9 @@
       <tbody>
         <tr>
           <td><strong>包级</strong></td>
-          <td>每个 UDP 包尾部携带 CRC32，校验失败直接丢弃，<strong>不得</strong>写入位图</td>
-        </tr>
-        <tr>
-          <td><strong>逐块</strong></td>
-          <td>每个 <code>FLAG_DATA</code> 包携带 <code>chunk_digest</code>（BLAKE3 8 字节，仅覆盖 payload）。
-            校验失败即丢弃该包、<strong>不得</strong>写入位图，该块随即成为「未收到」，
-            按<strong>定点补发</strong>处理（<strong>不进</strong>复核轮）。</td>
+          <td>每个 UDP 包尾部携带 CRC32（覆盖 16 字节头 + payload），校验失败直接丢弃，<strong>不得</strong>写入位图；
+            该块随即成为「未收到」，按<strong>定点补发</strong>处理 ——
+            单次校验失败的代价是<strong>一个块</strong>，不是整个文件</td>
         </tr>
         <tr>
           <td><strong>文件级</strong></td>
@@ -170,7 +166,7 @@
             ① 清空位图（临时文件保留）；② 发布带<strong>复核轮标志</strong>
             （<code>missing_chunks.flags.bit1 = 1</code>）的裁决，<code>chunks</code> 为空列表、
             <code>missing_count</code> = <code>chunk_count</code>；③ 发送方<strong>必须</strong>重新读取源文件、
-            从 <code>chunk_id = 0</code> 起全量重发并重算逐块摘要；④ 重新校验文件级 Blake3。<br>
+            从 <code>chunk_id = 0</code> 起全量重发；④ 重新校验文件级 Blake3。<br>
             复核轮<strong>至多一次</strong>（计数必须随位图持久化）。</td>
         </tr>
         <tr>

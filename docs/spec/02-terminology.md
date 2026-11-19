@@ -17,9 +17,6 @@
   **必须** ≤ 2³² − 1（文件大小上限，见 09 章）
 - `payload_len`（u16）：载荷长度
 - `flags`（u16）：标志位
-- `chunk_digest`（8 字节）：逐块端到端摘要；BLAKE3 的 8 字节 XOF 输出，
-  **仅覆盖该 chunk 的 payload**；**可选字段**，由会话参数 `chunk_digest`
-  （`0` = 关闭 / `1` = 启用，默认 1）决定是否携带（见 08、09 章）
 - `client_id`（device_id，str）：客户端设备 ID（见 23 章）
 
 ## 会话与方向

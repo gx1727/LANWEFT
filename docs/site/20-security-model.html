@@ -99,8 +99,6 @@
 
   <ul class="spec">
     <li>UDP 使用 CRC32（<strong>完整性非安全性</strong>）：CRC32 无密钥，任何能发包的主机都能伪造合法包。</li>
-    <li>UDP 使用 <code>chunk_digest</code>（BLAKE3 8 字节，<strong>完整性非安全性</strong>）：摘要无密钥，
-      提供的是<strong>端到端</strong>完整性（可发现接收侧损坏），<strong>不是</strong>身份认证。</li>
     <li><code>session_id</code>（u64）跨 Server 进程重启<strong>不复用</strong> —— 否则重启前仍在飞行中的数据包
       会命中新建会话，把数据写入<strong>错误的文件</strong>（见 09 章）。</li>
     <li>文件级内容 hash（Blake3）：<strong>32 字节原始摘要</strong>（<code>hash32</code>），

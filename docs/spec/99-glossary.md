@@ -13,7 +13,6 @@
 | TCP fallback | 数据面降级通道（**不是**控制通道） |
 | 小端序 | 本协议所有多字节整数的字节序（Little-Endian） |
 | CRC-32/ISO-HDLC | 本协议包级校验使用的 CRC32 变体（见 08 章） |
-| BLAKE3-8 | 逐块摘要使用的 BLAKE3 XOF 输出长度（8 字节，见 08 章） |
 | Blake3 | 文件级内容哈希算法（见 08、12 章） |
 | 帧 | 控制通道的消息单元：`u32 frame_len` + 定长帧头 + 二进制消息体（见 06 章） |
 | 权威快照 | 恢复时由 Server 下发的会话状态，接收方必须以其覆盖本地状态（见 13 章） |
@@ -30,8 +29,6 @@
 | chunk_size | 分块大小（字节，建议 1024–1350，上限 1400） |
 | chunk_count | 总块数 = ceil(size / chunk_size) |
 | payload_len | 载荷长度（u16） |
-| chunk_digest | 逐块端到端摘要（8 字节 BLAKE3 XOF，仅覆盖 payload）；**可选**，由会话参数决定（见 08、09 章） |
-| chunk_digest（会话参数） | 逐块摘要开关（enum8）：`0` = 关闭、`1` = 启用，**规范默认值 1** |
 | flags | 数据包标志位（u16） |
 | bitmap | 位图，记录各 chunk 的接收状态 |
 | missing_chunks | 缺失块列表；`chunks` 恒为「**发布方**自己尚未收到的块」（发布方恒为接收方） |

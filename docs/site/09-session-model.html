@@ -44,7 +44,6 @@
         <tr><td class="c-len">chunk_size</td><td class="mono">u32</td><td>Chunk 大小（字节）</td></tr>
         <tr><td class="c-len">window</td><td class="mono">u32</td><td>滑动窗口大小（<strong>会话级在途上限</strong>）</td></tr>
         <tr><td class="c-len">connection_window</td><td class="mono">u32</td><td><strong>连接级</strong>在途上限（同一连接上所有会话共享）</td></tr>
-        <tr><td class="c-digest">chunk_digest</td><td class="mono">enum8</td><td>逐块摘要开关：<code>0</code> = 关闭（仅 CRC32）、<code>1</code> = 启用（BLAKE3-8）；<strong>规范默认值 1</strong></td></tr>
         <tr><td class="c-chunk">chunk_count</td><td class="mono">u32</td><td>总 chunk 数量 = <code>ceil(size / chunk_size)</code></td></tr>
         <tr><td class="c-type">udp_port</td><td class="mono">u16</td><td>UDP 端口号</td></tr>
         <tr><td class="c-type">tcp_port</td><td class="mono">u16</td><td>TCP 端口号</td></tr>

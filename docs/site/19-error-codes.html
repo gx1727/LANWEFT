@@ -200,11 +200,6 @@
           <td>丢弃该包，<strong>不</strong>标记位图</td>
         </tr>
         <tr>
-          <td class="ec-code">CHUNK_DIGEST_MISMATCH</td>
-          <td>逐块摘要校验失败（BLAKE3 8 字节）</td>
-          <td>丢弃该包，<strong>不</strong>标记位图；该块按<strong>定点补发</strong>处理（不进复核轮）</td>
-        </tr>
-        <tr>
           <td class="ec-code">FILE_HASH_MISMATCH</td>
           <td>文件级内容哈希不一致</td>
           <td><strong>必须</strong>先执行<strong>复核轮</strong>；复核轮后仍失配才以

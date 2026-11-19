@@ -163,7 +163,7 @@
     {sep:'④ 数据传输（数据面 UDP，无逐包 ACK）'},
     {from:'C', to:'S', type:'udp', label:'chunk #0 … #N（批量 burst_size，批间隔 batch_gap_us = 2000µs）',
       chip:{side:'C', text:'Client: 发送侧，仅更新「在途量」估计'}, chip2:{side:'S', text:'Server: 接收侧'}},
-    {from:'S', to:'S', type:'self', label:'校验头 + crc32 + chunk_digest → 随机写盘 → 标记位图'},
+    {from:'S', to:'S', type:'self', label:'校验头 + crc32 → 随机写盘 → 标记位图'},
 
     {sep:'⑤ 缺失裁决与重传（可靠性由接收方裁决提供）'},
     {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, chunks=[]} —— 空列表也必须下发'},

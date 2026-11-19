@@ -49,8 +49,6 @@
 ### INTEGRITY
 
 - `CRC32_INVALID`：包级校验失败（丢弃该包，不标记位图）
-- `CHUNK_DIGEST_MISMATCH`：逐块摘要校验失败（丢弃该包，不标记位图；
-  该块按**定点补发**处理，见 12 章）
 - `FILE_HASH_MISMATCH`：文件级内容哈希不一致（**必须**先执行复核轮；
   复核轮后仍失配才以 `session_abort` 终止会话，见 12 章）
 - `INVALID_CHUNK`：chunk_id 越界或非法

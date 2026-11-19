@@ -41,8 +41,7 @@ UDP_PROBE → UDP_PROBE_ACK → udp_ready
 
 ### 数据传输
 
-Client 连续发送 UDP chunk（每个包携带 `chunk_digest`，见 08 章）；
-Server 乱序随机写盘
+Client 连续发送 UDP chunk；Server 乱序随机写盘
 
 ### 缺失统计与重传
 
