@@ -92,8 +92,9 @@
 
       <div class="cell wide f-muted dl-msg">
         <b>1 会话建立</b>：Client 发送 <code>download_start</code> → Server 返回
-        <code>download_accept</code>（含 <code>session_id</code>（<code>u32</code>）/
+        <code>download_accept</code>（含 <code>session_id</code>（<code>u64</code>）/
         <code>chunk_count</code>（<code>u32</code>）/ <code>window</code>（<code>u32</code>）/
+        <code>connection_window</code>（<code>u32</code>）/
         <code>udp_port</code>（<code>u16</code>）/ <code>tcp_port</code>（<code>u16</code>））
       </div>
       <div class="cell wide f-muted dl-msg">

@@ -33,7 +33,7 @@
         <tr><th>字段</th><th>类型</th><th>说明</th></tr>
       </thead>
       <tbody>
-        <tr><td class="c-session">session_id</td><td class="mono">u32</td><td>会话唯一标识，Server 生成</td></tr>
+        <tr><td class="c-session">session_id</td><td class="mono">u64</td><td>会话唯一标识，Server 生成；<strong>跨进程重启不复用</strong></td></tr>
         <tr><td class="c-session">client_id</td><td class="mono">str</td><td>客户端设备 ID；<strong>必须</strong>等于控制连接绑定的身份（见 21 章）</td></tr>
         <tr><td class="c-type">direction</td><td class="mono">enum8</td><td><code>0</code> = <code>upload</code>、<code>1</code> = <code>download</code> —— <strong>接收方 / 发送方角色</strong></td></tr>
         <tr><td class="c-payload">file_hash</td><td class="mono">hash32</td><td>文件哈希（<strong>32 字节原始 Blake3 摘要</strong>）</td></tr>
@@ -42,7 +42,9 @@
         <tr><td class="c-len">mtime</td><td class="mono">u64</td><td>文件修改时间戳</td></tr>
         <tr><td class="c-flags">state</td><td class="mono">enum8</td><td>会话状态（见 10 章）</td></tr>
         <tr><td class="c-len">chunk_size</td><td class="mono">u32</td><td>Chunk 大小（字节）</td></tr>
-        <tr><td class="c-len">window</td><td class="mono">u32</td><td>滑动窗口大小（<strong>在途上限</strong>）</td></tr>
+        <tr><td class="c-len">window</td><td class="mono">u32</td><td>滑动窗口大小（<strong>会话级在途上限</strong>）</td></tr>
+        <tr><td class="c-len">connection_window</td><td class="mono">u32</td><td><strong>连接级</strong>在途上限（同一连接上所有会话共享）</td></tr>
+        <tr><td class="c-digest">chunk_digest</td><td class="mono">enum8</td><td>逐块摘要开关：<code>0</code> = 关闭（仅 CRC32）、<code>1</code> = 启用（BLAKE3-8）；<strong>规范默认值 1</strong></td></tr>
         <tr><td class="c-chunk">chunk_count</td><td class="mono">u32</td><td>总 chunk 数量 = <code>ceil(size / chunk_size)</code></td></tr>
         <tr><td class="c-type">udp_port</td><td class="mono">u16</td><td>UDP 端口号</td></tr>
         <tr><td class="c-type">tcp_port</td><td class="mono">u16</td><td>TCP 端口号</td></tr>
@@ -124,7 +126,7 @@
           <td>
             「同文件」的判定键为 <code>client_id + file_hash</code>（同一客户端的同一内容）。<br>
             返回现有会话时，<code>upload_accept</code> <strong>必须</strong>复用既有的 <code>session_id</code>，
-            并重新下发当前的 <code>window</code> / <code>chunk_size</code> / <code>udp_port</code>。
+            并重新下发当前的 <code>window</code> / <code>connection_window</code> / <code>chunk_size</code> / <code>udp_port</code>。
           </td>
         </tr>
         <tr>

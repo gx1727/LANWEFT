@@ -33,7 +33,7 @@
       <div class="cell ruler-title">可靠性分层（自下而上）</div>
 
       <div class="cell wide f-session">① 缺失裁决与位图 · 控制面统计缺失并下发 <code>missing_chunks</code>(<code>mode=report</code>)；接收端乱序写盘与位图</div>
-      <div class="cell wide f-crc">② 完整性校验 · <code>crc32</code> 包级完整性；文件级内容 hash 校验（Blake3）</div>
+      <div class="cell wide f-crc">② 完整性校验 · <code>crc32</code> 包级 + <code>chunk_digest</code> 逐块端到端 + 文件级 Blake3</div>
       <div class="cell wide f-len">③ 重传 · UDP 不即时重传；聚合缺失后统一下发；重传优先级高于新数据</div>
       <div class="cell wide f-flags">④ 中断与恢复 · 不回滚已写入；恢复后加载位图并补传缺失</div>
       <div class="cell wide f-chunk">⑤ 完成与提交 · bitmap 全真 → 校验 hash → 原子重命名 → 发布完成消息</div>
@@ -152,6 +152,12 @@
           <td>每个 UDP 包尾部携带 CRC32，校验失败直接丢弃，<strong>不得</strong>写入位图</td>
         </tr>
         <tr>
+          <td><strong>逐块</strong></td>
+          <td>每个 <code>FLAG_DATA</code> 包携带 <code>chunk_digest</code>（BLAKE3 8 字节，仅覆盖 payload）。
+            校验失败即丢弃该包、<strong>不得</strong>写入位图，该块随即成为「未收到」，
+            按<strong>定点补发</strong>处理（<strong>不进</strong>复核轮）。</td>
+        </tr>
+        <tr>
           <td><strong>文件级</strong></td>
           <td>传输完成后，接收方计算全文件 Blake3 哈希，与请求中的 <code>file_hash</code> 比对
             （<code>file_hash</code> 为 <strong>32 字节原始 Blake3 摘要</strong>，<code>hash32</code> 类型，非十六进制串）；
@@ -159,12 +165,19 @@
             下载方向 <code>download_complete</code>）</td>
         </tr>
         <tr>
-          <td><strong>文件级校验失败</strong></td>
+          <td><strong>文件级校验失败 → 复核轮</strong></td>
+          <td>接收方<strong>不得</strong>立即终止会话，<strong>必须</strong>进入<strong>复核轮</strong>：<br>
+            ① 清空位图（临时文件保留）；② 发布带<strong>复核轮标志</strong>
+            （<code>missing_chunks.flags.bit1 = 1</code>）的裁决，<code>chunks</code> 为空列表、
+            <code>missing_count</code> = <code>chunk_count</code>；③ 发送方<strong>必须</strong>重新读取源文件、
+            从 <code>chunk_id = 0</code> 起全量重发并重算逐块摘要；④ 重新校验文件级 Blake3。<br>
+            复核轮<strong>至多一次</strong>（计数必须随位图持久化）。</td>
+        </tr>
+        <tr>
+          <td><strong>复核轮后仍失配</strong></td>
           <td>接收方<strong>必须</strong>发布 <code>session_abort</code>（<code>reason</code> = <code>FILE_HASH_MISMATCH</code>）
-            终止会话。<br>
-            这是<strong>接收侧唯一有权发起的终止</strong>（见 10 章「终止权」）；其余终止原因一律由 Server 发起。<br>
-            由于包级 CRC32 已经过校验，文件级失配通常意味着<strong>会话参数错误</strong>
-            （如 <code>chunk_size</code> 协商不一致）而非个别数据损坏，因此<strong>不作为可重传事件处理</strong>。</td>
+            终止会话。此时源文件确实不可读或已被改动。<br>
+            这是<strong>接收侧唯一有权发起的终止</strong>（见 10 章「终止权」）；其余终止原因一律由 Server 发起。</td>
         </tr>
         <tr>
           <td><strong>秒传路径</strong></td>
@@ -178,7 +191,8 @@
     <strong>本章与其它章的关系</strong>：窗口推进与索要判据见 11 章；会话状态与终止权见 10 章；
     断线恢复见 13 章；会话超时阈值见 09 章；包级校验与包头布局见 07 章与 08 章。
     常见实现陷阱：把 50 ms 的裁决周期当成「有缺失才下发」，或把 <code>missing_count</code> 误当作本批
-    <code>chunks</code> 的长度。
+    <code>chunks</code> 的长度；以及把<strong>文件级失配</strong>直接实现成终止 —— 那会让
+    100 GiB 文件因一次未被检出的位翻转（CRC32 漏检概率约 2.1%）而全部作废。
   </div>
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/12-reliability-model.md">docs/spec/12-reliability-model.md</a></footer>

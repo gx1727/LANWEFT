@@ -20,8 +20,9 @@
 
 ### 1. 会话建立
 
-Client 发送 download_start → Server 返回 download_accept（含 `session_id`（`u32`）/
-`chunk_count`（`u32`）/ `window`（`u32`）/ `udp_port`（`u16`）/ `tcp_port`（`u16`））
+Client 发送 download_start → Server 返回 download_accept（含 `session_id`（`u64`）/
+`chunk_count`（`u32`）/ `window`（`u32`）/ `connection_window`（`u32`）/
+`chunk_digest`（`enum8`）/ `udp_port`（`u16`）/ `tcp_port`（`u16`））
 
 ### 2. UDP 探测
 
@@ -49,7 +50,10 @@ Client **不得**自行推断。
 
 ### 3. 数据传输
 
-Server 按 `window` 连续发送 UDP chunk（批量发送，节奏见 11 章）
+Server 按 `window` 连续发送 UDP chunk（批量发送，节奏见 11 章），
+每个数据包**必须**携带 `chunk_digest`（见 08 章）。
+Server **必须**同时遵守连接级的 `connection_window`
+（该连接上所有会话的在途量之和，见 11 章）。
 
 ### 4. 缺失重传
 
@@ -73,6 +77,11 @@ Client 每 500ms 发布 `progress_update`（`received` / `total` 为 chunk 数�
 
 Client 检测位图全真 → 校验 hash → 原子重命名 → 发送 download_complete
 （**接收方发布完成消息**，见 06 章）
+
+**复核轮**：Client 校验 hash 失配时**必须**进入复核轮
+（清空位图 → 发布带复核轮标志的 `missing_chunks` → Server 全量重读重发），
+**不得**直接终止会话；复核轮后仍失配才以
+`session_abort`（`reason` = `FILE_HASH_MISMATCH`）终止（见 12 章）。
 
 ## 与上传对称性
 

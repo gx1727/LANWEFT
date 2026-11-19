@@ -197,7 +197,7 @@
     <li><strong>发送侧</strong>只使用 INIT / NEGOTIATING / TRANSFERRING / PAUSED / COMPLETED / ABORTED ——
       发送侧不持有位图，<strong>不存在</strong> VERIFY 与 COMMIT 状态：文件级校验与原子提交
       天然发生在接收侧。</li>
-    <li>「Server 为最终裁决者」指<strong>终止权</strong>：任何进入 ABORTED 的转换只能由 Server 通过
+    <li>「Server 为最终裁决者」指<strong>一般终止权</strong>（接收方在复核轮后可终止，见 12 章）：进入 ABORTED 的转换通常由 Server 通过
       <code>session_abort</code> 发起（发送侧收到 <code>session_abort</code> 后同样转入 ABORTED）。</li>
   </ul>
 
@@ -284,7 +284,8 @@
       <ul>
         <li><strong>Server</strong> —— 可因任意原因终止会话（超时、ACL、状态非法、资源不足等）；</li>
         <li><strong>接收侧</strong> —— <strong>仅限</strong>检测到不可恢复的数据完整性失败
-          （<code>reason</code> = <code>FILE_HASH_MISMATCH</code>）。这是接收侧唯一有权发起的终止。</li>
+          （<code>reason</code> = <code>FILE_HASH_MISMATCH</code>），且<strong>必须已在复核轮之后</strong>。
+          这是接收侧唯一有权发起的终止（见 12 章「复核轮」）。</li>
       </ul>
     </li>
     <li>发送侧<strong>不得</strong>主动发布 <code>session_abort</code>（除非它也是该会话的接收侧）。

@@ -223,15 +223,15 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 
 1. `device_id`：`str`。设备标识；**必须**与认证凭据绑定的身份一致（见 21、23 章）。
 2. `token`：`str`。认证凭据；采用客户端证书时**必须**为空串（长度 0）。
-3. `resume[]`：`resume_count` 条记录，每条 **16 字节定长**：
+3. `resume[]`：`resume_count` 条记录，每条 **20 字节定长**：
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | 会话 ID |
-| 4 | 4 | next_chunk_id | u32 | 恢复提示（**仅接收方提供**）；`flags.bit0 = 0` 时**必须**为 0 |
-| 8 | 4 | missing_count | u32 | 恢复提示（**仅接收方提供**）；`flags.bit1 = 0` 时**必须**为 0 |
-| 12 | 1 | flags | u8 | bit0 = `next_chunk_id` 有效，bit1 = `missing_count` 有效；bit2-7 保留 |
-| 13 | 3 | reserved | — | 保留 |
+| 0 | 8 | session_id | u64 | 会话 ID |
+| 8 | 4 | next_chunk_id | u32 | 恢复提示（**仅接收方提供**）；`flags.bit0 = 0` 时**必须**为 0 |
+| 12 | 4 | missing_count | u32 | 恢复提示（**仅接收方提供**）；`flags.bit1 = 0` 时**必须**为 0 |
+| 16 | 1 | flags | u8 | bit0 = `next_chunk_id` 有效，bit1 = `missing_count` 有效；bit2-7 保留 |
+| 17 | 3 | reserved | — | 保留 |
 
 **恢复列表的方向规则（规范性）**：续传起点来自**接收方**的位图，
 因此**只有接收方才可能提供**它：
@@ -263,25 +263,26 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 
 1. `code`：`str`。失败时的机器可判定错误码（取值见 19 章，如 `LOGIN_FAILED` /
    `PROTO_VERSION_UNSUPPORTED` / `CLIENT_ID_INVALID`）；成功时**必须**为空串。
-2. `sessions[]`：`sessions_count` 条快照记录，每条 = **34 字节定长** + `code_len` 字节内联字符串。
+2. `sessions[]`：`sessions_count` 条快照记录，每条 = **42 字节定长** + `code_len` 字节内联字符串。
 
-**快照记录定长区（34 字节）**
+**快照记录定长区（42 字节）**
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | 会话 ID |
-| 4 | 1 | result | enum8 | 该会话的恢复结果 |
-| 5 | 1 | direction | enum8 | 会话方向 |
-| 6 | 1 | state | enum8 | 会话当前状态（见 10 章）；`result` = fail 时**必须**为 ABORTED |
-| 7 | 1 | reserved | u8 | 保留 |
-| 8 | 4 | chunk_count | u32 | 会话参数 |
-| 12 | 4 | chunk_size | u32 | 会话参数 |
-| 16 | 4 | window | u32 | 会话参数 |
-| 20 | 4 | next_chunk_id | u32 | **续传顺序起点**：**接收方**位图中第一个尚未收到的 `chunk_id` |
-| 24 | 4 | missing_count | u32 | **接收方**位图中尚未收到的 chunk 总数（精确值） |
-| 28 | 2 | udp_port | u16 | 数据面端口；**可能因会话重建而变化** |
-| 30 | 2 | tcp_port | u16 | 数据面 TCP 降级端口；`0` 表示不支持 |
-| 32 | 2 | code_len | u16 | 该会话失败时的错误码长度；成功时为 0 |
+| 0 | 8 | session_id | u64 | 会话 ID |
+| 8 | 1 | result | enum8 | 该会话的恢复结果 |
+| 9 | 1 | direction | enum8 | 会话方向 |
+| 10 | 1 | state | enum8 | 会话当前状态（见 10 章）；`result` = fail 时**必须**为 ABORTED |
+| 11 | 1 | chunk_digest | enum8 | 逐块摘要开关：`0` = 关闭、`1` = 启用；**规范默认值 1**（见 09 章） |
+| 12 | 4 | chunk_count | u32 | 会话参数 |
+| 16 | 4 | chunk_size | u32 | 会话参数 |
+| 20 | 4 | window | u32 | 会话参数 |
+| 24 | 4 | connection_window | u32 | **连接级**在途上限（见 11 章） |
+| 28 | 4 | next_chunk_id | u32 | **续传顺序起点**：**接收方**位图中第一个尚未收到的 `chunk_id` |
+| 32 | 4 | missing_count | u32 | **接收方**位图中尚未收到的 chunk 总数（精确值） |
+| 36 | 2 | udp_port | u16 | 数据面端口；**可能因会话重建而变化** |
+| 38 | 2 | tcp_port | u16 | 数据面 TCP 降级端口；`0` 表示不支持 |
+| 40 | 2 | code_len | u16 | 该会话失败时的错误码长度；成功时为 0 |
 
 紧随记录定长区之后是 `code_len` 字节的 ASCII 错误码（见「记录内联字符串」）。
 
@@ -293,15 +294,15 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 
 ### upload_start（`0x03`）
 
-**定长区（24 字节）**
+**定长区（28 字节）**
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | 可为 0；由 Server 生成并在 `upload_accept` 中回填 |
-| 4 | 8 | size | u64 | 文件大小（字节） |
-| 12 | 8 | mtime | u64 | 文件修改时间戳（UTC 秒）；Server 依此记录素材时间属性 |
-| 20 | 1 | flags | u8 | bit0 = `session_id` 有效；bit1-7 保留 |
-| 21 | 3 | reserved | — | 保留 |
+| 0 | 8 | session_id | u64 | 可为 0；由 Server 生成并在 `upload_accept` 中回填 |
+| 8 | 8 | size | u64 | 文件大小（字节）；**必须**满足 09 章的「文件大小上限」 |
+| 16 | 8 | mtime | u64 | 文件修改时间戳（UTC 秒）；Server 依此记录素材时间属性 |
+| 24 | 1 | flags | u8 | bit0 = `session_id` 有效；bit1-7 保留 |
+| 25 | 3 | reserved | — | 保留 |
 
 **变长区（顺序固定）**
 
@@ -310,18 +311,20 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 
 ### upload_accept（`0x04`）
 
-**定长区（24 字节）**
+**定长区（32 字节）**
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | Server 生成的会话 ID |
-| 4 | 4 | chunk_count | u32 | 总 chunk 数量 = ceil(size / chunk_size) |
-| 8 | 4 | window | u32 | 滑动窗口大小（**在途上限**），由 Server 下发；**Client 不得擅自修改**；**规范默认 4096**（见 11 章） |
-| 12 | 4 | chunk_size | u32 | 协商确定的 chunk 大小 |
-| 16 | 2 | udp_port | u16 | 数据面 UDP 端口；Client **必须**以该端口作为数据面目的端口 |
-| 18 | 2 | tcp_port | u16 | **数据面** TCP 降级通道端口；**0 表示不支持 TCP 降级**。**不是**控制面端口 |
-| 20 | 1 | file_exists | bool | 秒传标志：Server 侧已存在相同 `file_hash` 时为 `1`（真），Client 可跳过上传（见 10 章秒传路径） |
-| 21 | 3 | reserved | — | 保留 |
+| 0 | 8 | session_id | u64 | Server 生成的会话 ID |
+| 8 | 4 | chunk_count | u32 | 总 chunk 数量 = ceil(size / chunk_size) |
+| 12 | 4 | window | u32 | 滑动窗口大小（**在途上限**），由 Server 下发；**Client 不得擅自修改**；**规范默认 4096**（见 11 章） |
+| 16 | 4 | connection_window | u32 | **连接级**在途上限；由 Server 下发；**Client 不得擅自修改**；**规范默认 8192**（见 11 章） |
+| 20 | 4 | chunk_size | u32 | 协商确定的 chunk 大小 |
+| 24 | 2 | udp_port | u16 | 数据面 UDP 端口；Client **必须**以该端口作为数据面目的端口 |
+| 26 | 2 | tcp_port | u16 | **数据面** TCP 降级通道端口；**0 表示不支持 TCP 降级**。**不是**控制面端口 |
+| 28 | 1 | file_exists | bool | 秒传标志：Server 侧已存在相同 `file_hash` 时为 `1`（真），Client 可跳过上传（见 10 章秒传路径） |
+| 29 | 1 | chunk_digest | enum8 | 逐块摘要开关：`0` = 关闭、`1` = 启用；**规范默认值 1**（见 09 章） |
+| 30 | 2 | reserved | — | 保留 |
 
 **变长区（顺序固定）**
 
@@ -329,16 +332,15 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 
 ### download_start（`0x05`）
 
-**定长区（24 字节）**
+**定长区（28 字节）**
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | 可为 0；由 Server 生成并在 `download_accept` 中回填 |
-| 4 | 8 | size | u64 | 文件大小（字节） |
-| 12 | 4 | chunk_size | u32 | 期望的 chunk 大小（字节） |
-| 16 | 1 | flags | u8 | bit0 = `session_id` 有效；bit1-7 保留 |
-| 17 | 3 | reserved | — | 保留 |
-| 20 | 4 | reserved | — | 保留 |
+| 0 | 8 | session_id | u64 | 可为 0；由 Server 生成并在 `download_accept` 中回填 |
+| 8 | 8 | size | u64 | 文件大小（字节）；**必须**满足 09 章的「文件大小上限」 |
+| 16 | 4 | chunk_size | u32 | 期望的 chunk 大小（字节） |
+| 20 | 1 | flags | u8 | bit0 = `session_id` 有效；bit1-7 保留 |
+| 21 | 7 | reserved | — | 保留 |
 
 **变长区（顺序固定）**
 
@@ -347,18 +349,20 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 
 ### download_accept（`0x06`）
 
-**定长区（24 字节）**
+**定长区（32 字节）**
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | Server 生成的会话 ID |
-| 4 | 4 | chunk_count | u32 | 总 chunk 数量 = ceil(size / chunk_size) |
-| 8 | 4 | window | u32 | 滑动窗口大小（**在途上限**），由 Server 下发；**Client 不得擅自修改**；**规范默认 4096**（见 11 章） |
-| 12 | 4 | chunk_size | u32 | 协商确定的 chunk 大小；Client **必须**用它核算 `chunk_count` |
-| 16 | 2 | udp_port | u16 | 数据面 UDP 端口；Server 向该端口推送 chunk，Client **必须**以它作为数据面端口 |
-| 18 | 2 | tcp_port | u16 | **数据面** TCP 降级通道端口；**0 表示不支持 TCP 降级**。**不是**控制面端口 |
-| 20 | 1 | reserved | u8 | 保留（**必须**为 0） |
-| 21 | 3 | reserved | — | 保留 |
+| 0 | 8 | session_id | u64 | Server 生成的会话 ID |
+| 8 | 4 | chunk_count | u32 | 总 chunk 数量 = ceil(size / chunk_size) |
+| 12 | 4 | window | u32 | 滑动窗口大小（**在途上限**），由 Server 下发；**Client 不得擅自修改**；**规范默认 4096**（见 11 章） |
+| 16 | 4 | connection_window | u32 | **连接级**在途上限；由 Server 下发；**Client 不得擅自修改**；**规范默认 8192**（见 11 章） |
+| 20 | 4 | chunk_size | u32 | 协商确定的 chunk 大小；Client **必须**用它核算 `chunk_count` |
+| 24 | 2 | udp_port | u16 | 数据面 UDP 端口；Server 向该端口推送 chunk，Client **必须**以它作为数据面端口 |
+| 26 | 2 | tcp_port | u16 | **数据面** TCP 降级通道端口；**0 表示不支持 TCP 降级**。**不是**控制面端口 |
+| 28 | 1 | file_exists | bool | 秒传标志；下载方向**必须**为 0（真） |
+| 29 | 1 | chunk_digest | enum8 | 逐块摘要开关：`0` = 关闭、`1` = 启用；**规范默认值 1**（见 09 章） |
+| 30 | 2 | reserved | — | 保留 |
 
 **变长区（顺序固定）**
 
@@ -366,23 +370,25 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 
 **与 `upload_accept` 的字段对称性（规范性）**：`upload_accept` 与 `download_accept` **必须**携带
 同构的字段集合 —— `file_hash` / `session_id` / `chunk_count` / `window` /
-`udp_port` / `tcp_port` / `chunk_size`；仅 `upload_accept` 额外携带 `file_exists`。
+`connection_window` / `udp_port` / `tcp_port` / `chunk_size` / `file_exists` /
+`chunk_digest`；
+下载方向的 `file_exists` **必须**为 0。
 数据面端口与 `chunk_size` **必须**出现在两个 accept 消息中：
 缺端口则数据通路无法建立（Server 不得向未知端口发送 UDP，见 20 章），
 缺 `chunk_size` 则接收方无法核算 `chunk_count = ceil(size / chunk_size)`。
 
 ### missing_chunks（`0x07`）
 
-**定长区（16 字节）**
+**定长区（20 字节）**
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | 会话 ID |
-| 4 | 1 | mode | enum8 | `0` = report，`1` = request |
-| 5 | 1 | flags | u8 | bit0 = `missing_count` 有效；bit1-7 保留 |
-| 6 | 2 | reserved | u16 | 保留 |
-| 8 | 4 | missing_count | u32 | 位图中**尚未收到**的 chunk **总数**（精确值）；`flags.bit0 = 0` 时**必须**为 0 |
-| 12 | 4 | chunk_count | u32 | 本批 `chunks` 条目数 |
+| 0 | 8 | session_id | u64 | 会话 ID |
+| 8 | 1 | mode | enum8 | `0` = report，`1` = request |
+| 9 | 1 | flags | u8 | bit0 = `missing_count` 有效；bit1 = **复核轮**；bit2-7 保留 |
+| 10 | 2 | reserved | u16 | 保留 |
+| 12 | 4 | missing_count | u32 | 位图中**尚未收到**的 chunk **总数**（精确值）；`flags.bit0 = 0` 时**必须**为 0 |
+| 16 | 4 | chunk_count | u32 | 本批 `chunks` 条目数 |
 
 **变长区（顺序固定）**
 
@@ -398,7 +404,7 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 
 | mode | 语义 | chunks | 收到方的处理 |
 |------|------|--------|--------------|
-| `report` | **发布方**报告自己尚未收到的 chunk | 非空或空列表 | 按 `chunks` 重传这些块；条数为 0 表示「我这边没有缺失，可继续推进」 |
+| `report` | **发布方**报告自己尚未收到的 chunk | 非空或空列表 | 按 `chunks` 重传这些块；条数为 0 **且未置复核轮标志**时表示「我这边没有缺失，可继续推进」；置复核轮标志时空列表表示「全部块」（见下） |
 | `request` | 发送方索要对端的缺失列表 | **必须**为空列表 | 对端**必须**在 50ms 内以 `mode=report` 的 `missing_chunks` 应答 |
 
 **按会话方向展开**（`direction` 见 09 章）：
@@ -418,6 +424,17 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 chunk **精确总数**（**不是**本批 `chunks` 的长度）。发送方据此推算对端已收数与在途量
 （见 11 章），因此该值**不得**是估计值或近似值。`mode=request` 时**必须**为 0。
 
+**复核轮标志 `flags.bit1`（规范性）**：`flags.bit1` = 1 表示本条裁决是**复核轮**
+（见 12 章「复核轮」）。
+
+- 该标志**仅**在 `mode = report` 时有意义；`mode = request` 时**必须**为 0。
+- 复核轮中，接收方**必须**已清空位图，**必须**要求发送方**全量重发**：
+  - `chunks` **必须**为空列表（含义为「全部块」，而非「没有缺失」）；
+  - `missing_count` **必须**等于该会话的 `chunk_count`（`flags.bit0` **必须**为 1）。
+- 发送方收到该标志时**必须**按 12 章「复核轮」执行：
+  重新打开源文件、从 `chunk_id` = 0 起全量重发，并重置顺序流与在途量基线。
+- 发送方**必须**对同一会话**最多响应一次**复核轮。
+
 **裁决即推进（规范性）**：接收方**必须**周期性下发 `mode=report` 的 `missing_chunks`
 （含空列表），发送方据此推进窗口。详见 11 章「窗口推进判据」。
 
@@ -425,21 +442,28 @@ chunk **精确总数**（**不是**本批 `chunks` 的长度）。发送方据�
 > 它并不缺任何块。`request` 是它向接收方（Server）索要缺失裁决的唯一途径，
 > 也是 11 章兜底索要机制与 12 章看门狗的载体。
 
+**空列表的两种含义（规范性）**：`chunks` 为空列表时，其含义由**复核轮标志**区分：
+
+| 复核轮标志 | 含义 | 发送方动作 |
+|-----------|------|-----------|
+| `flags.bit1` = 0 | 本会话**没有缺失块** | 继续推进新数据 |
+| `flags.bit1` = 1 | **复核轮**：全部块都需要重发 | 按 12 章「复核轮」全量重读重发 |
+
 **立即裁决（推荐性）**：接收方**可以**在**检测到空洞的那一刻**立即下发 `mode=report`，
 不必等待 50ms 周期，以降低丢包恢复时延。
 该优化**不改变**协议语义 —— 周期下发（空列表亦须下发）仍为**规范性**要求。
 
 ### resume_session（`0x08`）
 
-**定长区（16 字节）**
+**定长区（20 字节）**
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | 会话 ID |
-| 4 | 4 | next_chunk_id | u32 | 恢复提示（**仅接收方提供**）；`flags.bit0 = 0` 时**必须**为 0 |
-| 8 | 4 | missing_count | u32 | 恢复提示（**仅接收方提供**）；`flags.bit1 = 0` 时**必须**为 0 |
-| 12 | 1 | flags | u8 | bit0 = `next_chunk_id` 有效，bit1 = `missing_count` 有效；bit2-7 保留 |
-| 13 | 3 | reserved | — | 保留 |
+| 0 | 8 | session_id | u64 | 会话 ID |
+| 8 | 4 | next_chunk_id | u32 | 恢复提示（**仅接收方提供**）；`flags.bit0 = 0` 时**必须**为 0 |
+| 12 | 4 | missing_count | u32 | 恢复提示（**仅接收方提供**）；`flags.bit1 = 0` 时**必须**为 0 |
+| 16 | 1 | flags | u8 | bit0 = `next_chunk_id` 有效，bit1 = `missing_count` 有效；bit2-7 保留 |
+| 17 | 3 | reserved | — | 保留 |
 
 **恢复提示的方向规则（规范性）**：`resume_session` **恒由 Client 发起**。
 Client 是会话对端，Server 不主动发起恢复。
@@ -454,18 +478,19 @@ Client 是会话对端，Server 不主动发起恢复。
 
 ### resume_ack（`0x09`）
 
-**定长区（20 字节）**
+**定长区（28 字节）**
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | 会话 ID |
-| 4 | 1 | result | enum8 | `0` = fail，`1` = success |
-| 5 | 1 | reserved | u8 | 保留 |
-| 6 | 2 | reserved | u16 | 保留 |
-| 8 | 4 | next_chunk_id | u32 | **续传顺序起点**：**接收方**位图中**第一个尚未收到的 chunk_id**；位图已全真时为 `chunk_count` |
-| 12 | 4 | missing_count | u32 | **接收方**位图中尚未收到的 chunk 总数（精确值） |
-| 16 | 2 | udp_port | u16 | 数据面 UDP 端口，可能因会话重建而变化，**Client 必须使用回执中的端口** |
-| 18 | 2 | tcp_port | u16 | 数据面 TCP 降级端口；`0` 表示不支持 |
+| 0 | 8 | session_id | u64 | 会话 ID |
+| 8 | 1 | result | enum8 | `0` = fail，`1` = success |
+| 9 | 1 | chunk_digest | enum8 | 逐块摘要开关：`0` = 关闭、`1` = 启用（见 09 章） |
+| 10 | 2 | reserved | — | 保留 |
+| 12 | 4 | next_chunk_id | u32 | **续传顺序起点**：**接收方**位图中**第一个尚未收到的 chunk_id**；位图已全真时为 `chunk_count` |
+| 16 | 4 | missing_count | u32 | **接收方**位图中尚未收到的 chunk 总数（精确值） |
+| 20 | 2 | udp_port | u16 | 数据面 UDP 端口；会话重建后端口可能变化，**Client 必须使用回执中的端口** |
+| 22 | 2 | tcp_port | u16 | 数据面 TCP 降级端口；`0` 表示不支持 |
+| 24 | 4 | connection_window | u32 | **连接级**在途上限；由 Server 下发（见 11 章） |
 
 **变长区（顺序固定）**
 
@@ -482,13 +507,13 @@ Client 是会话对端，Server 不主动发起恢复。
 
 ### progress_update（`0x0A`）
 
-**定长区（20 字节）**
+**定长区（24 字节）**
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | 会话 ID |
-| 4 | 8 | received | u64 | 已接收的 chunk **数量**（不是字节数） |
-| 12 | 8 | total | u64 | 本会话的 `chunk_count` |
+| 0 | 8 | session_id | u64 | 会话 ID |
+| 8 | 8 | received | u64 | 已接收的 chunk **数量**（不是字节数） |
+| 16 | 8 | total | u64 | 本会话的 `chunk_count` |
 
 **发布方（规范性）**：`progress_update` 由**接收方**发布 ——
 上传方向是 Server，下载方向是 Client。
@@ -506,24 +531,24 @@ Client 是会话对端，Server 不主动发起恢复。
 
 ### udp_ready（`0x0B`）
 
-**定长区（8 字节）**
+**定长区（12 字节）**
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | 会话 ID |
-| 4 | 2 | udp_port | u16 | 数据面 UDP 端口；会话重建后端口可能变化，**Client 必须以本消息中的端口为准**（端口取用优先级见 14 章） |
-| 6 | 2 | reserved | u16 | 保留 |
+| 0 | 8 | session_id | u64 | 会话 ID |
+| 8 | 2 | udp_port | u16 | 数据面 UDP 端口；会话重建后端口可能变化，**Client 必须以本消息中的端口为准**（端口取用优先级见 14 章） |
+| 10 | 2 | reserved | u16 | 保留 |
 
 ### upload_complete（`0x0C`）
 
-**定长区（8 字节）**
+**定长区（12 字节）**
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | 会话 ID |
-| 4 | 1 | result | enum8 | `0` = fail，`1` = success |
-| 5 | 1 | flags | u8 | bit0 = `file_hash` 有效；bit1-7 保留 |
-| 6 | 2 | reserved | u16 | 保留 |
+| 0 | 8 | session_id | u64 | 会话 ID |
+| 8 | 1 | result | enum8 | `0` = fail，`1` = success |
+| 9 | 1 | flags | u8 | bit0 = `file_hash` 有效；bit1-7 保留 |
+| 10 | 2 | reserved | u16 | 保留 |
 
 **变长区（顺序固定）**
 
@@ -534,14 +559,14 @@ Client 是会话对端，Server 不主动发起恢复。
 
 ### download_complete（`0x0D`）
 
-**定长区（8 字节）**
+**定长区（12 字节）**
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | 会话 ID |
-| 4 | 1 | result | enum8 | `0` = fail，`1` = success |
-| 5 | 1 | flags | u8 | bit0 = `file_hash` 有效；bit1-7 保留 |
-| 6 | 2 | reserved | u16 | 保留 |
+| 0 | 8 | session_id | u64 | 会话 ID |
+| 8 | 1 | result | enum8 | `0` = fail，`1` = success |
+| 9 | 1 | flags | u8 | bit0 = `file_hash` 有效；bit1-7 保留 |
+| 10 | 2 | reserved | u16 | 保留 |
 
 **变长区（顺序固定）**
 
@@ -558,11 +583,11 @@ Client 是会话对端，Server 不主动发起恢复。
 
 ### session_pause（`0x0E`）
 
-**定长区（4 字节）**
+**定长区（8 字节）**
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | 会话 ID |
+| 0 | 8 | session_id | u64 | 会话 ID |
 
 **语义（规范性）**：暂停会话，双方停止发送数据面数据包，
 会话转入 `PAUSED` 状态；位图与临时文件全部保留。
@@ -578,13 +603,13 @@ Client 是会话对端，Server 不主动发起恢复。
 
 ### session_abort（`0x0F`）
 
-**定长区（8 字节）**
+**定长区（12 字节）**
 
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
-| 0 | 4 | session_id | u32 | 会话 ID |
-| 4 | 2 | reserved | u16 | 保留 |
-| 6 | 2 | reserved | u16 | 保留 |
+| 0 | 8 | session_id | u64 | 会话 ID |
+| 8 | 2 | reserved | u16 | 保留 |
+| 10 | 2 | reserved | u16 | 保留 |
 
 **变长区（顺序固定）**
 
@@ -681,7 +706,8 @@ Client 可用 `file_hash` 单独定位，也可用 `asset_id` 精确定位到某
 
 ## 重要约束
 
-1. **session_id**: u32，由 Server 生成
+1. **session_id**: **u64**，由 Server 生成（见 09 章）；控制帧、UDP 数据包与
+   TCP 数据面帧**必须**使用同一取值域与同一字节序
 2. **file_hash**: 一律为 **32 字节原始 Blake3 摘要**；**禁止**用十六进制串或 u64 承载
    （日志与 UI 展示时由实现自行转十六进制）
 3. **Client 发送 upload_start / download_start 时 session_id 可为 0**，
@@ -696,6 +722,14 @@ Client 可用 `file_hash` 单独定位，也可用 `asset_id` 精确定位到某
 10. **控制消息必须幂等**：实现可能因超时重发而重复投递控制消息，
     重复投递**不得**改变协议语义
 11. **定长区一旦发布即冻结**：新增字段只能追加在扩展区；既有字段的偏移与大小不得变更
+12. **连接级在途上限**：同一控制连接上所有会话的数据面在途量之和**必须**不超过
+    `connection_window`（见 11 章）；Client **不得**擅自修改该值
+13. **逐块摘要开关**：`chunk_digest` 由 Server 在 accept 中下发，
+    **规范默认值 1**；Client **不得**擅自修改；该值**必须**随权威快照与
+    `resume_ack` 传递（见 09 章、13 章）
+14. **待决请求唯一**：Client 在同一控制连接上同一时刻**必须**只保留一个待决的
+    `upload_start` / `download_start`；因此 Server 对该请求的拒绝
+    （以 `session_abort` 表达，见 19 章 `FILE_TOO_LARGE`）**必须**能被 Client 唯一归属
 
 ## 与状态机关系
 

@@ -20,24 +20,38 @@
 
   <!-- ============ diagram ============ -->
   <div class="diagram">
-    <div class="fields">
-      <div class="cell ruler-title">32 Bits Width</div>
+    <div class="fields" style="--cols:8">
+      <div class="cell ruler-title" style="grid-column:1 / -1">Byte Offset（每格 2 字节；头部 16 字节恰好排满一行）</div>
 
-      <div class="cell bitnum">0-7</div>
-      <div class="cell bitnum">8-15</div>
-      <div class="cell bitnum">16-23</div>
-      <div class="cell bitnum">24-31</div>
+      <div class="cell bitnum">0-1</div>
+      <div class="cell bitnum">2-3</div>
+      <div class="cell bitnum">4-5</div>
+      <div class="cell bitnum">6-7</div>
+      <div class="cell bitnum">8-9</div>
+      <div class="cell bitnum">10-11</div>
+      <div class="cell bitnum">12-13</div>
+      <div class="cell bitnum">14-15</div>
 
-      <div class="cell wide f-session">session_id (32 bit, u32)</div>
-      <div class="cell wide f-chunk">chunk_id (32 bit)</div>
+      <div class="cell span4 f-session">session_id (64 bit, u64)</div>
+      <div class="cell half f-chunk">chunk_id (32 bit)</div>
+      <div class="cell quarter f-len" style="font-size:11.5px">payload_len (16)</div>
+      <div class="cell quarter f-flags">flags (16)</div>
 
-      <div class="cell half f-len">payload_len (16)</div>
-      <div class="cell half f-flags">flags (16)</div>
+      <div class="cell wide f-payload">payload (Variable Length: N bytes) · 偏移 16 … 15+N</div>
 
-      <div class="cell wide f-payload">payload (Variable Length: N bytes)</div>
+      <div class="cell wide f-digest">chunk_digest (64 bit, BLAKE3 XOF-8 · <strong>可选</strong>：会话协商启用时仅 FLAG_DATA 包携带) · 偏移 16+N … 23+N</div>
 
-      <div class="cell wide f-crc">crc32 (32 bit)</div>
+      <div class="cell wide f-crc">crc32 (32 bit) · 偏移 24+N … 27+N</div>
     </div>
+  </div>
+
+  <div class="caption">
+    头部 16 字节按字节成对划分，刻度与字段行<strong>一一对齐</strong>：
+    <code>session_id</code> 占 4 格（0–7）、<code>chunk_id</code> 占 2 格（8–11）、
+    <code>payload_len</code> / <code>flags</code> 各占 1 格（12–13 / 14–15）。
+    <br>
+    <strong>非 <code>FLAG_DATA</code> 包</strong>（<code>PROBE</code> / <code>PROBE_ACK</code>）
+    <strong>不携带</strong> <code>chunk_digest</code>，此时 <code>crc32</code> 紧接 payload，偏移为 <code>16+N … 19+N</code>。
   </div>
 
   <div class="legend">
@@ -46,6 +60,7 @@
     <span><i class="swatch" style="background:var(--b-len)"></i>payload_len</span>
     <span><i class="swatch" style="background:var(--b-flags)"></i>flags</span>
     <span><i class="swatch" style="background:var(--b-payload)"></i>payload</span>
+    <span><i class="swatch" style="background:var(--b-digest)"></i>chunk_digest</span>
     <span><i class="swatch" style="background:var(--b-crc)"></i>crc32</span>
   </div>
 
@@ -61,6 +76,7 @@
             <tr>
               <th>字段</th>
               <th>位宽</th>
+              <th>字节</th>
               <th>偏移<br>(BYTE)</th>
               <th>说明</th>
             </tr>
@@ -68,42 +84,57 @@
           <tbody>
             <tr>
               <td class="c-session">session_id</td>
-              <td class="mono">32</td>
+              <td class="mono">64<span class="wbar session" style="width:64px"></span></td>
+              <td class="mono">8</td>
               <td class="mono">0</td>
-              <td>会话唯一标识 (u32)，与 MQTT Session 一致</td>
+              <td>会话唯一标识 (u64)；<strong>跨 Server 进程重启不复用</strong></td>
             </tr>
             <tr>
               <td class="c-chunk">chunk_id</td>
-              <td class="mono">32</td>
+              <td class="mono">32<span class="wbar chunk" style="width:32px"></span></td>
               <td class="mono">4</td>
+              <td class="mono">8</td>
               <td>数据块索引，从 0 开始</td>
             </tr>
             <tr>
               <td class="c-len">payload_len</td>
-              <td class="mono">16</td>
-              <td class="mono">8</td>
+              <td class="mono">16<span class="wbar len" style="width:16px"></span></td>
+              <td class="mono">2</td>
+              <td class="mono">12</td>
               <td>Payload 实际字节数</td>
             </tr>
             <tr>
               <td class="c-flags">flags</td>
-              <td class="mono">16</td>
-              <td class="mono">10</td>
+              <td class="mono">16<span class="wbar flags" style="width:16px"></span></td>
+              <td class="mono">2</td>
+              <td class="mono">14</td>
               <td>控制位掩码 (见右侧)</td>
             </tr>
             <tr>
               <td class="c-payload">payload</td>
+              <td class="mono">N<span class="wbar payload" style="width:16px"></span></td>
               <td class="mono">N</td>
-              <td class="mono">12</td>
+              <td class="mono">16</td>
               <td>原始文件数据</td>
             </tr>
             <tr>
+              <td class="c-digest">chunk_digest</td>
+              <td class="mono">64<span class="wbar digest" style="width:64px"></span></td>
+              <td class="mono">8</td>
+              <td class="mono">16+N</td>
+              <td>逐块端到端摘要 (BLAKE3 XOF-8，仅覆盖 payload)；<strong>可选字段</strong>，由会话参数 <code>chunk_digest</code> 决定</td>
+            </tr>
+            <tr>
               <td class="c-crc">crc32</td>
-              <td class="mono">32</td>
-              <td class="mono">12+N</td>
-              <td>完整性校验 (Header + Payload)</td>
+              <td class="mono">32<span class="wbar crc" style="width:32px"></span></td>
+              <td class="mono">4</td>
+              <td class="mono">24+N</td>
+              <td>完整性校验；覆盖区间<strong>随是否携带 chunk_digest 而变</strong>（见右下）</td>
             </tr>
           </tbody>
         </table>
+      </div>
+      <div class="caption">位宽后的比例条按<strong>字节数</strong>等比绘制（8 字节 = 满格 64px），可直接看出各字段的相对宽度。</div>
       </div>
     </section>
 
@@ -113,11 +144,14 @@
       <div class="card">
         <table class="flags-tb">
           <tbody>
-            <tr><td>Bit 0</td><td>DATA</td><td>普通数据包</td></tr>
+            <tr><td>Bit 0</td><td>DATA</td><td>普通数据包（必须携带 chunk_digest）</td></tr>
             <tr><td>Bit 1</td><td>RESEND</td><td>重传数据包</td></tr>
             <tr><td>Bit 2</td><td>LAST_CHUNK</td><td>最后一个 Chunk</td></tr>
-            <tr><td>Bit 3</td><td>PROBE</td><td>探测 / 测试包</td></tr>
-            <tr class="reserved"><td>Bit 4-15</td><td>RESERVED</td><td>保留位 (Must be 0)</td></tr>
+            <tr><td>Bit 3</td><td>PROBE</td><td>探测 / 测试包（按 payload_len 区分 8 / 9）</td></tr>
+            <tr class="reserved"><td>Bit 4</td><td>—</td><td>保留位 (Must be 0)</td></tr>
+            <tr><td>Bit 5</td><td>CHUNK_DIGEST</td><td>逐块摘要标志；<strong>当且仅当</strong>会话协商启用摘要且本包为 FLAG_DATA 时置位</td></tr>
+            <tr><td>Bit 6</td><td>BIND</td><td>仅 TCP 数据面帧的绑定帧</td></tr>
+            <tr class="reserved"><td>Bit 7-15</td><td>RESERVED</td><td>保留位 (Must be 0)</td></tr>
           </tbody>
         </table>
       </div>
@@ -126,6 +160,7 @@
       <ul class="spec">
         <li>所有多字节字段必须使用 <strong>小端序 (Little-Endian)</strong></li>
         <li>CRC32 校验失败的包 必须丢弃 (<strong>MUST discard</strong>)</li>
+        <li><strong>chunk_digest</strong> 校验失败的包 必须丢弃且不得标记位图 (<strong>MUST discard</strong>)，该块按<strong>定点补发</strong>处理（仅在携带摘要的包上可能发生）</li>
         <li>Session ID 不匹配的包 必须丢弃 (<strong>MUST discard</strong>)</li>
         <li>Payload Length 非法的包 必须丢弃 (<strong>MUST discard</strong>)</li>
         <li>chunk_id ≥ chunk_count 的包 必须丢弃 (<strong>MUST discard</strong>)</li>
@@ -137,14 +172,94 @@
         <li>多项式 <code>0x04C11DB7</code> (反射 <code>0xEDB88320</code>)</li>
         <li>初值与末尾异或均为 <code>0xFFFFFFFF</code>，输入输出均反射</li>
         <li>校验值: <code>"123456789"</code> → <code>0xCBF43926</code></li>
-        <li>覆盖区间: <strong>12 字节头 + payload</strong>，不含尾部 CRC 字段本身</li>
+        <li>覆盖区间<strong>条件式</strong>：携带 chunk_digest 时为 <strong>16 字节头 + 8 字节摘要</strong>（24 字节）；不携带时为 <strong>16 字节头 + payload</strong>；均不含尾部 CRC 字段本身</li>
+        <li>载荷由 chunk_digest 保护，<strong>不被 CRC32 重复计算</strong>（省约 20% CPU/块）</li>
       </ul>
+
+      <h2>逐块摘要 (chunk_digest)</h2>
+      <ul class="spec">
+        <li><strong>可选</strong>：会话参数 <code>chunk_digest</code>（<code>0</code> = 关闭 / <code>1</code> = 启用，<strong>规范默认值 1</strong>）决定是否携带</li>
+        <li>算法 <strong>BLAKE3</strong>，输出长度 <strong>8 字节</strong>（XOF），仅覆盖 payload</li>
+        <li>发送方必须对<strong>实际发出的字节</strong>计算摘要</li>
+        <li>接收方<strong>校验顺序</strong>：先 crc32（仅 24 字节）→ 再摘要 → 再写盘</li>
+        <li>摘要失配则丢弃该包并请求该块（<strong>定点补发</strong>，不进复核轮）</li>
+      </ul>
+
+      <div class="note warn">
+        <strong>代价与边界</strong>：摘要约 <strong>17% 单核 @ 1 Gbps</strong>（每端）。
+        未检出概率 2⁻³² → 2⁻⁶⁴，对应 100 GiB 文件「走一次复核轮（整文件重传）」的概率由
+        <strong>约 2.1%</strong> 降到可忽略；但<strong>仅从省带宽看是净亏损</strong>
+        （约 143 CPU-秒/端 vs 约 18 秒额外传输）
+        ——摘要的主要价值在<strong>写盘后回读校验</strong>。
+        Server 可在「文件小 / 存储可靠 / 不启用回读校验」时关闭它；关闭后协议行为不变，
+        只是载荷完整性由 CRC32 单独承担。
+      </div>
     </section>
   </div>
 
   <div class="note">
-    头部长度 <code>HEADER_SIZE = 4 + 4 + 2 + 2 = 12</code> 字节，<code>CRC_SIZE = 4</code> 字节；
+    头部长度 <code>HEADER_SIZE = 8 + 4 + 2 + 2 = 16</code> 字节，<code>DIGEST_SIZE = 8</code> 字节，<code>CRC_SIZE = 4</code> 字节；
     <code>payload_len ≤ 1400</code> 且 <code>payload_len ≤ 协商 chunk_size</code>，推荐 chunk_size = <code>1200</code> 字节。
+    以 1200 字节块长计：启用摘要时线上包长 = 16 + 1200 + 8 + 4 = <strong>1228</strong> 字节，
+    关闭时 = 16 + 1200 + 4 = <strong>1220</strong> 字节；叠加 IP/UDP 28 字节后均小于 1500 字节 MTU。
+  </div>
+
+  <h2>crc32 与 chunk_digest 的分工</h2>
+  <div class="card">
+    <table>
+      <thead>
+        <tr><th>维度</th><th>crc32</th><th>chunk_digest</th></tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>覆盖对象</td>
+          <td><strong>整个包</strong>：16 字节头 + payload + 摘要本身</td>
+          <td><strong>仅块载荷</strong>（不含包头、不含 crc32）</td>
+        </tr>
+        <tr>
+          <td>校验层次</td>
+          <td><strong>逐跳</strong>：只在收到时验证一次，此后<strong>不可重验</strong></td>
+          <td><strong>端到端</strong>：可对<strong>已落盘的内容</strong>随时重新验证（回读校验）</td>
+        </tr>
+        <tr>
+          <td>强度</td>
+          <td>32 位 · 漏检约 2⁻³² / 包</td>
+          <td>64 位 BLAKE3 · 漏检约 2⁻⁶⁴ / 块</td>
+        </tr>
+        <tr>
+          <td>包头保护</td>
+          <td><strong>覆盖</strong>包头（<code>session_id</code> / <code>chunk_id</code> / <code>flags</code>）</td>
+          <td><strong>不覆盖</strong>包头</td>
+        </tr>
+        <tr>
+          <td>校验失败后的修复</td>
+          <td>丢弃该包 → 该块仍为「未收到」→ 裁决后<strong>定点补发该块</strong></td>
+          <td>同左（修复粒度相同）</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note blue">
+    <strong>为什么两个都要</strong>：CRC32 只有 32 位，未检出概率约 2⁻³² —— 100 GB 文件约 <strong>2.1%</strong>、1 TB 文件约 <strong>20.8%</strong>，
+    且漏检后只能靠全文件<strong>复核轮</strong>修复；反过来只有逐块摘要也不够 ——
+    <strong>包头不受保护</strong>，被篡改的 <code>session_id</code> / <code>chunk_id</code> / <code>flags</code> 摘要照样自洽，
+    而它们决定的是「写到哪个偏移」「属于哪个会话」，属于<strong>协议语义</strong>而非文件内容。
+    与文件级 Blake3 合起来构成三层保障。
+  </div>
+
+  <div class="note blue">
+    <strong>为什么单次校验失败 ≠ 整文件重传</strong>：本协议<strong>不采用逐包 ACK</strong>，而采用「<strong>位图 + 缺失裁决</strong>」。
+    任何一次校验失败都只是让<strong>对应的那一个块</strong>保持「未收到」；
+    该块会在下一次裁决（≤ 50 ms）中被精确报告，发送方按缺失列表<strong>只补发该块</strong>。
+    单次校验失败的代价是<strong>一个块的重传</strong>，与文件大小无关；
+    只有<strong>文件级</strong>校验失配才需要整文件重传（复核轮）。
+  </div>
+
+  <div class="note">
+    <strong>校验时点</strong>：接收方在<strong>写盘前</strong>校验 <code>chunk_digest</code>，
+    因此<strong>写盘之后</strong>才发生的磁盘写入错误不在包级校验覆盖范围内 ——
+    它只能由文件级校验捕获并走<strong>复核轮</strong>。实现<strong>可以</strong>在写盘后回读该块重新校验以提前发现（推荐性，见 17 章）。
   </div>
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/08-packet-format.md">docs/spec/08-packet-format.md</a></footer>

@@ -20,7 +20,8 @@
 
   <div class="note blue">
     <strong>本章要点</strong>：数据面以 <strong>UDP</strong> 为默认传输，原则是
-    <strong>无连接、无逐包 ACK、允许丢包与乱序</strong>，并以 <code>crc32</code> 做包级校验；
+    <strong>无连接、无逐包 ACK、允许丢包与乱序</strong>，并以 <code>crc32</code> 做包级校验、
+    以 <code>chunk_digest</code> 做逐块端到端完整性校验；
     UDP 不可用时回退到<strong>数据面</strong> TCP 通道（与 06 章的控制面 TCP 长连接<strong>完全无关</strong>）。
     数据面<strong>不得</strong>改变会话状态，只更新接收侧位图。
   </div>
@@ -30,7 +31,7 @@
   <ul class="spec">
     <li><strong>无连接</strong>、<strong>无逐包 ACK</strong>、<strong>允许丢包与乱序</strong></li>
     <li><code>payload_len ≤ chunk_size</code>（建议 <code>chunk_size ≤ 1400</code>，避免 IP 分片）</li>
-    <li><code>crc32</code> 包级校验</li>
+    <li><code>crc32</code> 包级校验 + <code>chunk_digest</code> 逐块摘要</li>
   </ul>
 
   <!-- ============ UDP 数据包结构 ============ -->
@@ -64,7 +65,7 @@
     <span><i class="swatch" style="background:var(--b-payload)"></i>payload</span>
     <span><i class="swatch" style="background:var(--b-crc)"></i>crc32</span>
   </div>
-  <div class="caption">头部长度 = 4 + 4 + 2 + 2 = 12 字节，随后是 payload 与尾部 crc32；字段级定义见 08 章。</div>
+  <div class="caption">头部长度 = 8 + 4 + 2 + 2 = 16 字节，随后是 payload、8 字节 chunk_digest 与尾部 crc32；字段级定义见 08 章。</div>
 
   <!-- ============ 通道对比 ============ -->
   <h2>两条通道的对比</h2>
@@ -113,7 +114,7 @@
     <section>
       <h3 style="margin-top:0">接收端</h3>
       <ul class="spec">
-        <li>校验头与 <code>crc32</code></li>
+        <li>校验头、<code>crc32</code> 与 <code>chunk_digest</code></li>
         <li>随机写盘</li>
         <li>标记位图</li>
         <li>不直接推进状态机（位图变化只是接收侧状态推进的<strong>输入</strong>）</li>
@@ -147,7 +148,7 @@
       <h3 style="margin-top:0">PROBE 数据包</h3>
       <ul class="spec">
         <li><code>flags.bit3 = 1</code></li>
-        <li>payload 为 <code>session_id</code>（u32）的 <strong>4 字节小端编码</strong></li>
+        <li>payload 为 <code>session_id</code>（u64）的 <strong>8 字节小端编码</strong>（<code>payload_len = 8</code>）</li>
         <li><code>payload_len == 4</code></li>
       </ul>
     </section>

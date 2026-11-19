@@ -77,7 +77,7 @@
           <tbody>
             <tr><td class="mono">① 控制连接建立</td><td><code>login</code> 必须是连接上的<strong>第一条</strong>消息；Server 之前的一切消息必须丢弃。<code>login_ack.sessions</code> 是<strong>权威快照</strong>。</td></tr>
             <tr><td class="mono">② 会话建立</td><td>Server 下发 <code>session_id</code> / <code>chunk_count</code> / <code>window</code> / <code>chunk_size</code> / <code>udp_port</code> / <code>tcp_port</code>；<code>file_exists = 1</code> 即走<strong>秒传</strong>路径。</td></tr>
-            <tr><td class="mono">③ UDP 探测</td><td>PROBE 与 PROBE_ACK 共用 <code>flags.bit3</code>，以 <code>payload_len</code> 区分（4 / 5）；Server 必须以 PROBE 的源地址:端口作为对端数据面地址。</td></tr>
+            <tr><td class="mono">③ UDP 探测</td><td>PROBE 与 PROBE_ACK 共用 <code>flags.bit3</code>，以 <code>payload_len</code> 区分（8 / 9）；Server 必须以 PROBE 的源地址:端口作为对端数据面地址。</td></tr>
             <tr><td class="mono">④ 数据传输</td><td>无逐包 ACK；批量发送（<code>burst_size</code>，间隔 <code>batch_gap_us</code> 初值 2000 µs）；数据面<strong>不得</strong>改变状态机。</td></tr>
             <tr><td class="mono">⑤ 缺失裁决</td><td>接收方<strong>至少每 50 ms</strong> 下发 <code>missing_chunks</code>(report)，<strong>空列表也必须下发</strong>；发送方 1000 ms 未收到裁决须发 <code>mode=request</code> 索要。</td></tr>
             <tr><td class="mono">⑥ 校验与提交</td><td>位图全真 → <code>VERIFY</code>（Blake3）→ <code>COMMIT</code>（原子重命名）→ 发布完成消息；<strong>完成消息一律由接收方发布</strong>。</td></tr>
@@ -150,20 +150,20 @@
     {from:'C', to:'S', type:'tcp', label:'upload_start {session_id=0, size, mtime, file_hash, file_name}',
       chip:{side:'C', text:'Client: INIT → NEGOTIATING'}, chip2:{side:'S', text:'Server: INIT → NEGOTIATING'}},
     {from:'S', to:'S', type:'self', label:'既有 file_hash 校验（秒传判定）'},
-    {from:'S', to:'C', type:'tcp', label:'upload_accept {session_id, chunk_count, window, chunk_size, udp_port, tcp_port, file_exists}',
+    {from:'S', to:'C', type:'tcp', label:'upload_accept {session_id(u64), chunk_count, window, connection_window, chunk_size, udp_port, tcp_port, file_exists}',
       chip:{side:'C', text:'Client: NEGOTIATING → TRANSFERRING'}, chip2:{side:'S', text:'Server: NEGOTIATING → TRANSFERRING'}},
     {note:'若 file_exists = 1：发送侧直接 NEGOTIATING → COMPLETED；接收侧 NEGOTIATING → VERIFY → COMMIT → COMPLETED（秒传不产生位图）'},
 
     {sep:'③ UDP 可用性探测（数据面）'},
-    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {flags.bit3=1, payload_len=4, session_id}'},
-    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {flags.bit3=1, payload_len=5, status=0}'},
+    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {flags.bit3=1, payload_len=8, session_id(u64)}'},
+    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {flags.bit3=1, payload_len=9, status=0}'},
     {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
     {note:'等待 PROBE_ACK 超时（建议 2s）→ 回退数据面 TCP；tcp_port = 0 表示不支持降级，即判定传输不可用'},
 
     {sep:'④ 数据传输（数据面 UDP，无逐包 ACK）'},
     {from:'C', to:'S', type:'udp', label:'chunk #0 … #N（批量 burst_size，批间隔 batch_gap_us = 2000µs）',
       chip:{side:'C', text:'Client: 发送侧，仅更新「在途量」估计'}, chip2:{side:'S', text:'Server: 接收侧'}},
-    {from:'S', to:'S', type:'self', label:'校验头 + crc32 → 随机写盘 → 标记位图'},
+    {from:'S', to:'S', type:'self', label:'校验头 + crc32 + chunk_digest → 随机写盘 → 标记位图'},
 
     {sep:'⑤ 缺失裁决与重传（可靠性由接收方裁决提供）'},
     {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, chunks=[]} —— 空列表也必须下发'},
@@ -176,6 +176,10 @@
     {sep:'⑥ 校验与提交（完成消息由接收方发布）'},
     {from:'S', to:'S', type:'self', label:'位图全真 → VERIFY：文件级 Blake3 校验',
       chip:{side:'S', text:'Server: TRANSFERRING → VERIFY'}},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {flags.bit1=复核轮, chunks=[]} —— 文件级失配时',
+      chip:{side:'S', text:'Server: VERIFY → TRANSFERRING（清空位图）'}},
+    {from:'C', to:'S', type:'udp', label:'全量重发（重新读取源文件，chunk #0 … #N）'},
+    {from:'S', to:'S', type:'self', label:'复核轮后重新校验文件级 Blake3（至多一次）'},
     {from:'S', to:'S', type:'self', label:'COMMIT：原子重命名'},
     {from:'S', to:'C', type:'tcp', label:'upload_complete {result, code, file_hash, asset_id}',
       chip:{side:'C', text:'Client: TRANSFERRING → COMPLETED'}, chip2:{side:'S', text:'Server: COMMIT → COMPLETED'}},
@@ -183,12 +187,12 @@
     {sep:'⑦ 中断与恢复'},
     {note:'路径一 · 断线重连（连接重建）：走 login 的恢复列表 + login_ack 的权威快照'},
     {from:'C', to:'S', type:'conn', label:'TCP connect（重建）'},
-    {from:'C', to:'S', type:'tcp', label:'login {…, resume[]{session_id, next_chunk_id, missing_count}}'},
+    {from:'C', to:'S', type:'tcp', label:'login {…, resume[]{session_id(u64), next_chunk_id, missing_count}}'},
     {from:'S', to:'C', type:'tcp', label:'login_ack {…, sessions[]{权威快照：位图 / 续传位置 / 数据面端口}}'},
     {note:'路径二 · 暂停后恢复（连接存活）：走 resume_session / resume_ack'},
     {from:'C', to:'S', type:'tcp', label:'session_pause → resume_session {session_id, …}',
       chip:{side:'C', text:'双方: TRANSFERRING → PAUSED'}},
-    {from:'S', to:'C', type:'tcp', label:'resume_ack {result, next_chunk_id, missing_count, udp_port}',
+    {from:'S', to:'C', type:'tcp', label:'resume_ack {result, next_chunk_id, missing_count, udp_port, connection_window}',
       chip:{side:'S', text:'双方: PAUSED → TRANSFERRING'}}
   ];
 
@@ -203,12 +207,12 @@
     {sep:'② 会话建立'},
     {from:'C', to:'S', type:'tcp', label:'download_start {session_id=0, size, chunk_size, file_hash, file_name}',
       chip:{side:'C', text:'Client: INIT → NEGOTIATING'}, chip2:{side:'S', text:'Server: INIT → NEGOTIATING'}},
-    {from:'S', to:'C', type:'tcp', label:'download_accept {session_id, chunk_count, window, chunk_size, udp_port, tcp_port}',
+    {from:'S', to:'C', type:'tcp', label:'download_accept {session_id(u64), chunk_count, window, connection_window, chunk_size, udp_port, tcp_port}',
       chip:{side:'C', text:'Client: NEGOTIATING → TRANSFERRING'}, chip2:{side:'S', text:'Server: NEGOTIATING → TRANSFERRING'}},
 
     {sep:'③ UDP 可用性探测（数据面）'},
-    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {flags.bit3=1, payload_len=4, session_id}'},
-    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {flags.bit3=1, payload_len=5, status=0}'},
+    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {flags.bit3=1, payload_len=8, session_id(u64)}'},
+    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {flags.bit3=1, payload_len=9, status=0}'},
     {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
     {note:'Server 以 PROBE 报文的源地址:端口作为该会话的对端数据面地址；Client 端口取用优先级：login_ack 快照 > resume_ack > udp_ready > download_accept'},
 
@@ -239,7 +243,7 @@
     {from:'S', to:'C', type:'tcp', label:'login_ack {…, sessions[]{权威快照：位图 / 续传位置 / 数据面端口}}'},
     {note:'路径二 · 暂停后恢复：resume_session 恒由 Client 发起'},
     {from:'C', to:'S', type:'tcp', label:'session_pause → resume_session {session_id, …}'},
-    {from:'S', to:'C', type:'tcp', label:'resume_ack {result, next_chunk_id, missing_count, udp_port}',
+    {from:'S', to:'C', type:'tcp', label:'resume_ack {result, next_chunk_id, missing_count, udp_port, connection_window}',
       chip:{side:'C', text:'双方: PAUSED → TRANSFERRING'}}
   ];
 

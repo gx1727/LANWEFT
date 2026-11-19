@@ -41,7 +41,8 @@ UDP_PROBE → UDP_PROBE_ACK → udp_ready
 
 ### 数据传输
 
-Client 连续发送 UDP chunk；Server 乱序随机写盘
+Client 连续发送 UDP chunk（每个包携带 `chunk_digest`，见 08 章）；
+Server 乱序随机写盘
 
 ### 缺失统计与重传
 
@@ -60,6 +61,20 @@ Client 连续发送 UDP chunk；Server 乱序随机写盘
 
 接收方校验 hash、原子重命名，发布完成消息
 （上传方向 `upload_complete`，下载方向 `download_complete`）
+
+**复核轮（文件级失配时）**
+
+```
+  |--- missing_chunks {mode=report,          |   接收方清空位图，
+  |    flags.bit1=复核轮, chunks=[]} ------->|   要求全量重发
+  |                                            |
+  |<=============== 全量重发 =================|   发送方重新读取源文件
+  |                                            |
+  |                                            |   重新校验文件级 Blake3
+```
+
+- 复核轮**至多一次**；复核轮后仍失配才 `session_abort(FILE_HASH_MISMATCH)`
+  （见 12 章）。
 
 ### 中断与恢复
 

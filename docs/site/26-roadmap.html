@@ -29,7 +29,7 @@
     <strong>本章要点</strong>：版本号形如 <code>major.minor.patch</code>，当前为 <strong><code>v0.3.0</code></strong>，
     且<strong>只在上游明确指示时变更</strong>；任何修订<strong>不得</strong>变更版本号，
     <strong>必须</strong>记入本章「修订记录」。v0.3.0 已把控制面由 MQTT 迁移到 TCP 并把载荷改为二进制定长布局。
-    已知限制包括：v0.3.0 与早期草案<strong>不兼容</strong>、同一版本号下先后指代两套互不兼容的线路格式、
+    已知限制包括：v0.3.0 与早期草案<strong>不兼容</strong>、同一版本号下先后指代三套互不兼容的线路格式、
     抓包不再自解释、断线恢复依赖 Client 提供恢复提示。
   </div>
 
@@ -45,7 +45,7 @@
       <div class="cell f-type">v0.3.0（Draft，当前）<br>控制面 MQTT → TCP<br>载荷 → 二进制定长布局</div>
       <div class="cell f-frame">待定议题<br>（不构成互操作要求）</div>
 
-      <div class="cell wide f-flags">待定议题明细：控制帧紧凑二进制编码（已结项） ｜ TCP 数据面通道（倾向：维持 UDP 主通道） ｜ TCP 降级通道的线路格式（待办） ｜ 秒传与并发会话的优先级（待办）</div>
+      <div class="cell wide f-flags">待定议题明细：控制帧紧凑二进制编码（已结项） ｜ TCP 数据面通道（倾向：维持 UDP 主通道） ｜ TCP 降级通道的线路格式（已结项） ｜ 发送节奏的规范默认值方向（待办） ｜ 缺失列表的编码效率（待办） ｜ 数据面的身份认证（待办） ｜ 秒传与并发会话的优先级（待办）</div>
     </div>
   </div>
 
@@ -246,10 +246,12 @@
   <ul class="spec">
     <li><strong>不兼容</strong>：v0.3.0 的控制面与早期草案（MQTT）<strong>无法互通</strong> ——
       传输层、帧格式与消息集均已改变。升级<strong>必须</strong>同时升级两端。</li>
-    <li><strong>同一版本号下的两套线路格式</strong>：按上游指示，本次控制面二进制化<strong>未</strong>变更版本号。
-      因此 <code>v0.3.0</code> 这一版本号在修订过程中先后指代了 <strong>JSON 线路格式</strong>与
-      <strong>二进制定长线路格式</strong>两套互不兼容的格式。
-      实现<strong>必须</strong>以 06 章正文为准，不得仅凭版本号判断可互通性。</li>
+    <li><strong>同一版本号下的三套线路格式</strong>：按上游指示，修订<strong>未</strong>变更版本号。
+      因此 <code>v0.3.0</code> 这一版本号先后指代了 <strong>JSON</strong>、
+      <strong>二进制定长（<code>session_id</code> = u32）</strong>与
+      <strong>二进制定长（<code>session_id</code> = u64 + 逐块摘要 + TCP 数据面帧）</strong>
+      三套互不兼容的格式。
+      实现<strong>必须</strong>以 06、07、08 章正文为准，不得仅凭版本号判断可互通性。</li>
     <li>控制帧现为<strong>二进制定长布局</strong>（见 06 章）：定长帧头 + 定长区 + 变长区，
       无字段名重复开销。代价是可读性下降 —— 抓包不再自解释，
       实现侧<strong>必须</strong>提供与 <code>msg_type</code> 对应的解码日志。</li>
@@ -311,10 +313,12 @@
     <li><strong>倾向</strong>：维持 UDP 主通道。</li>
   </ul>
 
-  <h3>TCP 降级通道的线路格式</h3>
+  <h3>TCP 降级通道的线路格式（已结项）</h3>
   <ul class="spec">
-    <li><strong>现状</strong>：仅定义语义，未定义线路格式（见 07 章）。</li>
-    <li><strong>待办</strong>：定义 chunk 帧在 TCP 上的线路格式（建议复用 08 章的 12 字节包头）。</li>
+    <li><strong>结论</strong>：<strong>已实施</strong>。TCP 数据面帧格式见 07 章「TCP 数据面线路格式」：
+      <code>u32 frame_len</code> + <code>u64 session_id</code> + <code>u32 chunk_id</code> +
+      <code>u16 payload_len</code> + <code>u16 flags</code> + payload + <code>chunk_digest</code>；
+      不携带 crc32（TCP 已提供字节流校验）。绑定帧 <code>FLAG_BIND</code> 用于会话绑定与权限校验。</li>
   </ul>
 
   <h3>秒传与并发会话的优先级</h3>
@@ -339,6 +343,18 @@
         <tr><th>日期</th><th>修订内容</th><th>章节</th></tr>
       </thead>
       <tbody>
+        <tr>
+          <td class="mono">—</td>
+          <td><strong>P0 修订</strong>：①新增逐块端到端摘要 <code>chunk_digest</code>（BLAKE3 8 字节），
+            数据包与 TCP 帧均携带；②文件级失配<strong>不再</strong>立即终止，改为<strong>复核轮</strong>
+            （清空位图 → 全量重读重发 → 重新校验），<strong>至多一次</strong>；
+            ③<code>session_id</code> 由 u32 扩为 <strong>u64</strong>，要求<strong>跨 Server 进程重启不复用</strong>；
+            ④新增<strong>连接级</strong>在途上限 <code>connection_window</code>；
+            ⑤补齐文件大小上限与新错误码 <code>FILE_TOO_LARGE</code>；
+            ⑥<strong>TCP 数据面线路格式定稿</strong>；⑦1 Gbps 的 <code>window</code> 推荐值 4096 → <strong>8192</strong>；
+            ⑧01 章「终止权」与 10 章对齐。<strong>版本号不变</strong>（按上游指示）</td>
+          <td>00、01、02、05、06、07、08、09、10、11、12、13、14、17、18、19、20、24、26、99、README</td>
+        </tr>
         <tr>
           <td class="mono">—</td>
           <td><strong>控制面载荷由 JSON 改为二进制定长布局</strong>；帧格式与全部消息体布局重写；<code>file_hash</code> 改 32 字节原始 Blake3；<code>session_id</code> 统一 u32；<code>result</code> / <code>direction</code> / <code>state</code> / <code>mode</code> 改 <code>u8</code> 枚举；<code>proto_version</code> 改三个 <code>u8</code>；可选字段改用存在标志位；新增扩展区与「定长区冻结」规则。<strong>版本号不变</strong>（按上游指示）</td>

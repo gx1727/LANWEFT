@@ -24,7 +24,7 @@
 - `login` 的 `resume[]` **必须**列出全部待恢复的会话。
   二进制表示：定长区 `resume_count`（`u16`）给出条目数（无待恢复会话时为 `0`），
   变长区按顺序给出 `resume_count` 条 **16 字节定长**记录，
-  每条含 `session_id`（`u32`）/ `next_chunk_id`（`u32`）/ `missing_count`（`u32`）/
+  每条含 `session_id`（`u64`）/ `next_chunk_id`（`u32`）/ `missing_count`（`u32`）/
   `flags`（`u8`：bit0 = `next_chunk_id` 有效，bit1 = `missing_count` 有效）。
 - 续传起点来自**接收方**的位图，因此**只有接收方才可能提供**它：
   - **上传方向**（接收方 = Server）：Client **必须**不提供恢复提示
@@ -36,20 +36,23 @@
   标明 `result`（`enum8`：`0` = fail，`1` = success）与 `code`（失败原因，见 19 章）。
   二进制表示：定长区 `sessions_count`（`u16`）给出条目数，
   变长区按顺序给出 `sessions_count` 条**快照记录**，每条 =
-  **34 字节定长**（`session_id`(u32) / `result`(enum8) / `direction`(enum8) /
+  **42 字节定长**（`session_id`(u64) / `result`(enum8) / `direction`(enum8) /
   `state`(enum8) / `chunk_count`(u32) / `chunk_size`(u32) / `window`(u32) /
-  `next_chunk_id`(u32) / `missing_count`(u32) / `udp_port`(u16) /
-  `tcp_port`(u16) / `code_len`(u16)）+ 紧随其后的 `code_len` 字节内联 `code` 字符串。
+  `connection_window`(u32) / `next_chunk_id`(u32) / `missing_count`(u32) /
+  `udp_port`(u16) / `tcp_port`(u16) / `code_len`(u16) / `chunk_digest`(enum8)）+
+  紧随其后的 `code_len` 字节内联 `code` 字符串。
 - **快照的权威性（规范性）**：Server **必须**以 `login_ack` 的 `sessions[]` 中的状态
   作为唯一权威；Client **必须**以快照**覆盖**其本地保存的对应会话状态
   （位图、续传位置、数据面端口）。
   **不存在**「快照与本地状态并存」的窗口 ——
   控制通道不补发历史消息，重同步是一次**原子的整体替换**。
 - 恢复成功后，发送方**必须**丢弃恢复前推导的在途量估计并重建（见 11 章判据第 3 条）。
+- `chunk_digest` 开关随权威快照一并覆盖（见 09 章「逐块摘要的协商」）：
+  恢复后的数据面**必须**按快照值决定是否携带逐块摘要。
 
 ### 上传方向（Client = 发送方，Server = 接收方）
 
-1. Client 重连 → 发送 `login`，其 `resume[]` 记录只带 `session_id`（`u32`），
+1. Client 重连 → 发送 `login`，其 `resume[]` 记录只带 `session_id`（`u64`），
    `next_chunk_id` / `missing_count` **必须**未携带（记录 `flags` 的 bit0 / bit1 = 0，
    相应字段取 `0`）
 2. Server 加载**自己**的位图 → 计算缺失 → 在 `login_ack` 的 `sessions[]` 快照记录中给出
@@ -62,10 +65,10 @@ Server **没有** Client 的位图，无从计算续传起点，
 因此由 Client 在 `login` 的 `resume[]` 中提供恢复提示：
 
 1. Client 重连 → 发送 `login`，其 `resume[]` 记录携带
-   `session_id`（`u32`）/ `next_chunk_id`（`u32`）/ `missing_count`（`u32`），
+   `session_id`（`u64`）/ `next_chunk_id`（`u32`）/ `missing_count`（`u32`），
    并置记录 `flags` 的 bit0 / bit1 = 1
 2. Server 在 `login_ack` 的 `sessions[]` 快照记录中回填权威状态
-   （含 `udp_port` 与 `state`）
+   （含 `udp_port`、`window`、`connection_window` 与 `state`）
 3. Server 按 `next_chunk_id` 起继续向 Client 推送 chunk；
    Client 以 `missing_chunks`（`mode=report`）报告自己的缺失块
 4. 双方回到 TRANSFERRING
@@ -87,14 +90,15 @@ Client **必须**把 `result` = `0`（fail）的会话视为**已终止**，
 ## 暂停后恢复（连接存活）
 
 1. Client 发送 `resume_session`，其定长区携带
-   `session_id`（`u32`）/ `next_chunk_id`（`u32`）/ `missing_count`（`u32`），
+   `session_id`（`u64`）/ `next_chunk_id`（`u32`）/ `missing_count`（`u32`），
    并以 `flags` 存在标志位表明恢复提示是否携带
    （bit0 = `next_chunk_id` 有效，bit1 = `missing_count` 有效；
    标志位为 `0` 时该字段**必须**为 `0`）
    —— 恢复提示的方向规则与断线重连**相同**：
    上传方向**必须**不携带，下载方向**必须**携带。
 2. Server 回 `resume_ack`（含 `result` / `code`、
-   `next_chunk_id` / `missing_count` / `udp_port`）
+   `next_chunk_id` / `missing_count` / `udp_port` / `connection_window` /
+   `chunk_digest`）
 3. 双方回到 TRANSFERRING
 
 ### resume_ack 语义
@@ -121,6 +125,16 @@ Client **必须**把 `result` = `0`（fail）的会话视为**已终止**，
 - 接收方**必须**在裁决中报告**全部**未收到的 chunk_id，而不只是从
   `next_chunk_id` 开始的连续区间。
 - 发送方**必须**优先重传裁决报告的缺失块，优先级高于新数据。
+- `chunk_digest` 校验失败的块同样计入「未收到」，并按本节的**定点补发**处理
+  （见 12 章「缺失块的定点补发」）。
+
+## 复核轮与恢复
+
+- 复核轮的计数**必须**与位图一同持久化（见 09 章「持久化」）。
+- 复核轮**进行中**发生断线时，恢复后**必须**继续该复核轮，
+  **不得**因连接重建而获得第二次复核轮机会。
+- 接收方在恢复后**必须**按 11 章判据第 3 条的「恢复后基线」重建在途量估计；
+  若当前处于复核轮，则基线**必须**重置为 `S = R = 0`。
 
 ## 失败与清理
 

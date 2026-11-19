@@ -17,6 +17,7 @@
   --c-flags:#475569;
   --c-payload:#a855f7;
   --c-crc:#dc2626;
+  --c-digest:#0d9488;
 
   --b-session:#eef3ff;
   --b-chunk:#eefaf1;
@@ -24,6 +25,7 @@
   --b-flags:#f1f5f9;
   --b-payload:#faf2ff;
   --b-crc:#fdeeed;
+  --b-digest:#e7f7f4;
 
   --c-frame:#4338ca;
   --b-frame:#eef0ff;
@@ -109,11 +111,25 @@ h3{font-size:15.5px;font-weight:700;margin:20px 0 8px}
 .f-flags  {background:var(--b-flags);  color:var(--c-flags)}
 .f-payload{background:var(--b-payload);color:var(--c-payload)}
 .f-crc    {background:var(--b-crc);    color:var(--c-crc)}
+.f-digest {background:var(--b-digest); color:var(--c-digest)}
 .f-frame  {background:var(--b-frame);  color:var(--c-frame)}
 .f-type   {background:var(--b-type);   color:var(--c-type)}
 .f-body   {background:var(--b-body);   color:var(--c-body)}
 .f-ext    {background:var(--b-ext);    color:var(--c-ext)}
 .f-muted  {background:#f7f8fa;         color:var(--ink-3)}
+
+/* 位宽比例条：按字节数等比绘制（8 字节 = 64px 满格） */
+.wbar{
+  display:inline-block;height:9px;border-radius:2px;
+  background:var(--b-ext);vertical-align:middle;margin-left:8px;
+}
+.wbar.session{background:var(--b-session)}
+.wbar.chunk  {background:var(--b-chunk)}
+.wbar.len    {background:var(--b-len)}
+.wbar.flags  {background:var(--b-flags)}
+.wbar.payload{background:var(--b-payload)}
+.wbar.digest {background:var(--b-digest)}
+.wbar.crc    {background:var(--b-crc)}
 .fields .cell:hover{filter:brightness(.975)}
 
 .legend{

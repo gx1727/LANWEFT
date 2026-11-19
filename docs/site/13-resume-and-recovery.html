@@ -99,7 +99,7 @@
   <div class="card">
     <table>
       <tbody>
-        <tr><td><code>login.resume[]</code></td><td><strong>必须</strong>列出<strong>全部</strong>待恢复的会话。定长区 <code>resume_count</code>（u16）给出条目数（无待恢复会话时为 0），变长区给出 <code>resume_count</code> 条 <strong>16 字节定长</strong>记录：<code>session_id</code>(u32) / <code>next_chunk_id</code>(u32) / <code>missing_count</code>(u32) / <code>flags</code>(u8：bit0 = <code>next_chunk_id</code> 有效，bit1 = <code>missing_count</code> 有效)</td></tr>
+        <tr><td><code>login.resume[]</code></td><td><strong>必须</strong>列出<strong>全部</strong>待恢复的会话。定长区 <code>resume_count</code>（u16）给出条目数（无待恢复会话时为 0），变长区给出 <code>resume_count</code> 条 <strong>20 字节定长</strong>记录：<code>session_id</code>(u64) / <code>next_chunk_id</code>(u32) / <code>missing_count</code>(u32) / <code>flags</code>(u8：bit0 = <code>next_chunk_id</code> 有效，bit1 = <code>missing_count</code> 有效)</td></tr>
         <tr><td><strong>恢复提示的来源</strong></td><td>续传起点来自<strong>接收方</strong>的位图，因此<strong>只有接收方才可能提供</strong>它</td></tr>
         <tr><td><strong>上传方向</strong>（接收方 = Server）</td><td>Client <strong>必须</strong>不提供恢复提示（<code>flags</code> bit0 / bit1 = 0，相应字段<strong>必须</strong>取 0），由 Server 用<strong>自己</strong>的位图计算</td></tr>
         <tr><td><strong>下载方向</strong>（接收方 = Client）</td><td>Client <strong>必须</strong>依据<strong>自己的位图</strong>提供恢复提示（<code>flags</code> bit0 / bit1 = 1）</td></tr>

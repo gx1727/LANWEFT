@@ -200,9 +200,15 @@
           <td>丢弃该包，<strong>不</strong>标记位图</td>
         </tr>
         <tr>
+          <td class="ec-code">CHUNK_DIGEST_MISMATCH</td>
+          <td>逐块摘要校验失败（BLAKE3 8 字节）</td>
+          <td>丢弃该包，<strong>不</strong>标记位图；该块按<strong>定点补发</strong>处理（不进复核轮）</td>
+        </tr>
+        <tr>
           <td class="ec-code">FILE_HASH_MISMATCH</td>
           <td>文件级内容哈希不一致</td>
-          <td><strong>必须</strong>以 <code>session_abort</code> 终止会话（见 12 章）</td>
+          <td><strong>必须</strong>先执行<strong>复核轮</strong>；复核轮后仍失配才以
+            <code>session_abort</code> 终止会话（见 12 章）</td>
         </tr>
         <tr>
           <td class="ec-code">INVALID_CHUNK</td>
@@ -248,6 +254,11 @@
           <td class="ec-code">PROTO_VERSION_UNSUPPORTED</td>
           <td>协议版本不受支持</td>
           <td>见 06 章 <code>login</code> / <code>login_ack</code></td>
+        </tr>
+        <tr>
+          <td class="ec-code">FILE_TOO_LARGE</td>
+          <td>文件大小超出该会话 <code>chunk_size</code> 可表示的上限</td>
+          <td>Server <strong>必须</strong>以 <code>session_abort</code> 拒绝该请求，且<strong>不得</strong>创建会话（见 09 章「文件大小上限」）</td>
         </tr>
       </tbody>
     </table>

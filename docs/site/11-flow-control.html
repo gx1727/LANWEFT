@@ -19,7 +19,8 @@
   <h1>11 流控（Flow Control）</h1>
 
   <div class="note blue">
-    <strong>本章要点</strong>：<code>window</code> 是<strong>在途上限</strong>，由 Server 下发；
+    <strong>本章要点</strong>：<code>window</code> 是<strong>会话级在途上限</strong>，
+    <code>connection_window</code> 是<strong>连接级在途上限</strong>，二者必须同时满足；
     <strong>无逐包 ACK</strong>，发送方推进窗口的唯一依据是接收方周期性下发的
     <code>missing_chunks</code>（<code>mode=report</code>）裁决 —— <strong>空列表裁决也必须下发</strong>。
   </div>
@@ -28,7 +29,8 @@
   <div class="card">
     <table>
       <tbody>
-        <tr><td class="c-len">window</td><td>滑动窗口大小（<strong>在途上限</strong>）—— 已发送但尚未被对端确认接收的 chunk 数上限</td></tr>
+        <tr><td class="c-len">window</td><td>滑动窗口大小（<strong>会话级在途上限</strong>）—— 已发送但尚未被对端确认接收的 chunk 数上限</td></tr>
+        <tr><td class="c-len">connection_window</td><td><strong>连接级在途上限</strong> —— 同一控制连接上<strong>所有会话</strong>在途量之和的上限</td></tr>
         <tr><td class="c-len">chunk_size</td><td>协商确定的块大小：1024–1350，上限 1400（见 08 章）</td></tr>
       </tbody>
     </table>
@@ -70,6 +72,7 @@
       <thead><tr><th>参数</th><th>归属</th><th>约束</th></tr></thead>
       <tbody>
         <tr><td class="c-len">window</td><td>Server 下发</td><td><strong>Client 不得擅自修改</strong>；<strong>规范默认值 4096</strong></td></tr>
+        <tr><td class="c-len">connection_window</td><td>Server 下发</td><td><strong>Client 不得擅自修改</strong>；<strong>规范默认值 8192</strong></td></tr>
         <tr><td class="c-len">chunk_size</td><td>协商确定</td><td>1024–1350，上限 1400（见 08 章）</td></tr>
       </tbody>
     </table>
@@ -88,7 +91,10 @@
   </div>
   <div class="caption">
     稳态吞吐上限 ≈ <code>window × chunk_size / 裁决周期</code>；以 <code>chunk_size = 1200</code>、裁决周期 50 ms 计。
-    Server <strong>应当</strong>依据目标链路速率与 <code>chunk_size</code> 选取 <code>window</code>，1 Gbps 局域网的推荐取值为 <strong>4096</strong>。
+    Server <strong>应当</strong>依据目标链路速率与 <code>chunk_size</code> 选取 <code>window</code>，
+    1 Gbps 局域网的推荐取值为 <strong>8192</strong> ——
+    <code>window = 4096</code> 的吞吐上限约为 786 Mbps，<strong>不足以跑满千兆</strong>。
+    单会话独占链路时，<code>connection_window</code> <strong>应当</strong>取与 <code>window</code> 相同的值。
   </div>
 
   <h2>发送节奏</h2>

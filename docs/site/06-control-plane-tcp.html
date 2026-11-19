@@ -105,6 +105,8 @@
             <tr><td class="mono">str</td><td><code>u16</code> 长度 + UTF-8 字节（不含 NUL）；长度 0 表示无值</td></tr>
             <tr><td class="mono">hash32</td><td><strong>32 字节原始 Blake3 摘要</strong>（非十六进制串）</td></tr>
             <tr><td class="mono">chunk_list</td><td><code>u32</code> 条数 + 条数 × <code>u32</code> chunk_id（升序）</td></tr>
+    <tr><td class="mono">session_id</td><td><strong>u64</strong>，跨 Server 进程重启不复用（见 09 章）</td></tr>
+    <tr><td class="mono">chunk_digest</td><td>逐块摘要开关（enum8）：<code>0</code> = 关闭、<code>1</code> = 启用，<strong>规范默认值 1</strong>；由 Server 在 accept 中下发</td></tr>
             <tr><td class="mono">record[]</td><td><code>u16</code> 条数 + 条数 × 定长记录</td></tr>
           </tbody>
         </table>
@@ -158,11 +160,11 @@
       <div class="cell f-muted">reserved</div>
       <div class="cell span2 f-len">resume_count (u16)</div>
       <div class="cell span2 f-muted">reserved</div>
-      <div class="cell wide f-body">变长区：device_id (str) ‖ token (str) ‖ resume[] (每条 16 字节)</div>
+      <div class="cell wide f-body">变长区：device_id (str) ‖ token (str) ‖ resume[] (每条 20 字节)</div>
     </div>
   </div>
 
-  <h3>missing_chunks（<code>0x07</code>）· 定长区 16 字节</h3>
+  <h3>missing_chunks（<code>0x07</code>）· 定长区 20 字节</h3>
   <div class="diagram">
     <div class="fields" style="--cols:8">
       <div class="cell bitnum">0</div>
@@ -173,7 +175,7 @@
       <div class="cell bitnum">5</div>
       <div class="cell bitnum">6</div>
       <div class="cell bitnum">7</div>
-      <div class="cell span4 f-session">session_id (u32)</div>
+      <div class="cell span4 f-session">session_id (u64)</div>
       <div class="cell f-type">mode</div>
       <div class="cell f-flags">flags</div>
       <div class="cell span2 f-muted">reserved</div>
@@ -183,7 +185,7 @@
     </div>
   </div>
 
-  <h3>progress_update（<code>0x0A</code>）· 定长区 20 字节</h3>
+  <h3>progress_update（<code>0x0A</code>）· 定长区 24 字节</h3>
   <div class="diagram">
     <div class="fields" style="--cols:8">
       <div class="cell bitnum">0</div>
@@ -194,7 +196,7 @@
       <div class="cell bitnum">5</div>
       <div class="cell bitnum">6</div>
       <div class="cell bitnum">7</div>
-      <div class="cell span4 f-session">session_id (u32)</div>
+      <div class="cell span4 f-session">session_id (u64)</div>
       <div class="cell span4 f-chunk">received (u64)</div>
       <div class="cell span8 f-chunk">total (u64)</div>
       <div class="cell wide f-body">无变长区</div>
@@ -210,19 +212,19 @@
       <tbody>
         <tr><td class="num">0x01</td><td class="mono">login</td><td>Client→Server</td><td class="num">8 B</td><td class="mono">device_id, token, resume[]</td><td>连接握手、认证与恢复请求</td></tr>
         <tr><td class="num">0x02</td><td class="mono">login_ack</td><td>Server→Client</td><td class="num">10 B</td><td class="mono">code, sessions[]</td><td>握手结果与权威快照</td></tr>
-        <tr><td class="num">0x03</td><td class="mono">upload_start</td><td>Client→Server</td><td class="num">24 B</td><td class="mono">file_hash, file_name</td><td>发起上传</td></tr>
-        <tr><td class="num">0x04</td><td class="mono">upload_accept</td><td>Server→Client</td><td class="num">24 B</td><td class="mono">file_hash</td><td>接受上传，返回会话参数</td></tr>
-        <tr><td class="num">0x05</td><td class="mono">download_start</td><td>Client→Server</td><td class="num">24 B</td><td class="mono">file_hash, file_name</td><td>发起下载</td></tr>
-        <tr><td class="num">0x06</td><td class="mono">download_accept</td><td>Server→Client</td><td class="num">24 B</td><td class="mono">file_hash</td><td>接受下载，返回会话参数</td></tr>
-        <tr><td class="num">0x07</td><td class="mono">missing_chunks</td><td>双向</td><td class="num">16 B</td><td class="mono">chunks</td><td>缺失 chunk 报告 / 索要</td></tr>
-        <tr><td class="num">0x08</td><td class="mono">resume_session</td><td>Client→Server</td><td class="num">16 B</td><td class="mono">—</td><td>恢复会话（显式暂停后的恢复）</td></tr>
-        <tr><td class="num">0x09</td><td class="mono">resume_ack</td><td>Server→Client</td><td class="num">20 B</td><td class="mono">code</td><td>恢复确认与权威状态</td></tr>
-        <tr><td class="num">0x0A</td><td class="mono">progress_update</td><td>双向</td><td class="num">20 B</td><td class="mono">—</td><td>传输进度更新（发布方恒为接收方）</td></tr>
-        <tr><td class="num">0x0B</td><td class="mono">udp_ready</td><td>Server→Client</td><td class="num">8 B</td><td class="mono">—</td><td>UDP 可用性通知</td></tr>
-        <tr><td class="num">0x0C</td><td class="mono">upload_complete</td><td>Server→Client</td><td class="num">8 B</td><td class="mono">code, file_hash, asset_id</td><td>上传完成（接收方 Server 上报）</td></tr>
-        <tr><td class="num">0x0D</td><td class="mono">download_complete</td><td>Client→Server</td><td class="num">8 B</td><td class="mono">code, file_hash</td><td>下载完成（接收方 Client 上报）</td></tr>
-        <tr><td class="num">0x0E</td><td class="mono">session_pause</td><td>双向</td><td class="num">4 B</td><td class="mono">—</td><td>暂停会话</td></tr>
-        <tr><td class="num">0x0F</td><td class="mono">session_abort</td><td>双向</td><td class="num">8 B</td><td class="mono">reason, detail</td><td>终止会话（发布方受限）</td></tr>
+        <tr><td class="num">0x03</td><td class="mono">upload_start</td><td>Client→Server</td><td class="num">28 B</td><td class="mono">file_hash, file_name</td><td>发起上传</td></tr>
+        <tr><td class="num">0x04</td><td class="mono">upload_accept</td><td>Server→Client</td><td class="num">32 B</td><td class="mono">file_hash</td><td>接受上传，返回会话参数</td></tr>
+        <tr><td class="num">0x05</td><td class="mono">download_start</td><td>Client→Server</td><td class="num">28 B</td><td class="mono">file_hash, file_name</td><td>发起下载</td></tr>
+        <tr><td class="num">0x06</td><td class="mono">download_accept</td><td>Server→Client</td><td class="num">32 B</td><td class="mono">file_hash</td><td>接受下载，返回会话参数</td></tr>
+        <tr><td class="num">0x07</td><td class="mono">missing_chunks</td><td>双向</td><td class="num">20 B</td><td class="mono">chunks</td><td>缺失 chunk 报告 / 索要</td></tr>
+        <tr><td class="num">0x08</td><td class="mono">resume_session</td><td>Client→Server</td><td class="num">20 B</td><td class="mono">—</td><td>恢复会话（显式暂停后的恢复）</td></tr>
+        <tr><td class="num">0x09</td><td class="mono">resume_ack</td><td>Server→Client</td><td class="num">28 B</td><td class="mono">code</td><td>恢复确认与权威状态</td></tr>
+        <tr><td class="num">0x0A</td><td class="mono">progress_update</td><td>双向</td><td class="num">24 B</td><td class="mono">—</td><td>传输进度更新（发布方恒为接收方）</td></tr>
+        <tr><td class="num">0x0B</td><td class="mono">udp_ready</td><td>Server→Client</td><td class="num">12 B</td><td class="mono">—</td><td>UDP 可用性通知</td></tr>
+        <tr><td class="num">0x0C</td><td class="mono">upload_complete</td><td>Server→Client</td><td class="num">12 B</td><td class="mono">code, file_hash, asset_id</td><td>上传完成（接收方 Server 上报）</td></tr>
+        <tr><td class="num">0x0D</td><td class="mono">download_complete</td><td>Client→Server</td><td class="num">12 B</td><td class="mono">code, file_hash</td><td>下载完成（接收方 Client 上报）</td></tr>
+        <tr><td class="num">0x0E</td><td class="mono">session_pause</td><td>双向</td><td class="num">8 B</td><td class="mono">—</td><td>暂停会话</td></tr>
+        <tr><td class="num">0x0F</td><td class="mono">session_abort</td><td>双向</td><td class="num">12 B</td><td class="mono">reason, detail</td><td>终止会话（发布方受限）</td></tr>
         <tr><td class="num">0x10</td><td class="mono">asset_recall</td><td>Client→Server</td><td class="num">4 B</td><td class="mono">file_hash, asset_id</td><td>请求撤回已上传的素材记录</td></tr>
         <tr><td class="num">0x11</td><td class="mono">asset_recall_complete</td><td>Server→Client</td><td class="num">4 B</td><td class="mono">file_hash, asset_id, code, detail</td><td>撤回处理结果回执</td></tr>
         <tr><td class="num">0x12</td><td class="mono">ping</td><td>双向</td><td class="num">8 B</td><td class="mono">—</td><td>心跳</td></tr>

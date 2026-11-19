@@ -29,7 +29,7 @@
     <table>
       <thead><tr><th>术语</th><th>类型</th><th>说明</th></tr></thead>
       <tbody>
-        <tr><td class="c-session">session_id</td><td class="mono">u32</td><td>会话唯一标识；控制帧中以 u32 承载（见 06 章）</td></tr>
+        <tr><td class="c-session">session_id</td><td class="mono">u64</td><td>会话唯一标识；控制帧、UDP 数据包与 TCP 数据面帧中<strong>均以 u64 承载</strong>；跨 Server 进程重启<strong>不复用</strong>（见 06、09 章）</td></tr>
         <tr><td class="c-payload">file_hash</td><td class="mono">hash32</td><td>文件哈希；<strong>32 字节原始 Blake3 摘要</strong>（非十六进制串，见 06 章）</td></tr>
         <tr><td class="c-payload">file_name</td><td class="mono">str</td><td>文件名（<code>u16</code> 长度 + UTF-8 字节）</td></tr>
         <tr><td class="c-payload">size</td><td class="mono">u64</td><td>文件大小（字节）</td></tr>
@@ -62,7 +62,10 @@
       <thead><tr><th>术语</th><th>类型</th><th>说明</th></tr></thead>
       <tbody>
         <tr><td class="c-payload">bitmap</td><td>—</td><td>接收进度位图；记录各 <code>chunk_id</code> 的接收状态（见 18 章）</td></tr>
-        <tr><td class="c-len">window</td><td class="mono">u32</td><td>滑动窗口大小（<strong>在途上限</strong>，Server 下发，Client 不得修改，见 11 章）</td></tr>
+        <tr><td class="c-len">window</td><td class="mono">u32</td><td>滑动窗口大小（<strong>会话级在途上限</strong>，Server 下发，Client 不得修改，见 11 章）</td></tr>
+        <tr><td class="c-len">connection_window</td><td class="mono">u32</td><td><strong>连接级</strong>在途上限；一条控制连接上<strong>所有会话</strong>的在途量之和不得超过该值（见 11 章）</td></tr>
+        <tr><td class="c-digest">chunk_digest</td><td class="mono">8 bytes</td><td>逐块端到端摘要；BLAKE3 XOF-8，仅覆盖 payload（见 08 章）</td></tr>
+        <tr><td class="c-flags">复核轮</td><td>—</td><td>文件级失配后接收方要求发送方<strong>重新读取源文件并全量重发</strong>的恢复过程，<strong>至多一次</strong>（见 12 章）</td></tr>
         <tr><td class="c-len">在途量</td><td>—</td><td>已发出但尚未被对端确认接收的 chunk 数；<strong>不得超过 <code>window</code></strong>（见 11 章）</td></tr>
         <tr><td class="c-crc">missing_chunks</td><td class="mono">chunk_list</td><td>缺失数据块列表（<code>u32</code> 条数 + <code>u32</code> 数组，<strong>必须</strong>升序）；语义为「<strong>发布方自己尚未收到的块</strong>」<br>· 发布方恒为<strong>接收方</strong>（<code>mode=report</code>）；发送方发布时（<code>mode=request</code>）该列表<strong>必须</strong>为空列表</td></tr>
         <tr><td class="c-flags">mode</td><td class="mono">enum8</td><td><code>missing_chunks</code> 的判别字段：<code>0</code> = <code>report</code>（报告缺失）/ <code>1</code> = <code>request</code>（索要缺失列表）</td></tr>

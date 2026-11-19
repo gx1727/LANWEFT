@@ -5,16 +5,21 @@
 
 ## 基础术语
 
-- `session_id`（u32）：会话唯一标识；控制帧中以 u32 承载（见 06 章）
+- `session_id`（u64）：会话唯一标识；控制帧、UDP 数据包与 TCP 数据面帧中
+  **均以 u64 承载**（见 06、07、08、09 章）
 - `file_hash`（hash32）：文件哈希；**32 字节原始 Blake3 摘要**（非十六进制串，见 06 章）
 - `file_name`（str）：文件名（`u16` 长度 + UTF-8 字节）
 - `size`（u64）：文件大小（字节）
 - `mtime`（u64）：文件修改时间戳（UTC 秒）
 - `chunk_size`（u32）：数据块大小（字节）；建议 1024–1350，上限 1400（见 08 章）
 - `chunk_id`（u32）：数据块标识；从 0 开始
-- `chunk_count`（u32）：总块数 = `ceil(size / chunk_size)`
+- `chunk_count`（u32）：总块数 = `ceil(size / chunk_size)`；
+  **必须** ≤ 2³² − 1（文件大小上限，见 09 章）
 - `payload_len`（u16）：载荷长度
 - `flags`（u16）：标志位
+- `chunk_digest`（8 字节）：逐块端到端摘要；BLAKE3 的 8 字节 XOF 输出，
+  **仅覆盖该 chunk 的 payload**；**可选字段**，由会话参数 `chunk_digest`
+  （`0` = 关闭 / `1` = 启用，默认 1）决定是否携带（见 08、09 章）
 - `client_id`（device_id，str）：客户端设备 ID（见 23 章）
 
 ## 会话与方向
@@ -27,12 +32,17 @@
 ## 状态与控制
 
 - `bitmap`：接收进度位图；记录各 `chunk_id` 的接收状态（见 18 章）
-- `window`（u32）：滑动窗口大小（**在途上限**，Server 下发，Client 不得修改，见 11 章）
+- `window`（u32）：滑动窗口大小（**会话级在途上限**，Server 下发，
+  Client 不得修改，见 11 章）
+- `connection_window`（u32）：**连接级**在途上限；
+  一条控制连接上所有会话的在途量之和**不得超过**该值（见 11 章）
 - **在途量**：已发出但尚未被对端确认接收的 chunk 数；不得超过 `window`（见 11 章）
 - `missing_chunks`（chunk_list）：缺失数据块列表（`u32` 条数 + `u32` 数组，**必须**升序）；
   语义为「**发布方自己尚未收到的块**」
   - 发布方恒为**接收方**（`mode=report`）；发送方发布时（`mode=request`）该列表**必须**为空列表
 - `mode`（enum8）：`missing_chunks` 的判别字段，`0` = `report`（报告缺失）/ `1` = `request`（索要缺失列表）
+- **复核轮**：文件级校验失配后，接收方要求发送方**重新读取源文件并全量重发**的
+  恢复过程；**至多一次**（见 12 章）。由 `missing_chunks.flags.bit1` 表达
 - `missing_count`（u32）：位图中**未收到**的 chunk 总数（精确值）；
   未携带时由**存在标志位**表示（见 06 章、18 章）
 - `udp_ready`：UDP 就绪通知
