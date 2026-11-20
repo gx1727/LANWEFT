@@ -62,6 +62,8 @@
   通过 `material_list` 查询、通过 `material_available` 通知变更（见 09 章）
 - `seq`（u64）：共享清单条目的**单调递增**序号；
   Client 的增量水位与分页游标（见 09 章）
+- **主动投递**：Server 在 Client 未请求的情况下，向在线 Client 投递文件；
+  方向恒为 download，携带全套会话参数（见 09 章）
 
 ## 控制通道
 

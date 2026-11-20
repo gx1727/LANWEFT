@@ -191,13 +191,18 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | `0x16` | material_available | Server→Client | 共享清单变更通知（预置素材） |
 | `0x17` | material_list | Client→Server | 查询共享清单（预置素材） |
 | `0x18` | material_list_ack | Server→Client | 共享清单查询应答 |
-| `0x00`、`0x19`–`0xFF` | — | — | **保留**，接收方必须按「未识别消息必须忽略」处理 |
+| `0x19` | delivery_offer | Server→Client | 主动投递提议（携带全套会话参数） |
+| `0x1A` | delivery_response | Client→Server | 投递应答（接受 / 拒绝） |
+| `0x00`、`0x1B`–`0xFF` | — | — | **保留**，接收方必须按「未识别消息必须忽略」处理 |
 
 > **方向标注约定**：标记为「双向」的消息，其**发布方由会话方向决定**：
 > `missing_chunks`（`mode=report`）与 `progress_update` 由**接收方**发布；
 > `session_pause` 双方均可发布；`mode=request` 的 `missing_chunks` 由**发送方**发布。
 > 见 10 章「视角定义」。
 
+> **投递消息的发布方（规范性）**：`delivery_offer` 恒由 **Server** 发布，
+> `delivery_response` 恒由 **Client** 发布（见 09 章「主动投递」）。
+>
 > **共享清单消息的发布方（规范性）**：`material_available` 与 `material_list_ack`
 > 恒由 **Server** 发布，`material_list` 恒由 **Client** 发布
 > （见 09 章「预置素材与共享清单」）。
@@ -815,6 +820,61 @@ Client 可用 `file_hash` 单独定位，也可用 `asset_id` 精确定位到某
   作为下一次查询的 `since_seq`；**不得**使用本应答的 `max_seq`
   —— `max_seq` 可能超前于本批已返回的条目，用它作水位会**跳过**条目。
 
+### delivery_offer（`0x19`）
+
+**定长区（48 字节）**
+
+| 偏移 | 大小 | 字段 | 类型 | 说明 |
+|------|------|------|------|------|
+| 0 | 8 | session_id | u64 | Server 分配的会话 ID（见 09 章「创建规则」） |
+| 8 | 8 | size | u64 | 文件大小（字节） |
+| 16 | 8 | mtime | u64 | 文件修改时间戳（UTC 秒） |
+| 24 | 4 | chunk_count | u32 | 总 chunk 数量 = ceil(size / chunk_size) |
+| 28 | 4 | window | u32 | 滑动窗口大小（**会话级在途上限**），见 11 章 |
+| 32 | 4 | connection_window | u32 | **连接级**在途上限，见 11 章 |
+| 36 | 4 | chunk_size | u32 | 协商确定的 chunk 大小 |
+| 40 | 2 | udp_port | u16 | 数据面 UDP 端口；Client **必须**向它发出 PROBE |
+| 42 | 2 | tcp_port | u16 | **数据面** TCP 降级通道端口；`0` 表示不支持。**不是**控制面端口 |
+| 44 | 1 | flags | u8 | bit0-7 保留（接收方**必须**忽略未知位） |
+| 45 | 3 | reserved | — | 保留 |
+
+**变长区（顺序固定）**
+
+1. `file_hash`：`hash32`。待投递文件内容的 Blake3 摘要。
+2. `file_name`：`str`。文件名（UTF-8）。
+
+- **发布方恒为 Server**。
+- 本消息**携带全套会话参数**：Client 接受后**必须**按这些参数工作，
+  **不得**自行改动 `window` / `connection_window` / `chunk_size`。
+- Client **必须**校验 `chunk_count == ceil(size / chunk_size)`，
+  不一致即以 `delivery_response`（`result` = fail，`code` = `SERIALIZATION_ERROR`）
+  拒绝。
+- 本消息**不携带**任何认证凭据 —— 投递只**可能**发生在已认证的控制连接上。
+
+### delivery_response（`0x1A`）
+
+**定长区（12 字节）**
+
+| 偏移 | 大小 | 字段 | 类型 | 说明 |
+|------|------|------|------|------|
+| 0 | 8 | session_id | u64 | 对应 `delivery_offer` 的会话 ID |
+| 8 | 1 | result | enum8 | `0` = fail（拒绝）、`1` = success（接受） |
+| 9 | 1 | flags | u8 | bit0 = `file_hash` 有效；bit1-7 保留 |
+| 10 | 2 | reserved | u16 | 保留 |
+
+**变长区（顺序固定）**
+
+1. `code`：`str`。`result` = fail 时的机器可判定错误码（见 19 章，如
+   `DELIVERY_DECLINED` / `STORAGE_FULL` / `ACL_DENY` / `SERIALIZATION_ERROR`）；
+   `result` = success 时**必须**为空串。
+2. `file_hash`：`hash32`，**仅当** `flags.bit0` = 1 时存在。
+   接受时**必须**携带，且**必须**与 `delivery_offer.file_hash` 一致。
+
+- **发布方恒为 Client**。
+- `result` = success 时，Client **必须**打开数据面 socket 并发出 PROBE
+  （见 09 章「流程」、07 章「接收方 socket 生命周期」）。
+- `result` = fail 时，Client **不得**发出 PROBE。
+
 ### ping（`0x12`）/ pong（`0x13`）
 
 **定长区（8 字节）**
@@ -866,7 +926,11 @@ Client 可用 `file_hash` 单独定位，也可用 `asset_id` 精确定位到某
 14. **共享清单消息**：`material_available` 与 `material_list_ack` 恒由 **Server**
     发布，`material_list` 恒由 **Client** 发布；清单查询**不得**创建传输会话
     （见 09 章）
-15. **待决请求唯一**：Client 在同一控制连接上同一时刻**必须**只保留一个待决的
+15. **投递消息**：`delivery_offer` 恒由 **Server** 发布，
+    `delivery_response` 恒由 **Client** 发布；
+    Server 在收到接受后**必须**等到该会话的 PROBE 才可发送数据面数据包
+    （见 09 章、20 章）
+16. **待决请求唯一**：Client 在同一控制连接上同一时刻**必须**只保留一个待决的
     `upload_start` / `download_start`；因此 Server 对该请求的拒绝
     （以 `session_abort` 表达，见 19 章 `FILE_TOO_LARGE`）**必须**能被 Client 唯一归属
 

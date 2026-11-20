@@ -37,6 +37,9 @@
 - `SESSION_ABORTED`：会话被服务端终止
 - `FILE_NOT_FOUND`：请求的文件在 Server 上不存在或不可拉取
   （含共享清单条目已被移除的情形）；Server **必须**以 `session_abort` 拒绝
+- `DELIVERY_DECLINED`：接收方拒绝该次主动投递
+  （策略、配额或用户决定）；经 `delivery_response.code` 表达，
+  Server **必须**以 `session_abort`（`reason` = `DELIVERY_DECLINED`）终止会话
 - `INVALID_STATE`：当前状态不允许该操作
 
 ### TRANSPORT
@@ -78,6 +81,8 @@
 ### STORAGE
 
 - `DATABASE_ERROR`：SQLite 持久化失败
+- `STORAGE_FULL`：接收方存储空间不足，无法容纳投递的文件；
+  经 `delivery_response.code` 表达
 - `FILESYSTEM_ERROR`：文件系统操作失败
 
 ### PROTOCOL

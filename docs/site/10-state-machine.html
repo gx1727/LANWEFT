@@ -211,12 +211,16 @@
       <tbody>
         <tr><td class="mono">INIT</td><td class="mono">NEGOTIATING</td><td>发送侧</td><td><code>upload_start</code> / <code>download_start</code></td></tr>
         <tr><td class="mono">INIT</td><td class="mono">NEGOTIATING</td><td>接收侧</td><td><code>upload_start</code> / <code>download_start</code>（收到传输请求）</td></tr>
+        <tr><td class="mono">INIT</td><td class="mono">NEGOTIATING</td><td>发送侧</td><td><strong>主动投递</strong>：<code>delivery_offer</code>（发出投递提议，见 09 章）</td></tr>
+        <tr><td class="mono">INIT</td><td class="mono">NEGOTIATING</td><td>接收侧</td><td><strong>主动投递</strong>：<code>delivery_offer</code>（收到投递提议）</td></tr>
         <tr><td class="mono">INIT</td><td class="mono">ABORTED</td><td>双方</td><td><code>session_abort</code></td></tr>
         <tr><td class="mono">NEGOTIATING</td><td class="mono">TRANSFERRING</td><td>发送侧</td><td><code>upload_accept</code> / <code>download_accept</code></td></tr>
         <tr><td class="mono">NEGOTIATING</td><td class="mono">TRANSFERRING</td><td>接收侧</td><td><code>upload_accept</code> / <code>download_accept</code>（发送 accept 后进入常规传输）</td></tr>
+        <tr><td class="mono">NEGOTIATING</td><td class="mono">TRANSFERRING</td><td>双方</td><td><strong>主动投递</strong>：<code>delivery_response</code>（接受投递）</td></tr>
         <tr><td class="mono">NEGOTIATING</td><td class="mono">VERIFY</td><td>接收侧</td><td>秒传：accept 携带 <code>file_exists = 1</code>（bool），跳过数据传输</td></tr>
         <tr><td class="mono">NEGOTIATING</td><td class="mono">COMPLETED</td><td>发送侧</td><td>秒传：accept 携带 <code>file_exists = 1</code>（bool），不发送任何数据</td></tr>
         <tr><td class="mono">NEGOTIATING</td><td class="mono">ABORTED</td><td>双方</td><td><code>session_abort</code></td></tr>
+        <tr><td class="mono">NEGOTIATING</td><td class="mono">ABORTED</td><td>发送侧</td><td><strong>主动投递</strong>：<code>delivery_response</code>（拒绝投递）</td></tr>
         <tr><td class="mono">TRANSFERRING</td><td class="mono">VERIFY</td><td>接收侧</td><td>位图全真，进入文件级校验</td></tr>
         <tr><td class="mono">TRANSFERRING</td><td class="mono">PAUSED</td><td>双方</td><td><code>session_pause</code></td></tr>
         <tr><td class="mono">TRANSFERRING</td><td class="mono">COMPLETED</td><td>发送侧</td><td><code>upload_complete</code> / <code>download_complete</code></td></tr>

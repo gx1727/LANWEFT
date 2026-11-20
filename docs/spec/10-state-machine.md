@@ -53,12 +53,16 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
 |--------|--------|------|------|
 | INIT | NEGOTIATING | 发送侧 | upload_start / download_start |
 | INIT | NEGOTIATING | 接收侧 | upload_start / download_start（收到传输请求） |
+| INIT | NEGOTIATING | 发送侧 | **delivery_offer**（发出投递提议，见 09 章） |
+| INIT | NEGOTIATING | 接收侧 | **delivery_offer**（收到投递提议） |
 | INIT | ABORTED | 双方 | session_abort |
 | NEGOTIATING | TRANSFERRING | 发送侧 | upload_accept / download_accept |
 | NEGOTIATING | TRANSFERRING | 接收侧 | upload_accept / download_accept（发送 accept 后进入常规传输） |
+| NEGOTIATING | TRANSFERRING | 双方 | **delivery_response**（接受投递，见 09 章） |
 | NEGOTIATING | VERIFY | 接收侧 | 秒传：accept 携带 file_exists = 1（bool），跳过数据传输 |
 | NEGOTIATING | COMPLETED | 发送侧 | 秒传：accept 携带 file_exists = 1（bool），不发送任何数据 |
 | NEGOTIATING | ABORTED | 双方 | session_abort |
+| NEGOTIATING | ABORTED | 发送侧 | **delivery_response**（拒绝投递，见 09 章） |
 | TRANSFERRING | VERIFY | 接收侧 | 位图全真，进入文件级校验 |
 | TRANSFERRING | PAUSED | 双方 | session_pause |
 | TRANSFERRING | COMPLETED | 发送侧 | upload_complete / download_complete |

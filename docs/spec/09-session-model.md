@@ -125,6 +125,63 @@ size ≤ chunk_size × (2³² − 1)
 - Server 移除预置素材记录**不得**影响任何 Client 的本地文件；
   Client 本地文件的生命周期由**实现**决定。
 
+## 主动投递（Delivery）
+
+Server **可以**在 Client 未请求的情况下，向一个**在线**的 Client 投递文件。
+
+### 前置条件（规范性）
+
+- 投递只**可能**发生在**控制连接存续**期间 —— Server **必须**通过该连接投递；
+  Client 离线时**不得**投递。
+- 投递方向恒为 **download**（Server → Client）：
+  完成消息恒为 `download_complete`（**接收方发布**），
+  缺失报告恒由接收方发起（见 10 章「视角定义」）。
+- Server **不得**对**已有活跃会话**的同一 `file_hash` 发起投递。
+- 投递**不得**要求目标文件在共享清单中；
+  投递也**不得**隐式在共享清单中创建条目
+  （两条发现路径相互独立，见下）。
+
+### 流程（规范性）
+
+1. Server **必须**生成 `session_id` 与全套会话参数
+   （`chunk_size` / `window` / `connection_window` / `udp_port` / `tcp_port`），
+   创建会话（状态 `NEGOTIATING`），并发布 `delivery_offer`（`0x19`）。
+2. Client 收到 `delivery_offer` 后**必须**作出决定（二选一）：
+   - **接受** → 发布 `delivery_response`（`result` = success），
+     并**必须**打开数据面 socket、向 `delivery_offer.udp_port` 发出
+     `UDP_PROBE`（见 07 章「接收方 socket 生命周期」）；
+   - **拒绝** → 发布 `delivery_response`（`result` = fail，
+     `code` 填拒绝原因），**不得**发出 PROBE。
+3. Server 收到接受后**必须**等待该会话的 `UDP_PROBE` ——
+   **未收到 PROBE 前不得发送任何数据面数据包**（见 20 章）；
+   收到后**必须**从 `udp_port` 发出 `UDP_PROBE_ACK`，随后开始推送数据。
+4. Client 收到 `UDP_PROBE_ACK` 后即可接收数据；
+   传输过程**完全遵循**既有的下载流程
+   （位图、缺失裁决、断点恢复、文件级校验与原子提交，**无一例外**）。
+5. Client **必须**发布 `download_complete`（接收方发布完成消息）。
+
+### 拒绝与失败（规范性）
+
+- Client 拒绝时，Server **必须**发布 `session_abort`
+  （`reason` 取 Client 给出的 `code`）终止会话并清理资源。
+- Client 未在会话超时内应答（60 秒，见 09 章「超时与回收」）时，
+  Server **必须**将该会话置为 `ABORTED`。
+- 同一文件对同一 `device_id` 的**重复投递必须被幂等忽略**；
+  Client **不得**因收到重复的 `delivery_offer` 而重复落盘同一内容。
+- Server **不得**在收到拒绝后**立即**重复投递同一文件
+  （退避策略由实现决定，但**必须**有）。
+
+### 与共享清单的关系（规范性）
+
+主动投递与共享清单是**两条独立的发现路径**：
+
+| | 主动投递 | 共享清单 |
+|---|---|---|
+| 触发方 | Server | Client |
+| 频次 | 一次性 | 持续可查 |
+| 携带内容 | **全套会话参数** + 文件元数据 | 仅文件元数据 |
+| 是否创建会话 | **是**（`NEGOTIATING`） | 否 |
+
 ## 创建规则
 
 1. **session_id 由 Server 生成**

@@ -125,6 +125,17 @@
           <td>对不存在的 / 已终止的会话发起操作</td>
         </tr>
         <tr>
+          <td class="ec-code">DELIVERY_DECLINED</td>
+          <td>接收方拒绝该次主动投递（策略、配额或用户决定）</td>
+          <td>经 <code>delivery_response.code</code> 表达；Server <strong>必须</strong>以
+            <code>session_abort</code> 终止会话（见 09 章）</td>
+        </tr>
+        <tr>
+          <td class="ec-code">STORAGE_FULL</td>
+          <td>接收方存储空间不足，无法容纳投递的文件</td>
+          <td>经 <code>delivery_response.code</code> 表达</td>
+        </tr>
+        <tr>
           <td class="ec-code">FILE_NOT_FOUND</td>
           <td>请求的文件在 Server 上不存在或不可拉取</td>
           <td>Server <strong>必须</strong>以 <code>session_abort</code> 拒绝（见 09 章）</td>

@@ -117,6 +117,28 @@ Client                                        Server
 两条路径的语义一致：都返回**接收方**的权威续传位置与数据面端口，
 都使双方回到 `TRANSFERRING`（见 13 章）。
 
+### 主动投递（Server → Client，无客户端请求）
+
+```
+Client                                        Server
+  |                                            |  Server 生成 session_id 与全套会话参数
+  |<-- delivery_offer {session_id, 参数, -------|  创建会话（NEGOTIATING）
+  |    file_hash, file_name}                    |
+  |                                            |
+  |    接收方决策（策略 / 配额 / 用户）          |
+  |--- delivery_response {result=success} ----->|  接受
+  |    （result=fail + code 即拒绝）             |
+  |                                            |
+  |-- UDP: PROBE (从接收方数据面 socket) ------>|  Server 在此学到接收方地址
+  |<-- UDP: PROBE_ACK (从 Server 数据面端口) ---|  打通 NAT 映射
+  |<========== UDP 数据面推送 ==================|
+  |--- download_complete ---------------------->|  接收方发布完成消息
+```
+
+- Server **必须**等到 PROBE 才可推送（20 章）
+- 方向恒为 **download**：完成消息恒由接收方发布
+- 传输过程与普通下载**完全一致**（位图 / 裁决 / 恢复 / 提交全部复用）
+
 ### 共享清单与拉取（预置素材）
 
 ```
