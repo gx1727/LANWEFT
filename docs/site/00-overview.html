@@ -39,13 +39,16 @@
 
   <div class="diagram">
     <div class="fields" style="--cols:12">
-      <div class="cell ruler-title">控制帧 = frame_len + 8 字节定长帧头 + 消息体</div>
+      <div class="cell ruler-title">控制帧 = magic + frame_len + header_crc32 + 16 字节定长帧头 + 消息体</div>
 
-      <div class="cell span4 f-len">u32 frame_len</div>
-      <div class="cell span2 f-flags">u8 msg_type</div>
-      <div class="cell span2 f-flags">u8 flags</div>
-      <div class="cell span2 f-type">u8 body_version</div>
-      <div class="cell span2 f-muted">u8 reserved</div>
+      <div class="cell span4 f-len">u32 magic</div>
+      <div class="cell span4 f-frame">u32 frame_len</div>
+      <div class="cell span4 f-crc">u32 header_crc32</div>
+
+      <div class="cell span3 f-flags">u8 msg_type</div>
+      <div class="cell span3 f-flags">u8 flags</div>
+      <div class="cell span3 f-type">u8 body_version</div>
+      <div class="cell span3 f-muted">u8 reserved</div>
 
       <div class="cell wide f-body">消息体 body</div>
 
@@ -55,7 +58,9 @@
   </div>
 
   <div class="legend">
-    <span><i class="swatch" style="background:var(--b-len)"></i>长度前缀 <code>frame_len</code></span>
+    <span><i class="swatch" style="background:var(--b-len)"></i>魔数 <code>magic</code></span>
+    <span><i class="swatch" style="background:var(--b-frame)"></i>长度前缀 <code>frame_len</code></span>
+    <span><i class="swatch" style="background:var(--b-crc)"></i>帧头校验 <code>header_crc32</code></span>
     <span><i class="swatch" style="background:var(--b-flags)"></i>定长帧头字段</span>
     <span><i class="swatch" style="background:var(--b-type)"></i>版本字段</span>
     <span><i class="swatch" style="background:var(--b-body)"></i>定长区</span>

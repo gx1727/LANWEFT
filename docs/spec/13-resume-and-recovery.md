@@ -6,6 +6,9 @@
 - 保留已写入与位图
 - 中断不回滚已写入数据
 - **控制连接断开时，其上承载的全部会话一并进入中断**（见 09 章）
+- **帧失步**导致的断连（见 06、07 章「帧同步与失步处理」）同样属于
+  **断线重连**路径：失步的连接**不得**就地续解，
+  恢复一律经 `login` / `login_ack` 的**权威快照**重建
 
 ## 恢复的两条路径（规范性）
 
@@ -15,15 +18,46 @@
 | **暂停后恢复** | 会话处于 `PAUSED`，连接仍存活 | `resume_session` → `resume_ack` | `resume_ack` |
 
 两条路径的语义**一致**：都返回接收方的权威续传位置与数据面端口，
-都使双方回到 `TRANSFERRING`。区别只在于**是否需要重建连接**。
+都使会话回到**可传输状态**。区别只在于**是否需要重建连接**。
+
+> **恢复后的状态（规范性）**：恢复后**各视角各自回到断线前的状态**
+> （以权威快照的 `state` 字段为准，见「待恢复会话的判定」）。
+> 「暂停后恢复」路径**必须**回到 `TRANSFERRING`（该路径的前提就是解除暂停）；
+> 「断线重连」路径则**必须**按上表处理 ——
+> `PAUSED` 保持 `PAUSED`，`VERIFY` / `COMMIT` 的接收侧回到 `VERIFY` / `COMMIT`
+> （发送侧**没有**这两个状态，回到 `TRANSFERRING`）。
 
 ## 断线重连（连接重建）
 
 ### 通用规则（规范性）
 
+- **待恢复会话的判定（规范性）**：「待恢复」指断线时**处于可恢复状态**的会话，
+  判定**按会话断线前的状态**（见 10 章「状态定义」）：
+
+  | 断线前状态 | 列入 `login.resume[]`？ | 恢复后的状态 |
+  |-----------|----------------------|------------|
+  | `INIT` / `NEGOTIATING` | **否** | 不恢复；会话按新会话重新发起 |
+  | `TRANSFERRING` | **是** | 各视角回到 `TRANSFERRING` |
+  | `PAUSED` | **是** | **保持 `PAUSED`** —— 断线**不解除**显式暂停；恢复仍走「暂停后恢复」（`resume_session` / `resume_ack`） |
+  | `VERIFY` / `COMMIT` | **是** | **各视角各自回到断线前的状态**（接收侧回 `VERIFY` / `COMMIT`，发送侧回 `TRANSFERRING`） |
+  | `COMPLETED` / `ABORTED` | **否** | 不恢复（终态，见 10 章） |
+
+  > **为何断线不解除暂停（说明）**：暂停是**显式**的用户/策略意图，
+  > 网络抖动**不是**解除暂停的理由。若断线即自动恢复传输，
+  > 「暂停」将退化为「建议」—— 用户无法保证文件在暂停期间不被继续传输。
+  > 因此 `PAUSED` 会话在重连后**必须**仍处于 `PAUSED`，
+  > 由 `resume_session` / `resume_ack` 显式恢复。
+
+- **条目数上界（规范性）**：`resume_count` 与 `login_ack` 的 `sessions_count`
+  **必须** ≤ `max_sessions_per_connection`（64，见 09 章）。
+  该上界保证两者**始终可编码**：
+  `resume[]` 最大 64 × 20 = **1,280 字节**，
+  快照最大 64 × (42 + `code_len`) 字节，
+  均**远小于** `max_frame_len`（1 MiB，见 06 章）。
+  （无该上界时，`u16` 的值域将超出帧长上限 —— 65,535 × 42 字节 ≈ 2.6 MiB > 1 MiB。）
 - `login` 的 `resume[]` **必须**列出全部待恢复的会话。
   二进制表示：定长区 `resume_count`（`u16`）给出条目数（无待恢复会话时为 `0`），
-  变长区按顺序给出 `resume_count` 条 **16 字节定长**记录，
+  变长区按顺序给出 `resume_count` 条 **20 字节定长**记录，
   每条含 `session_id`（`u64`）/ `next_chunk_id`（`u32`）/ `missing_count`（`u32`）/
   `flags`（`u8`：bit0 = `next_chunk_id` 有效，bit1 = `missing_count` 有效）。
 - 续传起点来自**接收方**的位图，因此**只有接收方才可能提供**它：
@@ -56,6 +90,7 @@
 2. Server 加载**自己**的位图 → 计算缺失 → 在 `login_ack` 的 `sessions[]` 快照记录中给出
    `next_chunk_id` / `missing_count` / `udp_port`
 3. Client 按快照重建本地状态 → 继续发送
+   （双方各自回到断线前状态；发送侧断线前不可能是 `VERIFY` / `COMMIT`）
 
 ### 下载方向（Client = 接收方，Server = 发送方）
 
@@ -69,7 +104,8 @@ Server **没有** Client 的位图，无从计算续传起点，
    （含 `udp_port`、`window`、`connection_window` 与 `state`）
 3. Server 按 `next_chunk_id` 起继续向 Client 推送 chunk；
    Client 以 `missing_chunks`（`mode=report`）报告自己的缺失块
-4. 双方回到 TRANSFERRING
+4. 双方各自回到断线前状态（发送侧 = Server 回 `TRANSFERRING`；
+   接收侧 = Client 回断线前状态）
 
 ### 恢复失败
 
@@ -96,7 +132,7 @@ Client **必须**把 `result` = `0`（fail）的会话视为**已终止**，
    上传方向**必须**不携带，下载方向**必须**携带。
 2. Server 回 `resume_ack`（含 `result` / `code`、
    `next_chunk_id` / `missing_count` / `udp_port` / `connection_window`）
-3. 双方回到 TRANSFERRING
+3. 双方回到 TRANSFERRING（该路径的前提就是解除暂停）
 
 ### resume_ack 语义
 

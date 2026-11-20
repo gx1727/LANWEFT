@@ -150,6 +150,11 @@
           <td>当前状态不允许该操作</td>
           <td>在当前会话状态下执行了该操作不允许的动作</td>
         </tr>
+        <tr>
+          <td class="ec-code">TOO_MANY_SESSIONS</td>
+          <td>单条控制连接上的并发会话数已达上限</td>
+          <td><code>max_sessions_per_connection</code> = 64（见 09 章）；Server 必须以 <code>session_abort</code>（<code>reason</code> = <code>TOO_MANY_SESSIONS</code>）拒绝该请求</td>
+        </tr>
       </tbody>
     </table>
   </div>
@@ -348,6 +353,21 @@
       </thead>
       <tbody>
         <tr>
+          <td class="ec-code">MAGIC_MISMATCH</td>
+          <td>帧头魔数不匹配，判定<strong>失步</strong></td>
+          <td>控制面与 TCP 数据面帧的 <code>magic</code> 均为 <code>0x574E414C</code>（见 06、07 章）</td>
+        </tr>
+        <tr>
+          <td class="ec-code">HEADER_CRC_INVALID</td>
+          <td>帧头 CRC32 校验失败，判定<strong>失步</strong></td>
+          <td>CRC-32/ISO-HDLC；覆盖帧头除自身外的全部字节（见 06、07 章）</td>
+        </tr>
+        <tr>
+          <td class="ec-code">FRAME_LEN_INVALID</td>
+          <td>帧长越界，判定<strong>失步</strong></td>
+          <td><code>frame_len</code> &lt; 帧头长度或 &gt; <code>max_frame_len</code>；读取指针无法可信推进</td>
+        </tr>
+        <tr>
           <td class="ec-code">INVALID_PACKET</td>
           <td>数据包格式非法</td>
           <td>长度不足、越界等</td>
@@ -356,11 +376,6 @@
           <td class="ec-code">SESSION_ID_MISMATCH</td>
           <td>session_id 不匹配</td>
           <td>收到的包 <code>session_id</code> 与本会话不一致</td>
-        </tr>
-        <tr>
-          <td class="ec-code">FILE_ID_MISMATCH</td>
-          <td>file_hash 不匹配</td>
-          <td>文件哈希与预期不符</td>
         </tr>
         <tr>
           <td class="ec-code">SERIALIZATION_ERROR</td>
@@ -382,6 +397,48 @@
   </div>
 
   <!-- ========== 行为 ========== -->
+  <h2>终止类与过程类（规范性）</h2>
+
+  <p>错误码按<strong>是否可作为会话终止原因</strong>分为两类：</p>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>类别</th><th>含义</th><th>可否作为 <code>session_abort.reason</code> / 完成消息 <code>code</code></th></tr></thead>
+      <tbody>
+        <tr><td><strong>终止类</strong></td><td>表示会话<strong>本身</strong>无法继续（会话被终止）</td><td><strong>可以</strong></td></tr>
+        <tr><td><strong>过程类</strong></td><td>表示传输过程中的<strong>局部</strong>异常；会话<strong>未必</strong>终止</td><td><strong>不可以</strong> —— <strong>必须</strong>只记录到日志 / 指标</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>类别</th><th>错误码</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>终止类</strong></td>
+          <td class="mono">SESSION_NOT_FOUND、SESSION_ABORTED、FILE_NOT_FOUND、DELIVERY_DECLINED、INVALID_STATE、TOO_MANY_SESSIONS、FILE_HASH_MISMATCH、SOURCE_FILE_MISMATCH、ACL_DENY、CLIENT_ID_INVALID、LOGIN_FAILED、PROTO_VERSION_UNSUPPORTED、FILE_TOO_LARGE、TIMEOUT_NO_ACTIVITY、DATABASE_ERROR、STORAGE_FULL、FILESYSTEM_ERROR</td>
+        </tr>
+        <tr>
+          <td><strong>过程类</strong></td>
+          <td class="mono">UDP_UNAVAILABLE、TIMEOUT_PROBE、TCP_ERROR、BIND_FAILED、CONNECTION_FAILED、CONNECTION_CLOSED、NETWORK_ERROR、TIMEOUT_HEARTBEAT、CRC32_INVALID、INVALID_CHUNK、CHUNK_ALREADY_RECEIVED、INVALID_PACKET、SESSION_ID_MISMATCH、SERIALIZATION_ERROR、MAGIC_MISMATCH、HEADER_CRC_INVALID、FRAME_LEN_INVALID、CONTROL_ERROR、UNKNOWN_ERROR</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn">
+    <strong>约束</strong>：过程类错误码<strong>不得</strong>作为 <code>session_abort.reason</code> 或完成消息 <code>code</code> 上线路；
+    会话因过程类错误而结束时，<strong>必须</strong>以<strong>终止类</strong>错误码说明终止原因
+    （如传输层反复失败导致会话超时 → <code>TIMEOUT_NO_ACTIVITY</code>）。<br>
+    <strong>为何要区分</strong>：过程类错误描述的是<strong>传输链路</strong>的状态，
+    而 <code>session_abort.reason</code> 描述的是<strong>会话为何终止</strong>。
+    把 <code>NETWORK_ERROR</code> 当作终止原因上线路，会让对端误以为「文件有问题」，
+    实际只是「链路抖了一下，会话超时被清理了」。<br>
+    失步类错误（<code>MAGIC_MISMATCH</code> / <code>HEADER_CRC_INVALID</code> / <code>FRAME_LEN_INVALID</code>）
+    属过程类：它们导致<strong>连接</strong>关闭，会话进入 13 章「中断处理」，<strong>不是</strong>会话的终止原因。
+  </div>
+
   <h2>行为</h2>
 
   <ul class="spec">

@@ -81,7 +81,7 @@
             <tr><td class="mono">④ 数据传输</td><td>无逐包 ACK；批量发送（<code>burst_size</code>，间隔 <code>batch_gap_us</code> 初值 2000 µs）；数据面<strong>不得</strong>改变状态机。</td></tr>
             <tr><td class="mono">⑤ 缺失裁决</td><td>接收方<strong>至少每 50 ms</strong> 下发 <code>missing_chunks</code>(report)，<strong>空列表也必须下发</strong>；发送方 1000 ms 未收到裁决须发 <code>mode=request</code> 索要。</td></tr>
             <tr><td class="mono">⑥ 校验与提交</td><td>位图全真 → <code>VERIFY</code>（Blake3）→ <code>COMMIT</code>（原子重命名）→ 发布完成消息；<strong>完成消息一律由接收方发布</strong>。</td></tr>
-            <tr><td class="mono">⑦ 中断与恢复</td><td>断线重连走 <code>login</code> 恢复列表 + <code>login_ack</code> 权威快照；暂停后恢复走 <code>resume_session</code> / <code>resume_ack</code>；两者都使双方回到 <code>TRANSFERRING</code>。</td></tr>
+            <tr><td class="mono">⑦ 中断与恢复</td><td>断线重连走 <code>login</code> 恢复列表 + <code>login_ack</code> 权威快照；暂停后恢复走 <code>resume_session</code> / <code>resume_ack</code>；两者都使会话回到<strong>可传输状态</strong>；断线重连后<strong>各视角各自回到断线前状态</strong> —— <code>PAUSED</code> 保持 <code>PAUSED</code>，<code>VERIFY</code> / <code>COMMIT</code> 的接收侧回到原状态。</td></tr>
           </tbody>
         </table>
       </div>

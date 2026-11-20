@@ -13,7 +13,8 @@ LANWEFT 是面向可信局域网的混合文件同步协议。通过"控制面 T
 ## 表示形式（规范性）
 
 - 控制面载荷为**小端二进制定长布局**：
-  控制帧 = `u32 frame_len` + `u8 msg_type` + `u8 flags` + `u8 body_version` + `u8 reserved` + 消息体；
+  控制帧 = `u32 magic` + `u32 frame_len` + `u32 header_crc32` + `u8 msg_type` + `u8 flags` + `u8 body_version` + `u8 reserved` + 消息体；
+  （**16 字节定长帧头**；`magic` = `0x574E414C`，`header_crc32` 用于帧同步与失步检测，见 06 章）；
   消息体 = 定长区（表格式偏移/大小）+ 变长区（顺序固定）。详见 06 章。
 - 基础类型：`u8` / `u16` / `u32` / `u64` 小端；`bool` = `u8`（0/1）；
   `str` = `u16` 长度 + UTF-8（长度 0 表示无值）；`hash32` = 32 字节原始 Blake3 摘要。

@@ -21,7 +21,7 @@
   <!-- ============ frame diagram ============ -->
   <div class="diagram">
     <div class="fields" style="--cols:8">
-      <div class="cell ruler-title">Frame Header = 8 Bytes · 小端序 (Little-Endian)</div>
+      <div class="cell ruler-title">Frame Header = 16 Bytes · 小端序 (Little-Endian)</div>
 
       <div class="cell bitnum">0</div>
       <div class="cell bitnum">1</div>
@@ -32,22 +32,38 @@
       <div class="cell bitnum">6</div>
       <div class="cell bitnum">7</div>
 
+      <div class="cell span4 f-len">magic (u32, 4 bytes) · 0x574E414C</div>
       <div class="cell span4 f-frame">frame_len (u32, 4 bytes)</div>
+
+      <div class="cell bitnum">8</div>
+      <div class="cell bitnum">9</div>
+      <div class="cell bitnum">10</div>
+      <div class="cell bitnum">11</div>
+      <div class="cell bitnum">12</div>
+      <div class="cell bitnum">13</div>
+      <div class="cell bitnum">14</div>
+      <div class="cell bitnum">15</div>
+
+      <div class="cell span4 f-crc">header_crc32 (u32, 4 bytes)</div>
       <div class="cell f-type">msg_type</div>
       <div class="cell f-flags">flags</div>
       <div class="cell f-payload">body_version</div>
       <div class="cell f-muted">reserved</div>
 
-      <div class="cell wide f-body">body (消息体：定长区 ‖ 变长区，长度 = frame_len − 8)</div>
+      <div class="cell wide f-body">body (消息体：定长区 ‖ 变长区，长度 = frame_len − 16)</div>
       <div class="cell wide f-ext">扩展区 Extension (可选，接收方必须忽略)</div>
     </div>
   </div>
   <div class="caption">
+    <code>magic</code> 恒为 <code>0x574E414C</code>（“LANW”），<strong>不随版本变更</strong>；
+    <code>header_crc32</code> 覆盖帧头中除自身外的 <strong>12 字节</strong>（magic ‖ frame_len ‖ msg_type ‖ flags ‖ body_version ‖ reserved）。
     frame_len 的字节 0 为最低有效字节 (LSB first)：字节序 0 → 1 → 2 → 3 依次存放 u32 的 bit0–7 → bit8–15 → bit16–23 → bit24–31。
   </div>
 
   <div class="legend">
+    <span><i class="swatch" style="background:var(--b-len)"></i>magic</span>
     <span><i class="swatch" style="background:var(--b-frame)"></i>frame_len</span>
+    <span><i class="swatch" style="background:var(--b-crc)"></i>header_crc32</span>
     <span><i class="swatch" style="background:var(--b-type)"></i>msg_type</span>
     <span><i class="swatch" style="background:var(--b-flags)"></i>flags</span>
     <span><i class="swatch" style="background:var(--b-payload)"></i>body_version</span>
@@ -65,14 +81,97 @@
             <tr><th>字段</th><th>偏移</th><th>大小</th><th>类型</th><th>说明</th></tr>
           </thead>
           <tbody>
-            <tr><td class="c-frame">frame_len</td><td class="num">0-3</td><td class="num">4</td><td class="mono">u32</td><td>本帧总字节数（含帧头）</td></tr>
-            <tr><td class="c-type">msg_type</td><td class="num">4</td><td class="num">1</td><td class="mono">u8</td><td>消息类型编号</td></tr>
-            <tr><td class="c-flags">flags</td><td class="num">5</td><td class="num">1</td><td class="mono">u8</td><td>帧级标志位；bit0-7 全部保留</td></tr>
-            <tr><td class="c-payload">body_version</td><td class="num">6</td><td class="num">1</td><td class="mono">u8</td><td>消息体布局版本号；初值 0</td></tr>
-            <tr><td class="c-muted">reserved</td><td class="num">7</td><td class="num">1</td><td class="mono">u8</td><td>保留字节</td></tr>
-            <tr><td class="c-body">body</td><td class="num">8..</td><td class="num">N</td><td class="mono">bytes</td><td>消息体，长度 = frame_len − 8</td></tr>
+            <tr><td class="c-len">magic</td><td class="num">0-3</td><td class="num">4</td><td class="mono">u32</td><td>协议魔数，固定 <code>0x574E414C</code>（“LANW”）</td></tr>
+            <tr><td class="c-frame">frame_len</td><td class="num">4-7</td><td class="num">4</td><td class="mono">u32</td><td>本帧总字节数（含帧头）</td></tr>
+            <tr><td class="c-crc">header_crc32</td><td class="num">8-11</td><td class="num">4</td><td class="mono">u32</td><td>帧头校验码（CRC-32/ISO-HDLC），覆盖帧头其余 12 字节</td></tr>
+            <tr><td class="c-type">msg_type</td><td class="num">12</td><td class="num">1</td><td class="mono">u8</td><td>消息类型编号</td></tr>
+            <tr><td class="c-flags">flags</td><td class="num">13</td><td class="num">1</td><td class="mono">u8</td><td>帧级标志位；bit0-7 全部保留</td></tr>
+            <tr><td class="c-payload">body_version</td><td class="num">14</td><td class="num">1</td><td class="mono">u8</td><td>消息体布局版本号；初值 0</td></tr>
+            <tr><td class="c-muted">reserved</td><td class="num">15</td><td class="num">1</td><td class="mono">u8</td><td>保留字节</td></tr>
+            <tr><td class="c-body">body</td><td class="num">16..</td><td class="num">N</td><td class="mono">bytes</td><td>消息体，长度 = frame_len − 16</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <h2>线上字节示例（抓包视角）</h2>
+      <p>下例是一个<strong>完整可复核</strong>的控制帧（<code>login</code>，<code>msg_type</code> = <code>0x01</code>）的线上字节。
+        本例用于<strong>锁定字节序与校验区间</strong>；实现<strong>必须</strong>与之逐字节一致。</p>
+
+      <div class="card">
+        <table>
+          <thead><tr><th>线上偏移</th><th>字节（hex）</th><th>可打印字符</th><th>字段</th></tr></thead>
+          <tbody>
+            <tr class="hlcell">
+              <td class="num">0x00–0x03</td>
+              <td class="mono"><span class="hl">4C 41 4E 57</span></td>
+              <td class="mono">LANW</td>
+              <td><code>magic</code> —— 协议魔数，<strong>位于线上最前 4 字节</strong>；小端序解读的 u32 值为 <code>0x574E414C</code></td>
+            </tr>
+            <tr>
+              <td class="num">0x04–0x07</td>
+              <td class="mono">22 00 00 00</td>
+              <td class="mono">&quot;</td>
+              <td><code>frame_len</code> = 34（16 帧头 + 18 消息体）</td>
+            </tr>
+            <tr>
+              <td class="num">0x08–0x0B</td>
+              <td class="mono">D3 E3 D5 CC</td>
+              <td class="mono">···</td>
+              <td><code>header_crc32</code> —— 小端序解读的 u32 值为 <code>0xCCD5E3D3</code></td>
+            </tr>
+            <tr>
+              <td class="num">0x0C</td>
+              <td class="mono">01</td>
+              <td class="mono">···</td>
+              <td><code>msg_type</code> = <code>0x01</code>（<code>login</code>）</td>
+            </tr>
+            <tr>
+              <td class="num">0x0D</td>
+              <td class="mono">00</td>
+              <td class="mono">···</td>
+              <td><code>flags</code> —— 保留位</td>
+            </tr>
+            <tr>
+              <td class="num">0x0E</td>
+              <td class="mono">00</td>
+              <td class="mono">···</td>
+              <td><code>body_version</code> = 0</td>
+            </tr>
+            <tr>
+              <td class="num">0x0F</td>
+              <td class="mono">00</td>
+              <td class="mono">···</td>
+              <td><code>reserved</code> —— 保留字节</td>
+            </tr>
+            <tr>
+              <td class="num">0x10–0x21</td>
+              <td class="mono">00 03 00 00 00 00 00 00 06 00 64 65 76 2D 41 31 00 00</td>
+              <td class="mono">······dev-A1··</td>
+              <td><code>body</code>（18 字节）—— <code>login</code> 定长区 8 字节 ‖ <code>device_id</code>（<code>06 00</code> + "dev-A1"）‖ <code>token</code>（<code>00 00</code>，空串）</td>
+            </tr>
+          </tbody>
+        </table>
+      </div>
+
+      <div class="note warn">
+        <strong><code>magic</code> 的字节序陷阱</strong>：<code>magic</code> 是 <strong>u32</strong>，按<strong>小端序</strong>存放 ——
+        线上字节为 <code>4C 41 4E 57</code>，<strong>不是</strong> <code>57 41 4E 4C</code>。
+        抓包工具按字节显示时应当看到 <span class="hl">4C 41 4E 57</span>；
+        按 u32 解读时应当得到 <code>0x574E414C</code>。
+        比对<strong>必须</strong>按<strong>线上字节序</strong> <code>4C 41 4E 57</code> 判断，<strong>不得</strong>按 <code>0x574E414C</code> 的字节序反推。
+      </div>
+
+      <h3>接收方的校验步骤（规范性）</h3>
+      <ol class="spec">
+        <li>比对线上字节 <code>4C 41 4E 57</code>（即 <code>magic</code> == <code>0x574E414C</code>）；</li>
+        <li>计算 <code>crc32(字节[0:8] ‖ 字节[12:16])</code> 并与 <code>header_crc32</code> 比对
+          （本例被校验的 12 字节为 <code>4C 41 4E 57 22 00 00 00 01 00 00 00</code>）；</li>
+        <li>校验 <code>frame_len</code> ∈ <code>[16, max_frame_len]</code>；</li>
+        <li>以上<strong>全部通过</strong>后，才<strong>必须</strong>按 <code>frame_len</code> 读满 <code>frame_len − 16</code> 字节的帧体。</li>
+      </ol>
+      <div class="note blue">
+        <strong>可复核性</strong>：本例的 <code>header_crc32</code> 由 <strong>CRC-32/ISO-HDLC</strong>（zlib <code>crc32</code>）
+        对上述 12 字节计算得出，实现<strong>必须</strong>能复核出 <code>0xCCD5E3D3</code>。
       </div>
 
       <h2>帧级错误处理</h2>
@@ -80,9 +179,11 @@
         <table>
           <thead><tr><th>情况</th><th>处理</th></tr></thead>
           <tbody>
-            <tr><td class="mono">frame_len == 0</td><td>丢弃并<strong>关闭连接</strong>（帧边界不可信）</td></tr>
-            <tr><td class="mono">frame_len &gt; max_frame_len</td><td>丢弃并<strong>关闭连接</strong>（帧边界不可信）</td></tr>
-            <tr><td class="mono">frame_len &lt; 8</td><td>按 <code>SERIALIZATION_ERROR</code> 丢弃该帧，连接保持</td></tr>
+            <tr><td class="mono">magic != 0x574E414C</td><td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>MAGIC_MISMATCH</code>）</td></tr>
+            <tr><td class="mono">header_crc32 校验失败</td><td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>HEADER_CRC_INVALID</code>）</td></tr>
+            <tr><td class="mono">frame_len == 0</td><td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>FRAME_LEN_INVALID</code>；读取指针无法推进）</td></tr>
+            <tr><td class="mono">frame_len &gt; max_frame_len</td><td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>FRAME_LEN_INVALID</code>；帧边界不可信）</td></tr>
+            <tr><td class="mono">frame_len &lt; 16</td><td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>FRAME_LEN_INVALID</code>；帧长不足以容纳帧头）</td></tr>
             <tr><td class="mono">msg_type 未知</td><td>按「未识别消息必须忽略」丢弃该帧，连接保持</td></tr>
             <tr><td>定长区长度不足</td><td>按 <code>SERIALIZATION_ERROR</code> 丢弃该帧，连接保持</td></tr>
             <tr><td>变长区长度越界</td><td>按 <code>SERIALIZATION_ERROR</code> 丢弃该帧，连接保持</td></tr>
@@ -90,6 +191,119 @@
             <tr><td>定长区数值违反取值约束</td><td>按 <code>SERIALIZATION_ERROR</code> 丢弃该帧，连接保持</td></tr>
           </tbody>
         </table>
+      </div>
+
+      <h2>帧同步与失步处理（规范性）</h2>
+      <p>接收方<strong>必须</strong>按下列顺序校验帧头，<strong>任一</strong>不通过即判定<strong>失步</strong>（desync）：</p>
+      <ol class="spec">
+        <li><code>magic</code> == <code>0x574E414C</code>；</li>
+        <li><code>header_crc32</code> 校验通过；</li>
+        <li><code>frame_len</code> ∈ <code>[16, max_frame_len]</code>。</li>
+      </ol>
+      <ul class="spec">
+        <li>失步<strong>必须</strong>导致：<strong>丢弃</strong>该连接上尚未解析的全部数据、<strong>关闭连接</strong>，
+          并以 PROTOCOL 类错误码记录（<code>MAGIC_MISMATCH</code> / <code>HEADER_CRC_INVALID</code> / <code>FRAME_LEN_INVALID</code>，见 19 章）。</li>
+        <li>失步后<strong>不得</strong>在本连接上继续解析任何帧，<strong>不得</strong>继续执行协议状态机。</li>
+        <li>受影响会话<strong>必须</strong>按 13 章「断线重连」恢复 —— 经 <code>login</code> / <code>login_ack</code> 的<strong>权威快照</strong>重建状态；
+          <strong>不得</strong>在失步的连接上「跳过一帧继续解析」。</li>
+        <li><strong>首帧锚点</strong>：一条控制连接上的<strong>第一帧必须</strong>是 <code>login</code>（<code>msg_type</code> = <code>0x01</code>）；
+          不满足<strong>必须</strong>关闭连接（<code>CONTROL_ERROR</code>）。</li>
+        <li><strong>有界扫描（推荐性，非规范性）</strong>：实现<strong>可以</strong>在关闭连接前做一次<strong>有界扫描</strong>辅助定位失步点；
+          其<strong>扫描范围、候选判据与扫描上限</strong>见下节「接收状态机」；
+          扫描结果<strong>仅用于诊断</strong>，<strong>不得</strong>用于恢复协议状态机。</li>
+      </ul>
+      <h2>接收状态机（规范性）</h2>
+      <p>接收方<strong>必须</strong>以如下状态机驱动帧解析。状态机的<strong>内部实现方式自由</strong>
+        （同步阻塞读、异步回调、协程、事件循环均可），
+        但其<strong>可观测行为必须</strong>满足下表与本节约束。</p>
+      <div class="card">
+        <table>
+          <thead><tr><th>状态</th><th>含义</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">SYNC</td><td>帧边界可信；按 <code>frame_len</code> 正常解析帧</td></tr>
+            <tr><td class="mono">RESYNC</td><td>已判定失步；<strong>仅</strong>用于有界扫描与诊断，<strong>不得</strong>回到 <code>SYNC</code></td></tr>
+            <tr><td class="mono">CLOSED</td><td>连接已关闭；承载的会话按 13 章处理（终结状态）</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>状态转移表</h3>
+      <div class="card">
+        <table>
+          <thead><tr><th>当前状态</th><th>事件</th><th>条件</th><th>动作</th><th>下一状态</th></tr></thead>
+          <tbody>
+            <tr><td class="mono">SYNC</td><td>读入字节</td><td>缓冲区字节数 &lt; <code>FRAME_HEADER_SIZE</code></td><td>继续等待；<strong>不得</strong>解析</td><td class="mono">SYNC</td></tr>
+            <tr><td class="mono">SYNC</td><td>帧头读满</td><td><code>magic</code> 不匹配</td><td>记 <code>MAGIC_MISMATCH</code>；<strong>必须</strong>关闭连接</td><td class="mono">CLOSED</td></tr>
+            <tr><td class="mono">SYNC</td><td>帧头读满</td><td><code>header_crc32</code> 不匹配</td><td>记 <code>HEADER_CRC_INVALID</code>；<strong>必须</strong>关闭连接</td><td class="mono">CLOSED</td></tr>
+            <tr><td class="mono">SYNC</td><td>帧头读满</td><td><code>frame_len</code> ∉ <code>[16, max_frame_len]</code></td><td>记 <code>FRAME_LEN_INVALID</code>；<strong>必须</strong>关闭连接</td><td class="mono">CLOSED</td></tr>
+            <tr><td class="mono">SYNC</td><td>帧头读满</td><td>三项校验<strong>全部</strong>通过</td><td>按 <code>frame_len</code> <strong>读满</strong>帧体</td><td class="mono">SYNC</td></tr>
+            <tr><td class="mono">SYNC</td><td>帧体就绪</td><td><code>msg_type</code> 未知，或定长区 / 变长区非法</td><td>丢弃该帧（<code>SERIALIZATION_ERROR</code> 或「未识别消息必须忽略」）；连接保持</td><td class="mono">SYNC</td></tr>
+            <tr><td class="mono">SYNC</td><td>帧体就绪</td><td>消息合法</td><td>交给消息处理器</td><td class="mono">SYNC</td></tr>
+            <tr><td class="mono">SYNC</td><td>读帧体失败</td><td>对端中断 / 超时</td><td>关闭连接；会话进入 13 章「中断处理」</td><td class="mono">CLOSED</td></tr>
+            <tr><td class="mono">RESYNC</td><td>逐字节前移</td><td>命中满足「候选判据」的偏移</td><td>记录候选偏移（<strong>仅诊断</strong>）；<strong>必须</strong>关闭连接</td><td class="mono">CLOSED</td></tr>
+            <tr><td class="mono">RESYNC</td><td>逐字节前移</td><td>扫描量超过 <code>resync_max_scan</code></td><td><strong>必须</strong>关闭连接</td><td class="mono">CLOSED</td></tr>
+            <tr><td class="mono">任意</td><td>连接关闭 / 超时 / 对端 FIN</td><td>—</td><td>关闭连接；会话进入 13 章「中断处理」</td><td class="mono">CLOSED</td></tr>
+          </tbody>
+        </table>
+      </div>
+
+      <h3>候选判据（用于 <code>RESYNC</code> 的有界扫描）</h3>
+      <p>候选偏移 <code>p</code> <strong>必须</strong>同时满足：</p>
+      <ol class="spec">
+        <li><code>p</code> 起的 <code>FRAME_HEADER_SIZE</code> 字节构成<strong>合法帧头</strong>（三项校验通过）；</li>
+        <li><code>p</code> 起的<strong>第一帧</strong>完整可读（可用字节数 ≥ 该帧 <code>frame_len</code>）；</li>
+        <li>第一帧<strong>之后紧邻</strong>的第二帧的<strong>帧头</strong>也完整可读，且其三项校验通过（即「<strong>连续两帧自洽</strong>」）。</li>
+      </ol>
+      <p>不满足第 3 条的候选<strong>不得</strong>采信 —— 消息体中偶然出现的 <code>magic</code> 几乎必然后跟非法帧头。
+        扫描上限 <code>resync_max_scan</code> = <strong>64 KiB</strong>：实现<strong>可以</strong>取更小值，<strong>不得</strong>取更大值。</p>
+
+      <h3>伪代码（说明性）</h3>
+<pre class="codeblock">常量：MAGIC = 0x574E414C
+      HEADER_SIZE = 16
+      MAX_FRAME_LEN = 1 MiB
+      RESYNC_MAX_SCAN = 64 KiB
+
+<span class="cm">SYNC（控制面接收循环）</span>
+  loop:
+    若 缓冲区字节数 &lt; HEADER_SIZE:
+        继续读取（阻塞；超时 → CLOSED）
+        continue
+
+    h = 缓冲区[0 : HEADER_SIZE]
+    magic, frame_len, crc, msg_type, flags, body_version, reserved = 解析(h)
+
+    若 magic != MAGIC:                  <span class="cm">→ 失步(MAGIC_MISMATCH)</span>
+    若 crc32(h[0:8] ‖ h[12:16]) != crc: <span class="cm">→ 失步(HEADER_CRC_INVALID)</span>
+    若 frame_len &lt; HEADER_SIZE 或 frame_len &gt; MAX_FRAME_LEN:
+                                        <span class="cm">→ 失步(FRAME_LEN_INVALID)</span>
+
+    body = 精确读取(frame_len − HEADER_SIZE)   <span class="cm"># 读不满 → CLOSED（对端中断）</span>
+    交给消息处理器(msg_type, body)             <span class="cm"># 非法消息只丢帧，不断连</span>
+    消费缓冲区前 frame_len 字节
+    continue
+
+<span class="cm">失步(code):</span>
+    记录错误码 code
+    若 实现提供有界扫描:  转 RESYNC          <span class="cm"># 仅诊断</span>
+    否则:                  关闭连接 → CLOSED
+
+<span class="cm">RESYNC（仅诊断，不恢复协议状态机）</span>
+  从当前偏移逐字节前移，最多 RESYNC_MAX_SCAN 字节:
+    若 候选满足「候选判据」:  记录候选偏移;  break
+  关闭连接 → CLOSED</pre>
+
+      <div class="note blue">
+        <strong>实现提示</strong>：缓冲区<strong>必须</strong>支持「读满一帧再消费」的滑动语义 ——
+        读帧体期间到达的字节<strong>必须</strong>留在缓冲区中供下一帧使用，
+        <strong>不得</strong>因一次 <code>read</code> 读到多帧而丢弃残余字节。
+      </div>
+
+      <div class="note warn">
+        <strong>为何失步必须断连而非就地续解</strong>：被跳过的帧中<strong>可能</strong>含状态转移消息
+        （<code>session_pause</code> / <code>session_abort</code> / <code>missing_chunks</code>）。
+        一方跳过、一方不跳过时，双方对会话状态的认知已经分叉 ——
+        「看似同步、实则状态不一致」的连接比「已断开的连接」更危险：
+        断开的连接可由权威快照<strong>无歧义</strong>重建，分叉的连接不能。
       </div>
     </section>
 
@@ -130,8 +344,9 @@
         <li><strong>不得</strong>假设一帧一次 <code>recv</code> 到达 —— 必须按 <code>frame_len</code> 读满后再解析</li>
         <li><strong>不得</strong>按换行或任何字节模式切分帧</li>
         <li>多帧可合并为一次 write，但<strong>不得</strong>延迟发送超过 <strong>50 ms</strong></li>
-        <li><strong>无 CRC</strong>：TCP 自带字节流校验和与重传，控制帧不重复 CRC32</li>
-        <li>心跳 <code>ping</code> 每 <strong>10 s</strong>；<strong>30 s</strong> 内无任何消息则关闭连接</li>
+        <li><strong>不携带载荷级 CRC32</strong>：TCP 自带字节流校验和与重传；但帧头<strong>必须</strong>携带 <code>header_crc32</code>（用于帧同步，非载荷校验）</li>
+        <li>心跳 <code>ping</code> 每 <strong>10 s</strong>；<strong>30 s</strong> 内无任何消息则关闭连接（<code>TIMEOUT_HEARTBEAT</code>）</li>
+        <li>连接建立失败按 <code>CONNECTION_FAILED</code> 记录；连接被任一方关闭按 <code>CONNECTION_CLOSED</code> 记录（见 19 章）</li>
       </ul>
     </section>
   </div>
@@ -241,7 +456,8 @@
   </div>
 
   <div class="note blue">
-    <strong>帧长约束</strong>：<code>frame_len ≥ 8</code>（最小帧长即帧头长度）、<code>frame_len ≤ 1 MiB</code>（<code>max_frame_len</code>）。
+    <strong>帧长约束</strong>：<code>frame_len ≥ 16</code>（最小帧长即 <strong>16 字节</strong>帧头长度）、<code>frame_len ≤ 1 MiB</code>（<code>max_frame_len</code>）。
+    <code>frame_len − 16</code> 即消息体长度。
     <code>body_version</code> 与协议版本 <code>proto_version</code> 相互独立，当前所有消息的 <code>body_version</code> 必须为 <code>0</code>。
   </div>
 

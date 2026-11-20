@@ -126,6 +126,7 @@
   </div>
   <ul class="spec">
     <li>断连<strong>不</strong>回滚已写入的数据，位图与临时文件<strong>必须</strong>保留。</li>
+    <li>断连<strong>原因</strong>按 19 章分类记录：连接被关闭 → <code>CONNECTION_CLOSED</code>；心跳超时 → <code>TIMEOUT_HEARTBEAT</code>；链路层异常 → <code>NETWORK_ERROR</code>。</li>
     <li>Client 重连后通过 <code>login</code> 的恢复列表恢复（见 13 章）。</li>
     <li>只有会话活动超时（60 秒，见 09 章）才把会话置为 <code>ABORTED</code> 并清理资源。</li>
   </ul>
@@ -177,7 +178,10 @@
             （<code>missing_chunks.flags.bit1 = 1</code>）的裁决，<code>chunks</code> 为空列表、
             <code>missing_count</code> = <code>chunk_count</code>；③ 发送方<strong>必须</strong>重新读取源文件、
             从 <code>chunk_id = 0</code> 起全量重发；④ 重新校验文件级 Blake3。<br>
-            复核轮<strong>至多一次</strong>（计数必须随位图持久化）。</td>
+            复核轮<strong>至多一次</strong>（计数必须随位图持久化）。<br>
+            <strong>次数上限的统一表述</strong>：接收方对每个会话至多<strong>发起 1 次</strong>摘要对帐、
+            至多<strong>发起 1 次</strong>复核轮；发送方对每一次发起至多<strong>响应 1 次</strong>；
+            三者<strong>互不叠加</strong>，且重启后不得重新获得机会。</td>
         </tr>
         <tr>
           <td><strong>复核轮后仍失配</strong></td>

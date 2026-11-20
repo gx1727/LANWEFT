@@ -85,7 +85,8 @@
     <table>
       <thead><tr><th>术语</th><th>说明</th></tr></thead>
       <tbody>
-        <tr><td class="c-frame">帧</td><td>控制通道的消息单元：<code>u32 frame_len</code> + 8 字节定长帧头 + 二进制消息体；长度前缀，接收方<strong>必须读满后解析</strong>（见 06 章）</td></tr>
+        <tr><td class="c-frame">帧</td><td>控制通道的消息单元：<code>u32 magic</code> + <code>u32 frame_len</code> + <code>u32 header_crc32</code> + <strong>16 字节定长帧头</strong> + 二进制消息体；长度前缀，接收方<strong>必须读满后解析</strong>；<code>magic</code> / <code>header_crc32</code> / <code>frame_len</code> 三项校验任一失败即判定失步并断连（见 06 章）</td></tr>
+        <tr><td class="c-frame">失步</td><td>desync：帧边界不再可信的状态；控制面<strong>必须</strong>关闭连接并按 13 章恢复（见 06 章）</td></tr>
         <tr><td class="c-len">max_frame_len</td><td>控制通道单帧上限（<strong>1 MiB</strong>，见 06 章）</td></tr>
         <tr><td class="c-session">权威快照</td><td><code>login_ack.sessions</code> 或 <code>resume_ack</code> 携带的会话状态，接收方<strong>必须</strong>以其<strong>覆盖</strong>本地状态（见 13 章）</td></tr>
         <tr><td class="c-type">ping / pong</td><td>心跳与心跳应答，周期 <strong>10 秒</strong>，空闲超时 <strong>30 秒</strong>（见 06 章）</td></tr>
@@ -98,7 +99,7 @@
     <table>
       <thead><tr><th>参数</th><th>类型</th><th>初值</th><th>范围</th></tr></thead>
       <tbody>
-        <tr><td class="c-len">burst_size</td><td class="mono">u32</td><td class="mono">= window</td><td class="mono">[min(64, window), window]</td></tr>
+        <tr><td class="c-len">burst_size</td><td class="mono">u32</td><td class="mono">= min(256, window)</td><td class="mono">[min(64, window), window]</td></tr>
         <tr><td class="c-len">batch_gap_us</td><td class="mono">u32</td><td class="mono">2000</td><td class="mono">[0, 100000]</td></tr>
       </tbody>
     </table>

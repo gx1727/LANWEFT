@@ -71,8 +71,8 @@
     <table>
       <thead><tr><th>参数</th><th>归属</th><th>约束</th></tr></thead>
       <tbody>
-        <tr><td class="c-len">window</td><td>Server 下发</td><td><strong>Client 不得擅自修改</strong>；<strong>规范默认值 4096</strong></td></tr>
-        <tr><td class="c-len">connection_window</td><td>Server 下发</td><td><strong>Client 不得擅自修改</strong>；<strong>规范默认值 8192</strong></td></tr>
+        <tr><td class="c-len">window</td><td>Server 下发</td><td><strong>Client 不得擅自修改</strong>；<strong>规范默认值 8192</strong></td></tr>
+        <tr><td class="c-len">connection_window</td><td>Server 下发</td><td><strong>Client 不得擅自修改</strong>；<strong>规范默认值 16384</strong></td></tr>
         <tr><td class="c-len">chunk_size</td><td>协商确定</td><td>1024–1350，上限 1400（见 08 章）</td></tr>
       </tbody>
     </table>
@@ -92,15 +92,19 @@
   <div class="caption">
     稳态吞吐上限 ≈ <code>window × chunk_size / 裁决周期</code>；以 <code>chunk_size = 1200</code>、裁决周期 50 ms 计。
     Server <strong>应当</strong>依据目标链路速率与 <code>chunk_size</code> 选取 <code>window</code>，
-    1 Gbps 局域网的推荐取值为 <strong>8192</strong> ——
-    <code>window = 4096</code> 的吞吐上限约为 786 Mbps，<strong>不足以跑满千兆</strong>。
+    <strong>规范默认值 8192</strong> 对应约 1.5 Gbps 的吞吐上限，<strong>足以跑满千兆</strong>。
+    资源受限（内存 / 弱网）时可下调至 4096 ——
+    其吞吐上限约 786 Mbps，<strong>不足以跑满千兆</strong>，属有意降级。
     单会话独占链路时，<code>connection_window</code> <strong>应当</strong>取与 <code>window</code> 相同的值。
   </div>
 
   <h2>发送节奏</h2>
   <ul class="spec">
     <li>发送方<strong>必须</strong>按<strong>批次</strong>发送：连续发送 <code>burst_size</code> 个 chunk（批内<strong>不</strong>逐包停顿），批间隔 <code>batch_gap_us</code></li>
-    <li><code>burst_size</code> 初值 = Server 下发的 <code>window</code>；<code>batch_gap_us</code> 初值 = <strong>2000 µs</strong></li>
+    <li><code>burst_size</code> 初值 = <strong>min(256, <code>window</code>)</strong>（<strong>建议值</strong>）；<code>batch_gap_us</code> 初值 = <strong>2000 µs</strong><br>
+      <strong>初值为何与 window 解耦</strong>：若初值取 <code>window</code>，默认单个突发将达 8192 × 1200 B ≈ <strong>9.4 MB</strong> ——
+      既要求接收方缓冲常备同等容量，又极易触发 UDP 内核丢包、被 AIMD 误判为拥塞而<strong>降速</strong>。
+      取 <code>min(256, window)</code> 后默认突发约 <strong>300 KB</strong>，仍在 AIMD 区间 <code>[min(64, window), window]</code> 内。</li>
     <li><code>burst_size</code> <strong>必须</strong> ≤ <code>window</code></li>
     <li>发送方<strong>必须</strong>持续推进批次，直到 <code>chunk_count</code> 全部发出；<strong>唯一</strong>的停顿条件是在途量触及 <code>window</code> 上限</li>
   </ul>

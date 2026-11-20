@@ -124,6 +124,8 @@ PROBE_ACK 的 payload 为 9 字节：8 字节 session_id + 1 字节状态码
 任一关键字段不匹配或校验失败均丢弃。校验失败的数据包**不得**标记位图。
 
 - `payload_len` 越界（> 1400 或 > 协商 chunk_size）→ `INVALID_PACKET`，丢弃
+- 该 `chunk_id` **已收到**（重复包）→ 幂等丢弃，不重复写盘
+  （`CHUNK_ALREADY_RECEIVED`，见 19 章）
 - `chunk_id` 越界（≥ chunk_count）→ `INVALID_CHUNK`，丢弃
 - `session_id` 不匹配 → `SESSION_ID_MISMATCH`，丢弃
 - CRC32 校验失败 → `CRC32_INVALID`，丢弃

@@ -29,7 +29,7 @@
     <strong>本章要点</strong>：版本号形如 <code>major.minor.patch</code>，当前为 <strong><code>v0.3.0</code></strong>，
     且<strong>只在上游明确指示时变更</strong>；任何修订<strong>不得</strong>变更版本号，
     <strong>必须</strong>记入本章「修订记录」。v0.3.0 已把控制面由 MQTT 迁移到 TCP 并把载荷改为二进制定长布局。
-    已知限制包括：v0.3.0 与早期草案<strong>不兼容</strong>、同一版本号下先后指代三套互不兼容的线路格式、
+    已知限制包括：<strong>线路格式尚未冻结（0.x 设计阶段）</strong>、历史草案（JSON 载荷等）<strong>一律不再可用</strong>、
     抓包不再自解释、断线恢复依赖 Client 提供恢复提示。
   </div>
 
@@ -246,12 +246,20 @@
   <ul class="spec">
     <li><strong>不兼容</strong>：v0.3.0 的控制面与早期草案（MQTT）<strong>无法互通</strong> ——
       传输层、帧格式与消息集均已改变。升级<strong>必须</strong>同时升级两端。</li>
-    <li><strong>同一版本号下的三套线路格式</strong>：按上游指示，修订<strong>未</strong>变更版本号。
+    <li><strong>同一版本号下的三套线路格式</strong>（历史记录）：按上游指示，修订<strong>未</strong>变更版本号。
       因此 <code>v0.3.0</code> 这一版本号先后指代了 <strong>JSON</strong>、
       <strong>二进制定长（<code>session_id</code> = u32）</strong>与
       <strong>二进制定长（<code>session_id</code> = u64 + TCP 数据面帧）</strong>
       三套互不兼容的格式。
       实现<strong>必须</strong>以 06、07、08 章正文为准，不得仅凭版本号判断可互通性。</li>
+    <li><strong>线路格式尚未冻结（设计阶段）</strong>：本规范处于 <strong>0.x 设计阶段</strong>，
+      线路格式仍在演进 —— 本轮即把控制帧与 TCP 数据面帧的帧头
+      改为「<code>magic</code> + <code>frame_len</code> + <code>header_crc32</code>」
+      （控制帧帧头 8 → <strong>16 字节</strong>，TCP 数据面帧头 20 → <strong>28 字节</strong>）。
+      <strong>版本号在设计阶段不承载兼容承诺</strong>：未发布过任何实现，也就没有「互不兼容」的对端。
+      实现<strong>必须</strong>以 06、07、08 章<strong>正文</strong>为准；
+      历史草案（JSON 载荷、<code>session_id</code> = u32 的二进制布局等）<strong>一律不再可用</strong>，
+      不得据其实现。</li>
     <li>控制帧现为<strong>二进制定长布局</strong>（见 06 章）：定长帧头 + 定长区 + 变长区，
       无字段名重复开销。代价是可读性下降 —— 抓包不再自解释，
       实现侧<strong>必须</strong>提供与 <code>msg_type</code> 对应的解码日志。</li>
@@ -266,8 +274,9 @@
   <h3>控制帧的紧凑二进制编码（已结项）</h3>
   <ul class="spec">
     <li><strong>结论</strong>：<strong>已实施</strong>。控制帧改为<strong>二进制定长布局</strong>（见 06 章「帧格式」与「消息体布局」）。</li>
-    <li><strong>落地形态</strong>：<code>u32 frame_len | u8 msg_type | u8 flags | u8 body_version | u8 reserved | body</code>，
-      消息体 = 定长区（表格式偏移/大小）+ 变长区（顺序固定）；全部小端序。</li>
+    <li><strong>落地形态</strong>：<code>u32 magic | u32 frame_len | u32 header_crc32 | u8 msg_type | u8 flags | u8 body_version | u8 reserved | body</code>，
+      消息体 = 定长区（表格式偏移/大小）+ 变长区（顺序固定）；全部小端序；
+      帧头 <strong>16 字节</strong>（<code>magic</code> = <code>0x574E414C</code>，<code>header_crc32</code> 覆盖帧头其余 12 字节）。</li>
     <li><strong>扩展规则</strong>：同一 <code>msg_type</code> 的定长区<strong>一旦发布即冻结</strong>；
       新增字段只能追加在<strong>扩展区</strong>（变长区之后的尾部字节），接收方<strong>必须</strong>忽略扩展区。
       这取代了原先「忽略未知字段」的 JSON 约定。</li>
@@ -278,10 +287,12 @@
   </ul>
 
   <div class="diagram">
-    <div class="fields" style="--cols:6">
+    <div class="fields" style="--cols:8">
       <div class="cell ruler-title">控制帧落地形态（全部小端序）</div>
 
+      <div class="cell f-len">magic<br><code>u32</code></div>
       <div class="cell f-frame">frame_len<br><code>u32</code></div>
+      <div class="cell f-crc">header_crc32<br><code>u32</code></div>
       <div class="cell f-type">msg_type<br><code>u8</code></div>
       <div class="cell f-flags">flags<br><code>u8</code></div>
       <div class="cell f-flags">body_version<br><code>u8</code></div>
@@ -316,9 +327,49 @@
   <h3>TCP 降级通道的线路格式（已结项）</h3>
   <ul class="spec">
     <li><strong>结论</strong>：<strong>已实施</strong>。TCP 数据面帧格式见 07 章「TCP 数据面线路格式」：
-      <code>u32 frame_len</code> + <code>u64 session_id</code> + <code>u32 chunk_id</code> +
+      <code>u32 magic</code> + <code>u32 frame_len</code> + <code>u32 header_crc32</code> +
+      <code>u64 session_id</code> + <code>u32 chunk_id</code> +
       <code>u16 payload_len</code> + <code>u16 flags</code> + payload；
-      不携带 crc32（TCP 已提供字节流校验）。绑定帧 <code>FLAG_BIND</code> 用于会话绑定与权限校验。</li>
+      帧头 <strong>28 字节</strong>；不携带载荷级 crc32（TCP 已提供字节流校验），
+      但帧头携带 <code>header_crc32</code> 用于帧同步与失步检测。绑定帧 <code>FLAG_BIND</code> 用于会话绑定与权限校验。</li>
+  </ul>
+
+  <h3>恢复列表与权威快照的帧长上限（已结项）</h3>
+  <ul class="spec">
+    <li><strong>结论</strong>：<strong>已定案</strong> —— 采用「<strong>限制单连接并发会话数</strong>」方案，
+      <strong>不</strong>引入 <code>login_ack</code> 分页，<strong>不</strong>提高 <code>max_frame_len</code>。</li>
+    <li><strong>内容</strong>：新增规范常量 <code>max_sessions_per_connection</code> = <strong>64</strong>（见 09 章）：
+      一条控制连接上的<strong>并发</strong>会话数<strong>必须</strong> ≤ 64；
+      <code>login.resume_count</code> 与 <code>login_ack.sessions_count</code> <strong>必须</strong> ≤ 64
+      （06、13 章同步），超限时 Server 以 <code>session_abort</code>
+      （<code>reason</code> = <code>TOO_MANY_SESSIONS</code>，见 19 章）拒绝<strong>新发起</strong>的会话。</li>
+    <li><strong>为何选它</strong>：64 条快照最大 2,688 字节、64 条恢复列表最大 1,280 字节，
+      <strong>远小于</strong> <code>max_frame_len</code>（1 MiB）——
+      「快照必须一帧内完整」由此<strong>恒可编码</strong>，
+      而 u16 计数器的值域不再构成实际约束。</li>
+    <li><strong>代价</strong>：单条连接的并发会话数被限制在 64。
+      该限制在现实规模下宽松（一个连接承载 64 路并发传输已属极端），
+      且<strong>不影响</strong>已终止会话的历史数量。</li>
+    <li><strong>未采纳</strong>：②<code>login_ack</code> 分批（需改线格式与协议语义，
+      留作将来「大集群 / 多租户」形态的预案）；③提高 <code>max_frame_len</code>
+      （单帧内存占用上升，且未给条目数硬上限，属治标）。</li>
+  </ul>
+
+  <h3>window / burst_size 的规范默认值（已结项）</h3>
+  <ul class="spec">
+    <li><strong>结论</strong>：<strong>已定案</strong>。
+      ①<code>window</code> 规范默认值 = <strong>8192</strong>，<code>connection_window</code> = <strong>16384</strong>
+      （06、11 章同步）—— 原 4096 的吞吐上限约 786 Mbps，
+      与规范自身「1 Gbps 局域网推荐 8192」自相矛盾；
+      ②<code>burst_size</code> 初值 = <strong>min(256, <code>window</code>)</strong>（02、07、11、99 章同步）——
+      原初值（= <code>window</code>）下默认单个突发约 9.4 MB，
+      既要求接收方数据面缓冲常备同等容量，
+      又极易触发 UDP 内核丢包、被 AIMD 误判为拥塞而<strong>降速</strong>；
+      解耦后默认突发约 <strong>300 KB</strong>，且仍落在 AIMD 区间 <code>[min(64, window), window]</code> 内。</li>
+    <li><strong>代价</strong>：单会话在途量上限由 4096 提升到 8192 个 chunk
+      （<code>chunk_size</code> = 1200 时约 9.4 MB）。
+      该在途量是<strong>协议层计数</strong>（已发送但尚未被裁决确认），
+      其中大部分块接收方<strong>已落盘</strong>，因此<strong>不</strong>等量占用接收方内存。</li>
   </ul>
 
   <h3>秒传与并发会话的优先级</h3>
@@ -343,6 +394,104 @@
         <tr><th>日期</th><th>修订内容</th><th>章节</th></tr>
       </thead>
       <tbody>
+        <tr>
+          <td class="mono">—</td>
+          <td><strong>单连接并发会话数上限（解决恢复列表与快照的帧长冲突）</strong>：
+            新增规范常量 <code>max_sessions_per_connection</code> = <strong>64</strong>（09 章）；
+            <code>login.resume_count</code> 与 <code>login_ack.sessions_count</code> <strong>必须</strong> ≤ 64（06、13 章），
+            超限时 Server 以 <code>session_abort</code>（<code>reason</code> = <code>TOO_MANY_SESSIONS</code>）拒绝<strong>新发起</strong>的会话；
+            新增终止类错误码 <code>TOO_MANY_SESSIONS</code>（19 章）。
+            至此「权威快照<strong>必须</strong>在一帧内下发」<strong>恒可编码</strong>
+            （64 条快照最大 2,688 字节 « 1 MiB），
+            u16 计数器的值域不再构成实际约束。
+            <strong>版本号不变</strong>（设计阶段，版本号暂不承载兼容承诺；变更以本记录为准）</td>
+          <td>06、09、13、19、26、site</td>
+        </tr>
+        <tr>
+          <td class="mono">—</td>
+          <td><strong>默认值收敛与不可判定错误码移除</strong>：
+            ①<code>window</code> 规范默认值 4096 → <strong>8192</strong>，
+            <code>connection_window</code> 8192 → <strong>16384</strong>（06、11 章同步）——
+            原默认值下吞吐上限约 786 Mbps，与规范自身「1 Gbps 局域网推荐 8192」自相矛盾；
+            ②<code>burst_size</code> 初值与 <code>window</code> <strong>解耦</strong>，
+            改为 <strong>min(256, window)</strong>（02、07、11、99 章同步）——
+            原初值下默认单个突发约 9.4 MB，既要求接收方缓冲常备同等容量，
+            又极易触发 UDP 内核丢包、被 AIMD 误判为拥塞而降速；
+            ③<strong>删除</strong> <code>FILE_ID_MISMATCH</code>（19 章定义与终止类清单、
+            12 章判定点、站点页面同步删除）—— 「发错了文件」在协议层<strong>不可判定</strong>
+            （文件标识即内容摘要），定义一个永不触发的错误码有害无益；
+            <code>FILE_HASH_MISMATCH</code> / <code>SOURCE_FILE_MISMATCH</code> 已覆盖全部可判定的不符场景。
+            <strong>版本号不变</strong>（设计阶段，版本号暂不承载兼容承诺；变更以本记录为准）</td>
+          <td>02、06、07、11、12、19、26、99、site</td>
+        </tr>
+        <tr>
+          <td class="mono">—</td>
+          <td><strong>端到端协议走查</strong>：对上传 / 下载两条链路及暂停恢复、复核轮、
+            摘要对帐、秒传、主动投递、TCP 降级、断线重连、失步断连等异常分支
+            逐条比对 06、09、10、11、12、13、14、19、21、23、24 十章，
+            发现并修复 6 项语义问题：
+            ①13 章补<strong>「待恢复会话的判定」</strong>表，定义哪些状态进入 <code>resume[]</code>
+            （<code>INIT</code> / <code>NEGOTIATING</code> / <code>COMPLETED</code> / <code>ABORTED</code> <strong>不</strong>恢复）；
+            ②明确<strong>断线不解除显式暂停</strong> —— <code>PAUSED</code> 会话重连后<strong>保持 <code>PAUSED</code></strong>，
+            恢复仍走 <code>resume_session</code> / <code>resume_ack</code>；
+            ③恢复后的状态改为「<strong>各视角各自回到断线前状态</strong>」
+            （快照本就带 <code>state</code> 字段），取代原先一律「双方回到 TRANSFERRING」的措辞；
+            ④10 章秒传小节补「<strong>仅适用于上传方向</strong>」的限定；
+            ⑤12 章统一「至多一次」的表述 —— 接收方每会话至多发起 1 次对帐与 1 次复核轮，
+            发送方对每次发起至多响应 1 次，三者互不叠加；
+            ⑥19 章新增「<strong>终止类 / 过程类</strong>」分类，过程类错误码<strong>不得</strong>作为
+            <code>session_abort.reason</code> 上线路。
+            走查另发现 4 项<strong>待决</strong>问题（帧长与恢复列表冲突、window / burst_size 默认值
+            自相矛盾、<code>FILE_ID_MISMATCH</code> 判定点缺失），已记入本章「待定议题」。
+            走查记录存档于 <code>docs/review/2026-11-walkthrough.md</code>；
+            走查结论同时固化为检查器的 <strong>WALKTHROUGH</strong> 回归组（防止被改回去）。
+            <strong>版本号不变</strong>（设计阶段，版本号暂不承载兼容承诺；变更以本记录为准）</td>
+          <td>06、10、12、13、19、24、26、site、review</td>
+        </tr>
+        <tr>
+          <td class="mono">—</td>
+          <td><strong>跨章一致性自检 + 孤儿错误码归位</strong>：新增 <code>scripts/check-spec-consistency.py</code>，
+            把跨章不变量固化为可执行检查（帧头长度与 <code>magic</code> / CRC 变体一致性、
+            定长记录长度跨章一致、错误码集合闭合、规范默认值统一、章节交叉引用有效、
+            站点页面与规范源文同步、本地链接可达），CI 在 push 与 PR 时自动运行。
+            其中<strong>字段表机械校验</strong>把 06、07、08 章的每张布局表解析为 schema，
+            校验偏移连续性、字段总长与声明值一致、类型宽度与字节数一致
+            （已校验 145 个定宽字段）；
+            <strong>状态机覆盖度校验</strong>比对 10 章状态定义 / 状态编码 / 06 章 <code>state</code> 枚举三处一致，
+            校验转移表的视角与状态集匹配、终态无出边、非终态每视角均有出边、
+            全状态从 INIT 可达、转移触发列的消息名真实存在，
+            以及 06 章消息表方向与正文「恒由 X 发布」的声明一致。
+            首次运行即查出并修复 <strong>11 个只在 19 章定义、正文从未引用的错误码</strong>
+            （<code>UDP_UNAVAILABLE</code> / <code>TIMEOUT_PROBE</code> / <code>TCP_ERROR</code> /
+            <code>BIND_FAILED</code> / <code>CONNECTION_FAILED</code> / <code>CONNECTION_CLOSED</code> /
+            <code>TIMEOUT_HEARTBEAT</code> / <code>NETWORK_ERROR</code> /
+            <code>CHUNK_ALREADY_RECEIVED</code> / <code>DATABASE_ERROR</code> / <code>FILE_ID_MISMATCH</code>），
+            各自接回描述该情形的章节；同时修正 13 章 <code>resume[]</code> 记录长度笔误（16 → 20 字节）、
+            19 章 <code>DATABASE_ERROR</code> 的实现相关措辞（去掉 SQLite）、
+            09 章 <code>chunk_size</code> 范围表述口径，并修正站点页面一处既有的
+            PROBE 载荷长度漂移（4/5 → 8/9）。
+            <strong>版本号不变</strong>（设计阶段，版本号暂不承载兼容承诺；变更以本记录为准）</td>
+          <td>06、07、08、09、12、13、17、19、26、README、site、scripts、workflow</td>
+        </tr>
+        <tr>
+          <td class="mono">—</td>
+          <td><strong>帧同步与失步检测</strong>：控制帧与 TCP 数据面帧新增 <code>magic</code>（<code>0x574E414C</code>）与
+            <code>header_crc32</code>（CRC-32/ISO-HDLC，覆盖帧头除自身外的全部字节）；
+            控制帧帧头 8 → <strong>16 字节</strong>，TCP 数据面帧头 20 → <strong>28 字节</strong>。
+            接收方<strong>必须</strong>按 <code>magic</code> → <code>header_crc32</code> → <code>frame_len</code> 顺序校验帧头，
+            任一失败即判定<strong>失步</strong>并<strong>必须断连</strong>（不得就地续解）；
+            新增错误码 <code>MAGIC_MISMATCH</code> / <code>HEADER_CRC_INVALID</code> / <code>FRAME_LEN_INVALID</code>；
+            控制连接新增<strong>首帧锚点</strong>（首帧必须为 <code>login</code>），数据面 TCP 连接首帧必须为 <code>FLAG_BIND</code>；
+            06 章新增<strong>接收状态机</strong>（<code>SYNC</code> / <code>RESYNC</code> / <code>CLOSED</code> 三态 + 状态转移表 +
+            候选判据 + 扫描上限），07 章数据面 TCP 通道沿用同一状态机与校验顺序；
+            06 章新增<strong>可复核的帧头字节示例</strong>（<code>login</code> 帧，
+            <code>header_crc32</code> = <code>0xCCD5E3D3</code>）锁定字节序与校验区间。
+            动机：长度前缀帧在消费偏移（实现 bug）时存在约 1e-5 ~ 1e-6 的概率把随机字节
+            <strong>当成合法控制消息执行</strong>（如伪造 <code>session_pause</code> / <code>session_abort</code>）；
+            三个字段把该路径消除。恢复一律走 13 章断线重连（权威快照），<strong>不</strong>引入自动重同步引擎。
+            <strong>版本号不变</strong>（设计阶段，版本号暂不承载兼容承诺；变更以本记录为准）</td>
+          <td>00、02、06、07、13、19、26、99、README</td>
+        </tr>
         <tr>
           <td class="mono">—</td>
           <td><strong>摘要对帐（Reconciliation）</strong>：新增<strong>恢复阶梯</strong> ——

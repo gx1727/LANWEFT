@@ -117,6 +117,7 @@
       <tbody>
         <tr><td><strong>原子重命名</strong></td><td><strong>必须</strong>是同一文件系统目录内的 <code>rename(2)</code> 操作，以保证读者看到的要么是旧文件、要么是完整的新文件，<strong>不存在中间态</strong></td></tr>
         <tr><td><strong>持久化前置</strong></td><td>提交前<strong>必须</strong>已持久化位图与临时文件（见 09 章「持久化」），否则重命名后无法回溯校验依据</td></tr>
+        <tr><td><strong>持久化失败</strong></td><td>位图 / 会话元数据落盘失败按 <code>DATABASE_ERROR</code> 记录（见 19 章），并<strong>必须</strong>中止该会话的推进 —— 位图不可信时继续传输会丢失或重复块</td></tr>
       </tbody>
     </table>
   </div>

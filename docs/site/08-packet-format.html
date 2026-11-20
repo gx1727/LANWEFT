@@ -148,6 +148,7 @@
         <li>Session ID 不匹配的包 必须丢弃 (<strong>MUST discard</strong>)</li>
         <li>Payload Length 非法的包 必须丢弃 (<strong>MUST discard</strong>)</li>
         <li>chunk_id ≥ chunk_count 的包 必须丢弃 (<strong>MUST discard</strong>)</li>
+        <li>该 chunk_id <strong>已收到</strong>（重复包）→ 幂等丢弃，不重复写盘（<code>CHUNK_ALREADY_RECEIVED</code>）</li>
       </ul>
 
       <h2>CRC32 变体 (CRC Variant)</h2>

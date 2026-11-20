@@ -133,6 +133,11 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
 
 ## 秒传路径（file_exists）
 
+**秒传仅适用于上传方向（规范性）**：秒传的前提是「**Server 侧**已存在相同
+`file_hash` 的完整文件」，因此**只可能**发生在上传方向（Client → Server）。
+下载方向的 `download_accept.file_exists` **必须**为 `0`（假，见 06 章），
+**不得**走秒传路径。
+
 当 Server 侧已存在相同 `file_hash` 的完整文件时：
 
 1. Server **必须**在生成 `upload_accept` **之前**完成既有文件的校验：

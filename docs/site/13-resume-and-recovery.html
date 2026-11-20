@@ -20,7 +20,7 @@
 
   <div class="note blue">
     <strong>本章要点</strong>：恢复有<strong>两条路径</strong>（断线重连 / 暂停后恢复），语义<strong>一致</strong>：
-    都返回接收方的<strong>权威续传位置与数据面端口</strong>，都使双方回到 <code>TRANSFERRING</code>；
+    都返回接收方的<strong>权威续传位置与数据面端口</strong>，都使会话回到<strong>可传输状态</strong>；
     区别只在于<strong>是否需要重建连接</strong>。
   </div>
 
@@ -64,7 +64,7 @@
           <div class="cell f-muted">加载自己的位图</div>
           <div class="cell f-muted">按快照覆盖本地状态</div>
           <div class="cell f-type">login_ack {sessions[] 权威快照}</div>
-          <div class="cell wide f-chunk">双方回到 TRANSFERRING，继续传输</div>
+          <div class="cell wide f-chunk">各视角各自回到断线前状态（PAUSED 保持 PAUSED）</div>
         </div>
       </div>
       <div class="caption">
@@ -86,11 +86,14 @@
           <div class="cell f-muted">回填权威续传位置</div>
           <div class="cell f-muted">按快照重建状态</div>
           <div class="cell f-type">resume_ack {result, next_chunk_id, missing_count, udp_port}</div>
-          <div class="cell wide f-chunk">双方回到 TRANSFERRING</div>
+          <div class="cell wide f-chunk">双方回到 TRANSFERRING（该路径的前提就是解除暂停）</div>
         </div>
       </div>
       <div class="caption">
-        两条路径的语义一致：都返回<strong>接收方</strong>的权威续传位置与数据面端口，都使双方回到 <code>TRANSFERRING</code>。
+        两条路径的语义一致：都返回<strong>接收方</strong>的权威续传位置与数据面端口，都使会话回到<strong>可传输状态</strong>。
+        <strong>恢复后各视角各自回到断线前状态</strong>（以权威快照的 <code>state</code> 为准）：
+        <code>PAUSED</code> <strong>保持 PAUSED</strong>（断线不解除显式暂停），
+        <code>VERIFY</code> / <code>COMMIT</code> 的接收侧回到原状态。
       </div>
     </section>
   </div>
@@ -99,7 +102,7 @@
   <div class="card">
     <table>
       <tbody>
-        <tr><td><code>login.resume[]</code></td><td><strong>必须</strong>列出<strong>全部</strong>待恢复的会话。定长区 <code>resume_count</code>（u16）给出条目数（无待恢复会话时为 0），变长区给出 <code>resume_count</code> 条 <strong>20 字节定长</strong>记录：<code>session_id</code>(u64) / <code>next_chunk_id</code>(u32) / <code>missing_count</code>(u32) / <code>flags</code>(u8：bit0 = <code>next_chunk_id</code> 有效，bit1 = <code>missing_count</code> 有效)</td></tr>
+        <tr><td><code>login.resume[]</code></td><td><strong>必须</strong>列出<strong>全部</strong>待恢复的会话。<strong>条目数上界</strong>：<code>resume_count</code> 与 <code>login_ack</code> 的 <code>sessions_count</code> <strong>必须</strong> ≤ <code>max_sessions_per_connection</code>（64，见 09 章）—— 该上界保证两者<strong>始终可编码</strong>（64 × 20 = 1,280 B；64 × (42 + code_len) B，均<strong>远小于</strong> <code>max_frame_len</code> = 1 MiB）。定长区 <code>resume_count</code>（u16）给出条目数（无待恢复会话时为 0），变长区给出 <code>resume_count</code> 条 <strong>20 字节定长</strong>记录：<code>session_id</code>(u64) / <code>next_chunk_id</code>(u32) / <code>missing_count</code>(u32) / <code>flags</code>(u8：bit0 = <code>next_chunk_id</code> 有效，bit1 = <code>missing_count</code> 有效)</td></tr>
         <tr><td><strong>恢复提示的来源</strong></td><td>续传起点来自<strong>接收方</strong>的位图，因此<strong>只有接收方才可能提供</strong>它</td></tr>
         <tr><td><strong>上传方向</strong>（接收方 = Server）</td><td>Client <strong>必须</strong>不提供恢复提示（<code>flags</code> bit0 / bit1 = 0，相应字段<strong>必须</strong>取 0），由 Server 用<strong>自己</strong>的位图计算</td></tr>
         <tr><td><strong>下载方向</strong>（接收方 = Client）</td><td>Client <strong>必须</strong>依据<strong>自己的位图</strong>提供恢复提示（<code>flags</code> bit0 / bit1 = 1）</td></tr>
@@ -148,7 +151,7 @@
         <li>Server <strong>没有</strong> Client 的位图，无从计算续传起点 → 由 Client 在 <code>login.resume[]</code> 中提供恢复提示（<code>flags</code> bit0 / bit1 = 1）</li>
         <li>Server 在 <code>login_ack.sessions[]</code> 中回填权威状态（含 <code>udp_port</code> 与 <code>state</code>）</li>
         <li>Server 按 <code>next_chunk_id</code> 起继续向 Client 推送 chunk；Client 以 <code>missing_chunks</code>（<code>mode=report</code>）报告自己的缺失块</li>
-        <li>双方回到 <code>TRANSFERRING</code></li>
+        <li>双方各自回到断线前状态（发送侧回 <code>TRANSFERRING</code>；接收侧回断线前状态）</li>
       </ul>
     </section>
   </div>

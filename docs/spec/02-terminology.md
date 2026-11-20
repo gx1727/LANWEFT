@@ -67,8 +67,12 @@
 
 ## 控制通道
 
-- **帧**：控制通道的消息单元；`u32 frame_len` + 8 字节定长帧头 + 二进制消息体；
-  长度前缀，接收方**必须**读满后解析（见 06 章）
+- **帧**：控制通道的消息单元；`u32 magic` + `u32 frame_len` + `u32 header_crc32` +
+  `u8 msg_type` + `u8 flags` + `u8 body_version` + `u8 reserved` +
+  **16 字节定长帧头** + 二进制消息体；
+  长度前缀，接收方**必须**读满后解析；`magic` / `header_crc32` / `frame_len`
+  三项校验任一失败即判定失步并断连（见 06 章）
+- **失步**（desync）：帧边界不再可信的状态；控制面**必须**关闭连接并按 13 章恢复
 - `max_frame_len`：控制通道单帧上限（**1 MiB**，见 06 章）
 - **权威快照**：`login_ack.sessions` 或 `resume_ack` 携带的会话状态，
   接收方**必须**以其**覆盖**本地状态（见 13 章）
@@ -76,7 +80,7 @@
 
 ## 流控参数（发送端本地）
 
-- `burst_size`（u32）：发送批次大小；初值 = `window`，范围 `[min(64, window), window]`
+- `burst_size`（u32）：发送批次大小；初值 = `min(256, window)`，范围 `[min(64, window), window]`
 - `batch_gap_us`（u32）：批间隔（微秒）；初值 2000，范围 `[0, 100000]`
 
 > `burst_size` 与 `batch_gap_us` 是**发送端本地策略参数**，

@@ -103,7 +103,7 @@
       <h3 style="margin-top:0">发送端</h3>
       <ul class="spec">
         <li><strong>按批次发送</strong>：连续发送 <code>burst_size</code> 个 chunk，批间隔 <code>batch_gap_us</code>
-          （初值 <code>2000 µs</code>；<code>burst_size</code> 初值 = <code>window</code>）。详见 11 章「发送节奏」。</li>
+          （初值 <code>2000 µs</code>；<code>burst_size</code> 初值 = <code>min(256, window)</code>）。详见 11 章「发送节奏」。</li>
         <li>批<strong>内</strong>不逐包停顿；间隔施加在<strong>批与批之间</strong>，而非包与包之间。</li>
         <li><strong>仅对 <code>missing_chunks</code>（<code>mode=report</code>）报告的缺失块重传</strong>，
           重传优先级<strong>高于新数据</strong></li>
@@ -149,7 +149,7 @@
       <ul class="spec">
         <li><code>flags.bit3 = 1</code></li>
         <li>payload 为 <code>session_id</code>（u64）的 <strong>8 字节小端编码</strong>（<code>payload_len = 8</code>）</li>
-        <li><code>payload_len == 4</code></li>
+        <li><code>payload_len == 8</code></li>
       </ul>
     </section>
 
@@ -159,15 +159,15 @@
         <li><code>flags.bit3 = 1</code></li>
         <li>payload 为 <code>session_id</code> + 1 字节状态码（<code>0</code>=成功，<code>1</code>=失败），
           共 <strong>5 字节</strong></li>
-        <li><code>payload_len == 5</code></li>
+        <li><code>payload_len == 9</code></li>
       </ul>
     </section>
   </div>
 
   <div class="note">
     <strong>判别规则（规范性）</strong>：PROBE 与 PROBE_ACK 共用 <code>flags.bit3</code>，
-    接收方<strong>必须</strong>以 <code>payload_len</code> 区分：<code>payload_len == 4</code> 为 PROBE，
-    <code>payload_len == 5</code> 为 PROBE_ACK。其余长度<strong>必须</strong>按 <code>INVALID_PACKET</code> 丢弃。
+    接收方<strong>必须</strong>以 <code>payload_len</code> 区分：<code>payload_len == 8</code> 为 PROBE，
+    <code>payload_len == 9</code> 为 PROBE_ACK。其余长度<strong>必须</strong>按 <code>INVALID_PACKET</code> 丢弃。
   </div>
 
   <h3>端口与地址绑定（规范性）</h3>
