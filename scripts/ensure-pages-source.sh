@@ -14,6 +14,12 @@
 #   - 仓库管理员（Pages 站点配置属于 Administration 权限）
 #   - 在 Actions 里可用 GITHUB_TOKEN 调用（此时权限来自工作流的 permissions 段）
 #
+# 默认行为是**非破坏性**的：只尝试 PATCH。若 PATCH 不可用（GitHub 一般不允许
+# 把已有站点从「分支源」直接改成「workflow 源」），需要重建站点
+# （DELETE → POST build_type=workflow），这一步请显式打开：
+#
+#   ALLOW_RECREATE=1 GITHUB_TOKEN=<PAT> scripts/ensure-pages-source.sh
+#
 set -uo pipefail
 
 REPO="${1:-gx1727/LANWEFT}"
@@ -66,6 +72,12 @@ code=$(curl -s -o /tmp/pages-patch.json -w '%{http_code}' -X PATCH "${AUTH[@]}" 
 echo "    PATCH HTTP ${code}"
 if [ "$code" != "200" ] && [ "$code" != "204" ]; then
   show /tmp/pages-patch.json
+  if [ "${ALLOW_RECREATE:-0}" != "1" ]; then
+    echo "==> PATCH 未生效，且未开启 ALLOW_RECREATE —— 不做破坏性重建"
+    echo "    请到 Settings → Pages 把 Source 改成「GitHub Actions」；"
+    echo "    或显式执行：ALLOW_RECREATE=1 GITHUB_TOKEN=<PAT> scripts/ensure-pages-source.sh"
+    exit 1
+  fi
   echo "==> PATCH 不可用，改为重建站点（DELETE → POST build_type=workflow）"
   dcode=$(curl -s -o /tmp/pages-del.json -w '%{http_code}' -X DELETE "${AUTH[@]}" "${API}/pages")
   echo "    DELETE HTTP ${dcode}"

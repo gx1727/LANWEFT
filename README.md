@@ -74,8 +74,14 @@
 
 站点由 GitHub Actions 构建并发布（见 `.github/workflows/pages.yml`）：
 
-1. 仓库 Pages 的 Source 已设为 **GitHub Actions**（已配置完成）
+1. 仓库 Pages 的 Source 必须是 **GitHub Actions**（Settings → Pages → Build and deployment → Source）
 2. `main` 分支推送时自动构建部署；也可在 Actions 页面手动触发（workflow_dispatch）
+
+> ⚠️ **Source 若被改成「Deploy from a branch」，工作流会「成功但线上没更新」**：
+> GitHub 会改用内置 Jekyll 构建发布仓库根目录，Actions 里的部署记录仍显示
+> success，线上却是 Jekyll 站点、spec 页面全部 404。此时把 Source 改回
+> **GitHub Actions**，再重跑一次工作流即可。可用
+> `scripts/ensure-pages-source.sh`（需仓库管理员令牌）自动纠正。
 
 构建脚本 `scripts/build-site.sh`（本地与 CI 共用）会：
 
@@ -87,6 +93,7 @@
 本地预览：
 
 ```bash
+pip install -r scripts/requirements.txt   # 渲染器依赖 Python-Markdown
 scripts/build-site.sh          # 生成 _site/
 python3 -m http.server -d _site 8000
 ```
