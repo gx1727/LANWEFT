@@ -1,0 +1,10 @@
+  <div class="note blue">
+    <strong>等价关系</strong>：<code>login.device_id</code> ≡ 认证凭据绑定的身份 ≡ 连接绑定身份 ≡ 已认证的设备身份。
+    四个身份<strong>必须</strong>始终指向同一个设备，否则访问控制（21 章）与审计（20 章）都失去依据。
+  </div>
+
+  <div class="note warn">
+    <strong>常见实现陷阱</strong>：重启即重新生成 <code>client_id</code>（<strong>不得</strong>）；
+    用文件哈希派生 <code>client_id</code>；把 <code>client_id</code> 直接当作认证凭据；
+    在连接存续期间变更绑定身份。
+  </div>

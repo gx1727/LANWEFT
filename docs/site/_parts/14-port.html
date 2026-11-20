@@ -1,0 +1,10 @@
+<div class="note">
+    <strong>权威 vs 增量（导读说明）</strong>：<code>login_ack</code> 快照与 <code>resume_ack</code> 携带的
+    <code>udp_port</code> 是<strong>权威快照</strong>，到达时<strong>必须</strong>以其覆盖本地保存的端口，
+    <strong>不得</strong>与旧值并存；<code>udp_ready</code> 与 <code>download_accept</code> 携带的端口
+    是同一连接内的<strong>增量通知</strong> —— 其中 <code>udp_ready</code> 只确认当前探测，
+    <strong>不</strong>改变端口。
+    端口变更<strong>必须</strong>通过上述消息显式下发，Client <strong>不得</strong>自行推断；
+    失败应答<strong>不</strong>建立绑定，无待决探测或端口不匹配的就绪通知<strong>必须</strong>忽略。
+    端口的生效时序详见源文「2. UDP 探测」。
+  </div>

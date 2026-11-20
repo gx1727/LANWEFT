@@ -1,0 +1,20 @@
+<h2>两级在途上限</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:4">
+    <div class="cell wide ruler-title">两级额度必须同时满足（示意）</div>
+
+    <div class="cell half f-session">会话 A 在途量<br><span class="mono">≤ window（规范默认值 {{VAR:c11_window_default}}）</span></div>
+    <div class="cell half f-session">会话 B 在途量<br><span class="mono">≤ window（规范默认值 {{VAR:c11_window_default}}）</span></div>
+
+    <div class="cell wide f-len">同一控制连接上全部会话的在途量之和<br><span class="mono">≤ connection_window（规范默认值 {{VAR:c11_connwin_default}}）</span></div>
+
+    <div class="cell wide f-muted">会话之间的额度分配由发送方自行决定，<strong>不构成</strong>互操作要求；<br>
+      并发会话不得重复预留同一额度</div>
+  </div>
+</div>
+
+<div class="caption">
+  会话级上限约束单个会话，连接级上限约束整条控制连接上所有会话的在途量之和；
+  图中“会话 A / B”仅为示意，额度分配策略不属于互操作要求。
+</div>

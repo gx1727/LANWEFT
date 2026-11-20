@@ -1,0 +1,6 @@
+<div class="note blue">
+    <strong>本章要点</strong>：控制通道的认证在<strong>连接握手</strong>阶段完成，Server <strong>必须</strong>在 <code>login</code> 中校验认证凭据，
+    失败<strong>必须</strong>以 <code>login_ack</code>（<code>result</code> = <code>0</code>，即 fail）回应并<strong>关闭连接</strong>。
+    凭据<strong>必须</strong>与 <code>device_id</code> <strong>绑定</strong>；令牌<strong>不得</strong>由 <code>device_id</code> 直接推导。
+    跨 <code>device_id</code> 的隔离由<strong>连接级 / Server 级 / 资源级 / 共享清单级四层</strong>承担。
+  </div>

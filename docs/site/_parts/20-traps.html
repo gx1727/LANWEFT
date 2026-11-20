@@ -1,0 +1,5 @@
+<div class="note warn">
+    <strong>常见实现陷阱</strong>：把 CRC32 当作防伪手段；用十六进制串承载 Blake3 摘要；
+    加密改变了 chunk 边界导致 <code>offset = chunk_id × chunk_size</code> 失效；
+    跳过 UDP 源地址校验；由 <code>device_id</code> 直接推导凭据（<strong>不得</strong>）。
+  </div>

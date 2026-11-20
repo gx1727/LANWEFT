@@ -43,6 +43,9 @@ jobs:
       - name: Check spec consistency
         run: python3 scripts/check-spec-consistency.py
 
+      - name: Check site is in sync with spec
+        run: python3 scripts/render-site.py --check
+
       - name: Build site
         run: scripts/build-site.sh _site
 

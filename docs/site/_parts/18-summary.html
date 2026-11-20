@@ -1,0 +1,8 @@
+<div class="note blue">
+    <strong>本章要点</strong>：接收方的位图<strong>必须</strong>提供<strong>判定 / 枚举 / 计数 / 持久化</strong>四项能力；
+    位图的<strong>内部组织方式</strong>（字长、原子类型、内存布局）由实现决定，<strong>不构成</strong>互操作要求，
+    但位图<strong>必须</strong>支持按 <code>chunk_id</code> <strong>升序</strong>枚举。
+    块<strong>必须</strong>在数据写入临时文件<strong>之后</strong>才标记为「已收到」，校验失败的块<strong>必须</strong>保持「未收到」。
+    单条 <code>missing_chunks</code> 载荷中的 chunk 条目<strong>不得超过 {{VAR:missing_list_cap}} 条</strong>，
+    接收方<strong>必须</strong>按位图顺序分批下发缺失列表。
+  </div>

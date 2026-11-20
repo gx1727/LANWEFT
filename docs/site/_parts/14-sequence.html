@@ -1,0 +1,56 @@
+<h2>下载流程时序</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:6">
+    <div class="cell wide ruler-title">下载流程时序：Server → Client，6 个阶段</div>
+
+    <div class="cell f-session dl-step"><b>1 会话建立</b>download_start → download_accept</div>
+    <div class="cell f-type dl-step"><b>2 UDP 探测</b>UDP_PROBE → UDP_PROBE_ACK → udp_ready</div>
+    <div class="cell f-chunk dl-step"><b>3 数据传输</b>Server → Client</div>
+    <div class="cell f-len dl-step"><b>4 缺失重传</b>Client ⇄ Server</div>
+    <div class="cell f-flags dl-step"><b>5 进度上报</b>Client → Server</div>
+    <div class="cell f-crc dl-step"><b>6 完成与终止</b>Client → Server</div>
+
+    <div class="cell wide f-muted dl-msg">
+      <b>1 会话建立</b>：Client 发送 <code>download_start</code> → Server 返回
+      <code>download_accept</code>（含 <code>session_id</code>（<code>u64</code>）/
+      <code>chunk_count</code>（<code>u32</code>）/ <code>window</code>（<code>u32</code>）/
+      <code>connection_window</code>（<code>u32</code>）/
+      <code>udp_port</code>（<code>u16</code>）/ <code>tcp_port</code>（<code>u16</code>））
+    </div>
+    <div class="cell wide f-muted dl-msg">
+      <b>2 UDP 探测</b>：Client <strong>必须</strong>先打开数据面 socket，再从该 socket 发出
+      <code>UDP_PROBE</code> → Server 返回 <code>UDP_PROBE_ACK</code> → Server 发送
+      <code>udp_ready</code>；Server 以 PROBE 报文的<strong>源地址:端口</strong>作为该会话的对端数据面地址
+    </div>
+    <div class="cell wide f-muted dl-msg">
+      <b>3 数据传输</b>：Server 按 <code>window</code> 连续发送 UDP chunk（批量发送，节奏见 11 章），
+      并<strong>必须</strong>同时遵守连接级的 <code>connection_window</code>
+    </div>
+    <div class="cell wide f-muted dl-msg">
+      <b>4 缺失重传</b>：Client 每 {{VAR:report_interval}} 发送 <code>missing_chunks</code>
+      （<code>mode=report</code>）→ Server 按 11 章补发缺失块；
+      收到 Server 的 <code>missing_chunks</code>（<code>mode=request</code>）时，
+      Client <strong>必须</strong>在 {{VAR:reply_deadline}} 内应答
+    </div>
+    <div class="cell wide f-muted dl-msg">
+      <b>5 进度上报</b>：Client 每 {{VAR:progress_interval}} 发布 <code>progress_update</code>
+      （<code>received</code> / <code>total</code> 为 chunk 数，均为 <code>u64</code>），
+      Server 据此估算链路丢包率并驱动 AIMD（见 11 章）
+    </div>
+    <div class="cell wide f-muted dl-msg">
+      <b>6 完成与终止</b>：Client 检测位图全真 → 校验 hash → 原子重命名 → 发送
+      <code>download_complete</code>（<strong>接收方发布完成消息</strong>，见 06 章）；
+      Server 持久化完成回执后回复 <code>complete_ack</code>
+    </div>
+  </div>
+</div>
+
+<div class="legend">
+  <span><i class="swatch" style="background:var(--b-session)"></i>阶段 1 会话建立</span>
+  <span><i class="swatch" style="background:var(--b-type)"></i>阶段 2 UDP 探测</span>
+  <span><i class="swatch" style="background:var(--b-chunk)"></i>阶段 3 数据传输</span>
+  <span><i class="swatch" style="background:var(--b-len)"></i>阶段 4 缺失重传</span>
+  <span><i class="swatch" style="background:var(--b-flags)"></i>阶段 5 进度上报</span>
+  <span><i class="swatch" style="background:var(--b-crc)"></i>阶段 6 完成与终止</span>
+</div>

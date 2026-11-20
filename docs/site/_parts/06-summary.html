@@ -1,0 +1,10 @@
+<div class="note blue">
+    <strong>本章要点</strong>：控制面是会话状态推进与可靠性裁决的<strong>唯一</strong>通道，跑在 <strong>TCP</strong> 上，
+    一条连接可承载<strong>多个并发会话</strong>。控制帧 = <strong>{{VAR:c06_hdr_size}} 字节定长帧头</strong> + 二进制消息体；
+    帧头 <code>magic</code> 恒为 <code>{{VAR:c06_magic_value}}</code>（线上字节 <code>{{VAR:c06_magic_bytes}}</code>，小端序），
+    <code>header_crc32</code> 覆盖帧头中除自身外的 <strong>{{VAR:c06_crc_bytes}} 字节</strong>。
+    接收方<strong>必须</strong>先过 <code>magic</code> → <code>header_crc32</code> → <code>frame_len</code> 三项校验再读帧体，
+    <strong>任一失败即失步</strong>：<strong>必须</strong>丢弃该连接上未解析的数据并关闭连接，
+    <strong>不得</strong>就地「跳过一帧继续解析」。<code>frame_len</code> 上界为 {{VAR:c06_max_frame}}；
+    定长区一旦发布即冻结，新增字段只能追加在扩展区，接收方<strong>必须</strong>忽略扩展区。
+  </div>

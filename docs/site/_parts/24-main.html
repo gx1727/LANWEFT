@@ -1,0 +1,342 @@
+<div class="toolbar">
+  <div class="seg" id="dir">
+    <button data-dir="upload" class="active">上传方向 · Client → Server</button>
+    <button data-dir="download">下载方向 · Server → Client</button>
+  </div>
+  <label class="chk"><input type="checkbox" id="states" checked> 显示状态标注</label>
+  <span style="font-size:12.5px;color:var(--ink-2)">
+    实线 = 控制面 TCP 帧 · 虚线 = 数据面 UDP 包 · 灰框 = 说明 · 胶囊 = 状态转移
+  </span>
+</div>
+
+<div class="seq-wrap">
+  <svg id="seq" viewBox="0 0 1000 1200" role="img" aria-label="端到端时序图"></svg>
+</div>
+
+<script>
+(function(){
+  const HB_PERIOD = '{{VAR:c24_heartbeat_period}}';
+  const HB_TIMEOUT = '{{VAR:c24_heartbeat_timeout}}';
+  const PROBE_LEN = '{{VAR:probe_payload_len}}';
+  const PROBE_ACK_LEN = '{{VAR:probe_ack_payload_len}}';
+  const PROBE_TIMEOUT = '{{VAR:probe_ack_timeout}}';
+  const BATCH_GAP = '{{VAR:batch_gap_us}}';
+  const REPORT = '{{VAR:report_interval}}';
+  const REQUEST = '{{VAR:adjudicate_request_ms}}';
+  const PROGRESS = '{{VAR:progress_interval}}';
+
+  const LANE = {
+    C:{x:250, label:'Client', sub:''},
+    S:{x:860, label:'Server', sub:''}
+  };
+  const W = 1160;
+
+  /* ---------- 上传方向：Client = 发送侧，Server = 接收侧 ---------- */
+  const UPLOAD = [
+    {sep:'① 控制连接建立（TCP 长连接）'},
+    {from:'C', to:'S', type:'conn', label:'TCP connect'},
+    {from:'C', to:'S', type:'tcp', label:'login {proto_major/minor/patch, device_id, token, resume[]}'},
+    {from:'S', to:'S', type:'self', label:'校验认证与协议版本（21 章）'},
+    {from:'S', to:'C', type:'tcp', label:'login_ack {result, code, proto_major/minor/patch, sessions[] 权威快照}'},
+
+    {sep:'①-2 心跳（长连接保活）'},
+    {from:'C', to:'S', type:'tcp', label:'ping {ts}'},
+    {from:'S', to:'C', type:'tcp', label:'pong {ts}'},
+    {note:'双向必须每 '+HB_PERIOD+' 一次；'+HB_TIMEOUT+' 无任何消息即关闭连接（见 06 章）'},
+
+    {sep:'② 会话建立'},
+    {from:'C', to:'S', type:'tcp', label:'upload_start {size, mtime, file_hash, file_name}',
+      chip:{side:'C', text:'Client: INIT → NEGOTIATING'}, chip2:{side:'S', text:'Server: INIT → NEGOTIATING'}},
+    {from:'S', to:'S', type:'self', label:'既有 file_hash 校验（秒传判定）'},
+    {from:'S', to:'C', type:'tcp', label:'upload_accept {session_id, chunk_count, window, connection_window, chunk_size, udp_port, tcp_port, file_exists}',
+      chip:{side:'C', text:'Client: NEGOTIATING → TRANSFERRING'}, chip2:{side:'S', text:'Server: NEGOTIATING → TRANSFERRING'}},
+    {note:'若 file_exists 为真：发送侧直接 NEGOTIATING → COMPLETED；接收侧 NEGOTIATING → VERIFY → COMMIT → COMPLETED（秒传不产生位图）'},
+
+    {sep:'③ UDP 可用性探测（数据面）'},
+    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {payload_len='+PROBE_LEN+', session_id}'},
+    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {payload_len='+PROBE_ACK_LEN+'}'},
+    {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
+    {note:'等待 PROBE_ACK 超时（建议 '+PROBE_TIMEOUT+'）→ 回退数据面 TCP；是否支持降级由 tcp_port 表达（见 07 章）'},
+
+    {sep:'④ 数据传输（数据面 UDP，无逐包 ACK）'},
+    {from:'C', to:'S', type:'udp', label:'chunk #0 … #N（批量 burst_size，批间隔 batch_gap_us = '+BATCH_GAP+'µs）',
+      chip:{side:'C', text:'Client: 发送侧，仅更新「在途量」估计'}, chip2:{side:'S', text:'Server: 接收侧'}},
+    {from:'S', to:'S', type:'self', label:'校验头 + crc32 → 随机写盘 → 标记位图'},
+
+    {sep:'⑤ 缺失裁决与重传（可靠性由接收方裁决提供）'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, chunks=[]} —— 空列表也必须下发'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, chunks=[…]} —— 报告自己尚未收到的块'},
+    {from:'C', to:'S', type:'udp', label:'重传缺失 chunk（重传优先级高于新数据）'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=request} —— '+REQUEST+' ms 未收到裁决时索要'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report} —— '+REPORT+' 内应答'},
+    {from:'S', to:'C', type:'tcp', label:'progress_update {received, total} —— 约 '+PROGRESS+'，供发送侧估算丢包率并驱动 AIMD'},
+
+    {sep:'⑥ 校验与提交（完成消息由接收方发布）'},
+    {from:'S', to:'S', type:'self', label:'位图全真 → VERIFY：文件级 Blake3 校验',
+      chip:{side:'S', text:'Server: TRANSFERRING → VERIFY'}},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {flags.bit1=复核轮, chunks=[]} —— 文件级失配时',
+      chip:{side:'S', text:'Server: VERIFY → TRANSFERRING（清空位图）'}},
+    {from:'C', to:'S', type:'udp', label:'全量重发（重新读取源文件，chunk #0 … #N）'},
+    {from:'S', to:'S', type:'self', label:'复核轮后重新校验文件级 Blake3（至多一次）'},
+    {from:'S', to:'S', type:'self', label:'COMMIT：原子重命名'},
+    {from:'S', to:'C', type:'tcp', label:'upload_complete {result, code, file_hash, asset_id}',
+      chip:{side:'C', text:'Client: TRANSFERRING → COMPLETED'}, chip2:{side:'S', text:'Server: COMMIT → COMPLETED'}},
+    {from:'C', to:'S', type:'tcp', label:'complete_ack —— 发送方持久化结果后回复'},
+
+    {sep:'⑥-2 摘要对帐（文件级失配时，恢复阶梯第 ① 级）'},
+    {from:'S', to:'C', type:'tcp', label:'reconcile_request {ranges=[根区间]}', chip:{side:'S', text:'接收方发起'}},
+    {from:'C', to:'S', type:'tcp', label:'reconcile_response {digests[]}', chip:{side:'C', text:'发送方返回该区间摘要'}},
+    {from:'S', to:'S', type:'self', label:'双方逐层二分比对（每层一次往返）'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, 可疑块} —— 复用既有裁决机制'},
+    {note:'根区间摘要一致 → 源文件与请求的 file_hash 不符 → session_abort(SOURCE_FILE_MISMATCH)；对帐后仍失配 → 进入复核轮'},
+
+    {sep:'⑦ 中断与恢复'},
+    {note:'路径一 · 断线重连（连接重建）：走 login 的恢复列表 + login_ack 的权威快照'},
+    {from:'C', to:'S', type:'conn', label:'TCP connect（重建）'},
+    {from:'C', to:'S', type:'tcp', label:'login {…, resume[]{session_id, next_chunk_id, missing_count}}'},
+    {from:'S', to:'C', type:'tcp', label:'login_ack {…, sessions[]{权威快照：位图 / 续传位置 / 数据面端口}}'},
+    {note:'路径二 · 暂停后恢复（连接存活）：走 resume_session / resume_ack'},
+    {from:'C', to:'S', type:'tcp', label:'session_pause → resume_session {session_id, …}',
+      chip:{side:'C', text:'双方: TRANSFERRING → PAUSED'}},
+    {from:'S', to:'C', type:'tcp', label:'resume_ack {result, next_chunk_id, missing_count, udp_port, connection_window}',
+      chip:{side:'S', text:'双方: PAUSED → TRANSFERRING'}}
+  ];
+
+  /* ---------- 下载方向：Server = 发送侧，Client = 接收侧 ---------- */
+  const DOWNLOAD = [
+    {sep:'① 控制连接建立（TCP 长连接）'},
+    {from:'C', to:'S', type:'conn', label:'TCP connect'},
+    {from:'C', to:'S', type:'tcp', label:'login {proto_major/minor/patch, device_id, token, resume[]}'},
+    {from:'S', to:'S', type:'self', label:'校验认证与协议版本（21 章）'},
+    {from:'S', to:'C', type:'tcp', label:'login_ack {result, code, proto_major/minor/patch, sessions[] 权威快照}'},
+
+    {sep:'①-2 心跳（长连接保活）'},
+    {from:'S', to:'C', type:'tcp', label:'ping {ts}'},
+    {from:'C', to:'S', type:'tcp', label:'pong {ts}'},
+    {note:'双向必须每 '+HB_PERIOD+' 一次；'+HB_TIMEOUT+' 无任何消息即关闭连接（见 06 章）'},
+
+    {sep:'② 会话建立'},
+    {from:'C', to:'S', type:'tcp', label:'download_start {size, chunk_size, file_hash, file_name}',
+      chip:{side:'C', text:'Client: INIT → NEGOTIATING'}, chip2:{side:'S', text:'Server: INIT → NEGOTIATING'}},
+    {from:'S', to:'C', type:'tcp', label:'download_accept {session_id, chunk_count, window, connection_window, chunk_size, udp_port, tcp_port}',
+      chip:{side:'C', text:'Client: NEGOTIATING → TRANSFERRING'}, chip2:{side:'S', text:'Server: NEGOTIATING → TRANSFERRING'}},
+
+    {sep:'③ UDP 可用性探测（数据面）'},
+    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {payload_len='+PROBE_LEN+', session_id}'},
+    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {payload_len='+PROBE_ACK_LEN+'}'},
+    {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
+    {note:'Server 以 PROBE 报文的源地址:端口作为该会话的对端数据面地址；udp_ready 只确认当前探测，不改变端口（见 14 章）'},
+
+    {sep:'④ 数据传输（数据面 UDP，方向与上传相反）'},
+    {from:'S', to:'C', type:'udp', label:'chunk #0 … #N（Server 批量发送，burst_size / batch_gap_us）',
+      chip:{side:'S', text:'Server: 发送侧'}, chip2:{side:'C', text:'Client: 接收侧'}},
+    {from:'C', to:'C', type:'self', label:'校验头 + crc32 → 随机写盘 → 标记位图'},
+
+    {sep:'⑤ 缺失裁决与重传（裁决方恒为接收方）'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report, chunks=[]} —— 空列表也必须下发'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report, chunks=[…]} —— Client 报告自己尚未收到的块'},
+    {from:'S', to:'C', type:'udp', label:'Server 重传缺失 chunk（优先级高于新数据）'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=request} —— '+REQUEST+' ms 未收到裁决时索要'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report} —— '+REPORT+' 内应答'},
+    {from:'C', to:'S', type:'tcp', label:'progress_update {received, total} —— 约 '+PROGRESS+'，由接收方 Client 发布'},
+
+    {sep:'⑥ 校验与提交（完成消息由接收方 Client 发布）'},
+    {from:'C', to:'C', type:'self', label:'位图全真 → VERIFY：文件级 Blake3 校验',
+      chip:{side:'C', text:'Client: TRANSFERRING → VERIFY'}},
+    {from:'C', to:'C', type:'self', label:'COMMIT：原子重命名'},
+    {from:'C', to:'S', type:'tcp', label:'download_complete {result, code, file_hash}',
+      chip:{side:'C', text:'Client: COMMIT → COMPLETED'}, chip2:{side:'S', text:'Server: TRANSFERRING → COMPLETED'}},
+    {from:'S', to:'C', type:'tcp', label:'complete_ack —— 发送方持久化结果后回复'},
+
+    {sep:'⑥-2 摘要对帐（文件级失配时，恢复阶梯第 ① 级）'},
+    {from:'C', to:'S', type:'tcp', label:'reconcile_request {ranges=[根区间]}', chip:{side:'C', text:'接收方发起'}},
+    {from:'S', to:'C', type:'tcp', label:'reconcile_response {digests[]}', chip:{side:'S', text:'发送方返回该区间摘要'}},
+    {from:'C', to:'C', type:'self', label:'双方逐层二分比对（每层一次往返）'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report, 可疑块} —— 复用既有裁决机制'},
+    {note:'根区间摘要一致 → 源文件与请求的 file_hash 不符 → session_abort(SOURCE_FILE_MISMATCH)；对帐后仍失配 → 进入复核轮'},
+
+    {sep:'⑦ 中断与恢复'},
+    {note:'路径一 · 断线重连：恢复提示由 Client（接收方）提供 —— Server 没有 Client 的位图'},
+    {from:'C', to:'S', type:'conn', label:'TCP connect（重建）'},
+    {from:'C', to:'S', type:'tcp', label:'login {…, resume[]{session_id, next_chunk_id, missing_count}}（必须携带）'},
+    {from:'S', to:'C', type:'tcp', label:'login_ack {…, sessions[]{权威快照：位图 / 续传位置 / 数据面端口}}'},
+    {note:'路径二 · 暂停后恢复：resume_session 恒由 Client 发起'},
+    {from:'C', to:'S', type:'tcp', label:'session_pause → resume_session {session_id, …}'},
+    {from:'S', to:'C', type:'tcp', label:'resume_ack {result, next_chunk_id, missing_count, udp_port, connection_window}',
+      chip:{side:'C', text:'双方: PAUSED → TRANSFERRING'}}
+  ];
+
+  /* ---------- SVG 渲染 ---------- */
+  const NS = 'http://www.w3.org/2000/svg';
+  function el(name, attrs, text){
+    const n = document.createElementNS(NS, name);
+    for(const k in attrs) n.setAttribute(k, attrs[k]);
+    if(text != null) n.textContent = text;
+    return n;
+  }
+
+  /* 估算文本宽度：中日韩字符按 13px，其余按 7px */
+  function textWidth(s){
+    let w = 0;
+    for(const ch of String(s)) w += (ch.charCodeAt(0) > 255 ? 13 : 7);
+    return w;
+  }
+  /* 按像素宽度折行 */
+  function wrap(text, maxWidth){
+    const s = String(text);
+    if(textWidth(s) <= maxWidth) return [s];
+    const lines = [];
+    let cur = '', curW = 0;
+    for(const ch of s){
+      const w = (ch.charCodeAt(0) > 255 ? 13 : 7);
+      if(curW + w > maxWidth && cur.length){
+        lines.push(cur); cur = ''; curW = 0;
+      }
+      cur += ch; curW += w;
+    }
+    if(cur) lines.push(cur);
+    return lines;
+  }
+
+  const ARROW = {
+    tcp:  {cls:'a-tcp',  head:'arrow-tcp'},
+    udp:  {cls:'a-udp',  head:'arrow-udp'},
+    conn: {cls:'a-conn', head:'arrow-conn'}
+  };
+
+  function render(seq, showStates, laneSubs){
+    const svg = document.getElementById('seq');
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+
+    const defs = el('defs');
+    ['tcp','udp','conn'].forEach(function(k){
+      const m = el('marker', {id:'mk-'+k, viewBox:'0 0 10 10', refX:'9', refY:'5',
+        markerWidth:'7', markerHeight:'7', orient:'auto-start-reverse'});
+      m.appendChild(el('path', {d:'M 0 0 L 10 5 L 0 10 z', fill:ARROW[k].head}));
+      defs.appendChild(m);
+    });
+    svg.appendChild(defs);
+
+    let y = 54;
+    const lanes = ['C','S'];
+
+    lanes.forEach(function(id){
+      const L = LANE[id];
+      svg.appendChild(el('rect', {x:L.x-118, y:14, width:236, height:44, rx:12,
+        fill:'#fff', stroke:'#d8dde6'}));
+      svg.appendChild(el('text', {x:L.x, y:36, 'text-anchor':'middle', class:'lane-title'}, L.label));
+      const sub = laneSubs[id];
+      if(sub) svg.appendChild(el('text', {x:L.x, y:52, 'text-anchor':'middle', class:'lane-sub'}, sub));
+    });
+
+    seq.forEach(function(it){
+      if(it.sep){
+        y += 26;
+        svg.appendChild(el('line', {x1:40, y1:y, x2:W-40, y2:y, stroke:'#e2e6ee', 'stroke-width':1}));
+        svg.appendChild(el('text', {x:40, y:y-8, class:'sep-t'}, it.sep));
+        y += 22;
+        return;
+      }
+
+      if(it.note){
+        const lines = wrap(it.note, W - 200);
+        const h = 14 + lines.length * 19;
+        svg.appendChild(el('rect', {x:80, y:y, width:W-160, height:h, rx:8, class:'bg-note'}));
+        lines.forEach(function(ln, i){
+          svg.appendChild(el('text', {x:96, y:y+22+i*19, class:'note-t'}, ln));
+        });
+        y += h + 18;
+        return;
+      }
+
+      const L1 = LANE[it.from], L2 = LANE[it.to];
+      const lineY = y;
+
+      let chipH = 0;
+      const isSelf = (it.from === it.to);
+      const mid = isSelf ? L1.x : (L1.x + L2.x)/2;
+
+      if(it.from === it.to){
+        const x = L1.x, w = 34, r = 11;
+        const d = `M ${x},${lineY} h ${w-12} a ${r},${r} 0 0 1 ${r},${r} v ${24} a ${r},${r} 0 0 1 ${-r},${r} h ${-(w-12)}`;
+        svg.appendChild(el('path', {d:d, class:'a-tcp', 'marker-end':'url(#mk-tcp)'}));
+        const tx = x + w + 18;
+        const lines = wrap(it.label, 420);
+        lines.forEach(function(ln, i){
+          svg.appendChild(el('text', {x:tx, y:lineY+16+i*17, 'text-anchor':'start', class:'msg-t'}, ln));
+        });
+        if(showStates && it.chip){
+          drawChip(svg, it.chip, lineY + 56, x);
+          chipH = 24;
+          if(it.chip2){ drawChip(svg, it.chip2, lineY + 80, x); chipH = 48; }
+        }
+        y += 46 + chipH + 14;
+        return;
+      }
+
+      const a = ARROW[it.type] || ARROW.tcp;
+      svg.appendChild(el('line', {x1:L1.x, y1:lineY, x2:L2.x, y2:lineY, class:a.cls,
+        'marker-end':'url(#mk-'+(it.type||'tcp')+')'}));
+      const lines = wrap(it.label, 540);
+      if(showStates && it.chip){
+        drawChip(svg, it.chip, lineY + 16, mid);
+        chipH = 22;
+        if(it.chip2){ drawChip(svg, it.chip2, lineY + 40, mid); chipH = 46; }
+      }
+      lines.forEach(function(ln, i){
+        const ty = lineY - 12 - (lines.length - 1 - i) * 16;
+        svg.appendChild(el('text', {x:mid, y:ty, 'text-anchor':'middle', class:'msg-t'}, ln));
+      });
+      y += 34 + lines.length * 4 + chipH + 14;
+    });
+
+    const bottom = y + 10;
+    lanes.forEach(function(id){
+      const L = LANE[id];
+      svg.appendChild(el('line', {x1:L.x, y1:66, x2:L.x, y2:bottom, class:'lifeline'}));
+    });
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + bottom);
+  }
+
+  function drawChip(svg, chip, y, centerX){
+    const text = chip.text;
+    const approx = textWidth(text) + 26;
+    const x = centerX - approx/2;
+    const g = el('g');
+    g.appendChild(el('rect', {x:x, y:y, width:approx, height:19, rx:9.5, class:'bg-chip'}));
+    g.appendChild(el('text', {x:x+13, y:y+13.5, class:'chip-t'}, text));
+    svg.appendChild(g);
+  }
+
+  const SUBS = {
+    upload:   {C:'发送侧 (upload)', S:'接收侧 (upload)'},
+    download: {C:'接收侧 (download)', S:'发送侧 (download)'}
+  };
+
+  let dir = 'upload';
+  function paint(){
+    const showStates = document.getElementById('states').checked;
+    const seq = (dir === 'upload' ? UPLOAD : DOWNLOAD);
+    render(seq, showStates, SUBS[dir]);
+  }
+
+  function setDir(d){
+    dir = (d === 'download') ? 'download' : 'upload';
+    Array.prototype.forEach.call(document.querySelectorAll('#dir button'), function(b){
+      b.classList.toggle('active', b.dataset.dir === dir);
+    });
+    paint();
+  }
+
+  document.getElementById('dir').addEventListener('click', function(e){
+    const b = e.target.closest('button');
+    if(!b) return;
+    setDir(b.dataset.dir);
+  });
+  document.getElementById('states').addEventListener('change', paint);
+
+  const params = new URLSearchParams(location.search);
+  if(params.get('states') === '0') document.getElementById('states').checked = false;
+  setDir(params.get('dir') || 'upload');
+})();
+</script>

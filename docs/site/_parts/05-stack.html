@@ -1,0 +1,15 @@
+<div class="diagram">
+  <div class="fields" style="--cols:1">
+    <div class="cell ruler-title">应用层 → 控制层（TCP） → 数据层（UDP/TCP） → 网络层（LAN）</div>
+    <div class="cell wide f-body">应用层</div>
+    <div class="cell wide f-frame">↓ 控制层（TCP：状态机 / 重传裁决 / 会话管理）</div>
+    <div class="cell wide f-type">↓ 数据层（UDP / TCP：chunk 传输与兜底）</div>
+    <div class="cell wide f-chunk">↓ 网络层（LAN）</div>
+  </div>
+</div>
+<div class="caption">
+  分层顺序与各层括注取自本章源文「分层结构」。数据层与控制层<strong>各自独立</strong>：
+  一条控制连接承载 N 个会话时，数据面端口<strong>可以</strong>被多个会话共用 ——
+  UDP 包头中的 <code>session_id</code> 足以区分（见
+  <a href="08-packet-format.html">08 章</a>）。
+</div>

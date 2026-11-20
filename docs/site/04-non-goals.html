@@ -18,70 +18,47 @@
 
   <h1>04 非目标（Non-Goals）</h1>
 
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
-    <strong>本章要点</strong>：本章明确<strong>本协议不做</strong>的事情。
-    实现超出本章范围的能力前，应先确认它不会与规范中的<strong>规范性约束</strong>冲突。
-  </div>
+  <strong>本章要点</strong>：本章列出本协议<strong>不做</strong>的事情（范围边界），与
+  <a href="03-design-goals.html">03 章「设计目标」</a>互补。
+  两条最容易被误解的边界：<strong>拥塞调节仅以发送端本地策略（AIMD）作用于发送节奏，不进入协议层</strong>；
+  连接级在途上限 <code>connection_window</code> <strong>不是</strong>拥塞控制 ——
+  它只是<strong>资源上界</strong>，与丢包率、带宽探测无关。
+  端到端加密<strong>不由协议内建</strong>，由实现层提供，且<strong>不得改变 chunk 与偏移的映射</strong>。
+  实现超出本章范围的能力前，应先确认它<strong>不会与规范中的规范性约束冲突</strong>。
+</div>
 
-  <h2>非目标清单</h2>
-  <div class="card">
-    <table>
-      <thead><tr><th>非目标</th><th>说明</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><strong>公网穿透与互联网规模传输</strong></td>
-          <td>协议面向<strong>可信局域网</strong>；不提供 NAT 打洞、relay 或公网可达性方案</td>
-        </tr>
-        <tr>
-          <td><strong>数据面的复杂拥塞控制与逐包 ACK</strong></td>
-          <td>拥塞调节仅以<strong>发送端本地策略</strong>（AIMD）作用于发送节奏，<strong>不进入协议层</strong></td>
-        </tr>
-        <tr>
-          <td><strong>多租户不可信网络</strong></td>
-          <td>安全模型面向局域网内的可信设备（见 20、21 章）</td>
-        </tr>
-        <tr>
-          <td><strong>移动端长期后台无 UI 传输</strong></td>
-          <td>移动端后台限制见 16 章</td>
-        </tr>
-        <tr>
-          <td><strong>端到端加密作为协议内建能力</strong></td>
-          <td>由<strong>实现层</strong>提供，且<strong>不得改变 chunk 与偏移的映射</strong></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
 
-  <h2>设计目标 ↔ 非目标 对照</h2>
-  <div class="cols">
-    <section>
-      <h3 style="margin-top:0">设计目标（03 章）</h3>
-      <ul class="spec">
-        <li>高效大文件同步</li>
-        <li>可恢复</li>
-        <li>乱序写盘</li>
-        <li>重传裁决清晰</li>
-        <li>内存与文件大小解耦</li>
-        <li>分层清晰</li>
-        <li>发送端策略简化与稳定</li>
-      </ul>
-    </section>
-    <section>
-      <h3 style="margin-top:0">非目标（本章）</h3>
-      <ul class="spec">
-        <li>公网穿透与互联网规模传输</li>
-        <li>数据面的复杂拥塞控制与逐包 ACK</li>
-        <li>多租户不可信网络</li>
-        <li>移动端长期后台无 UI 传输</li>
-        <li>端到端加密作为协议内建能力</li>
-      </ul>
-    </section>
-  </div>
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
+  <ul>
+<li>公网穿透与互联网规模传输</li>
+<li>数据面的复杂拥塞控制与逐包 ACK</li>
+<li>拥塞调节仅以<strong>发送端本地策略</strong>（AIMD）作用于发送节奏，不进入协议层</li>
+<li>连接级在途上限 <code>connection_window</code> <strong>不是</strong>拥塞控制：
+    它只是<strong>资源上界</strong>，与丢包率、带宽探测无关</li>
+<li>多租户不可信网络</li>
+<li>移动端长期后台无 UI 传输</li>
+<li>端到端加密作为协议内建能力（由实现层提供，且不得改变 chunk 与偏移的映射）</li>
+</ul>
 
+  <!-- ============ 导读补充（源文未在本章展开的交叉引用） ============ -->
   <div class="note">
-    <strong>为什么 AIMD 不进入协议层</strong>：拥塞调节只作用于<strong>发送节奏</strong>，
-    不改变协议语义 —— 两端实现<strong>可以</strong>采用完全不同的策略，协议行为<strong>必须</strong>保持一致（见 11 章）。
-  </div>
+  <strong>导读（本章未展开的交叉引用）</strong>：本章只列边界，以下展开见其他章节 ——
+  协议面向<strong>可信局域网</strong>，<strong>不提供</strong> NAT 打洞、relay 或公网可达性方案
+  （见 <a href="15-nat-and-network-limits.html">15 章</a>、<a href="20-security-model.html">20 章</a>）；
+  安全模型面向局域网内的<strong>可信设备</strong>（见
+  <a href="20-security-model.html">20 章</a>、<a href="21-acl-and-auth.html">21 章</a>）；
+  移动端<strong>长期后台无 UI 传输</strong>不在本章范围内，后台限制见
+  <a href="16-mobile-background-limits.html">16 章</a>。
+</div>
+
+<div class="note blue">
+  <strong>为什么 AIMD 不进入协议层</strong>：拥塞调节只作用于<strong>发送节奏</strong>，
+  不改变协议语义 —— 两端实现<strong>可以</strong>采用完全不同的策略，协议行为<strong>必须</strong>保持一致
+  （见 <a href="11-flow-control.html">11 章「动态流控：AIMD（推荐性）」</a>）。
+</div>
+
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/04-non-goals.md">docs/spec/04-non-goals.md</a></footer>
 </div>

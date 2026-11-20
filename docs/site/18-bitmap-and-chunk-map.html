@@ -13,7 +13,6 @@
 <body>
 <div class="wrap">
 
-  <!-- ========== 顶部导航：目录 / 上一章 / 下一章 ========== -->
   <nav class="topnav">
     <a href="index.html">目录</a>
     <a href="17-memory-and-disk-model.html">◀ 17 存储与内存</a>
@@ -21,255 +20,152 @@
     <a href="../spec/18-bitmap-and-chunk-map.md">规范源文</a>
   </nav>
 
-  <!-- ========== 标题 ========== -->
   <h1>18 位图与块图（Bitmap &amp; Chunk Map）</h1>
 
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
-    <strong>本章要点</strong>：接收方的位图<strong>必须</strong>提供判定 / 枚举 / 计数 / 持久化四项能力；
-    位图的<strong>内部组织方式</strong>（位图字长、原子类型、内存布局）由实现决定，<strong>不构成</strong>互操作要求，
-    但位图<strong>必须</strong>支持按 <code>chunk_id</code> 升序枚举。
+    <strong>本章要点</strong>：接收方的位图<strong>必须</strong>提供<strong>判定 / 枚举 / 计数 / 持久化</strong>四项能力；
+    位图的<strong>内部组织方式</strong>（字长、原子类型、内存布局）由实现决定，<strong>不构成</strong>互操作要求，
+    但位图<strong>必须</strong>支持按 <code>chunk_id</code> <strong>升序</strong>枚举。
+    块<strong>必须</strong>在数据写入临时文件<strong>之后</strong>才标记为「已收到」，校验失败的块<strong>必须</strong>保持「未收到」。
     单条 <code>missing_chunks</code> 载荷中的 chunk 条目<strong>不得超过 4096 条</strong>，
-    接收方<strong>必须</strong>按位图顺序（<code>chunk_id</code> 升序）分批下发缺失列表。
+    接收方<strong>必须</strong>按位图顺序分批下发缺失列表。
   </div>
 
-  <!-- ========== 位图示意 ========== -->
+
+  <!-- ============ 位图示意（搬自原页面） ============ -->
   <h2>位图示意</h2>
 
-  <div class="diagram">
-    <div class="fields" style="--cols:12">
-      <div class="cell wide ruler-title">位图位格：每个 chunk_id 对应一个位格（示意，chunk_count = 10）</div>
+<div class="diagram">
+  <div class="fields" style="--cols:12">
+    <div class="cell wide ruler-title">位图位格：每个 chunk_id 对应一个位格（示意，chunk_count = 10）</div>
 
-      <div class="cell bitnum bm-bit">0</div>
-      <div class="cell bitnum bm-bit">1</div>
-      <div class="cell bitnum bm-bit">2</div>
-      <div class="cell bitnum bm-bit">3</div>
-      <div class="cell bitnum bm-bit">4</div>
-      <div class="cell bitnum bm-bit">5</div>
-      <div class="cell bitnum bm-bit">6</div>
-      <div class="cell bitnum bm-bit">7</div>
-      <div class="cell bitnum bm-bit">8</div>
-      <div class="cell bitnum bm-bit">9</div>
-      <div class="cell bitnum bm-bit">10</div>
-      <div class="cell bitnum bm-bit">11</div>
+    <div class="cell bitnum bm-bit">0</div>
+    <div class="cell bitnum bm-bit">1</div>
+    <div class="cell bitnum bm-bit">2</div>
+    <div class="cell bitnum bm-bit">3</div>
+    <div class="cell bitnum bm-bit">4</div>
+    <div class="cell bitnum bm-bit">5</div>
+    <div class="cell bitnum bm-bit">6</div>
+    <div class="cell bitnum bm-bit">7</div>
+    <div class="cell bitnum bm-bit">8</div>
+    <div class="cell bitnum bm-bit">9</div>
+    <div class="cell bitnum bm-bit">10</div>
+    <div class="cell bitnum bm-bit">11</div>
 
-      <div class="cell f-chunk bm-state">已收</div>
-      <div class="cell f-chunk bm-state">已收</div>
-      <div class="cell f-chunk bm-state">已收</div>
-      <div class="cell f-chunk bm-state">已收</div>
-      <div class="cell f-chunk bm-state">已收</div>
-      <div class="cell f-len bm-state">缺失</div>
-      <div class="cell f-chunk bm-state">已收</div>
-      <div class="cell f-len bm-state">缺失</div>
-      <div class="cell f-chunk bm-state">已收</div>
-      <div class="cell f-chunk bm-state">已收</div>
-      <div class="cell f-muted bm-state">空洞</div>
-      <div class="cell f-muted bm-state">空洞</div>
-    </div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-len bm-state">缺失</div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-len bm-state">缺失</div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-muted bm-state">空洞</div>
+    <div class="cell f-muted bm-state">空洞</div>
   </div>
+</div>
 
-  <div class="legend">
-    <span><i class="swatch" style="background:var(--b-chunk)"></i>已收（该 chunk_id 已接收）</span>
-    <span><i class="swatch" style="background:var(--b-len)"></i>缺失（尚未收到，进入缺失列表）</span>
-    <span><i class="swatch" style="background:#f7f8fa"></i>空洞（超出 <code>chunk_count</code> 的槽位，不属于文件）</span>
-  </div>
+<div class="legend">
+  <span><i class="swatch" style="background:var(--b-chunk)"></i>已收（该 chunk_id 已接收）</span>
+  <span><i class="swatch" style="background:var(--b-len)"></i>缺失（尚未收到，进入缺失列表）</span>
+  <span><i class="swatch" style="background:#f7f8fa"></i>空洞（超出 <code>chunk_count</code> 的槽位，不属于文件）</span>
+</div>
 
-  <div class="caption">
-    上排为 chunk_id，下排为该 chunk_id 在位图中的状态。<br>
-    本例中按 <code>chunk_id</code> 升序枚举的<strong>第一个缺失块 = chunk_id 5</strong>，
-    即缺失列表的<strong>起点</strong>，也就是<strong>续传的起点</strong>：
-    缺失列表必须按升序分批下发，发送方据此补发缺失块（见本章「缺失列表的下发上限」）。<br>
-    空洞位格（<code>chunk_id ≥ chunk_count</code>）不属于文件内容，不参与缺失计数。
-  </div>
+<div class="caption">
+  上排为 chunk_id，下排为该 chunk_id 在位图中的状态。<br>
+  本例中按 <code>chunk_id</code> 升序枚举的<strong>第一个缺失块 = chunk_id 5</strong>，
+  即缺失列表的<strong>起点</strong>：缺失列表必须按升序分批下发，发送方据此补发缺失块。<br>
+  空洞位格（<code>chunk_id ≥ chunk_count</code>）不属于文件内容，不参与缺失计数。
+</div>
 
-  <div class="note">
-    <strong>幂等性</strong>：重复标记同一 <code>chunk_id</code> <strong>必须</strong>是幂等的
-    （第二次标记不改变状态）；因此重放保护在 <code>session_id</code> 校验与越界拒收之外，
-    由位图幂等性兜底（重复 chunk 静默丢弃，见 20 章）。
-  </div>
 
-  <!-- ========== 位图能力 ========== -->
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
   <h2>位图的协议能力（规范性）</h2>
+<p>接收方的位图<strong>必须</strong>提供以下能力：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>能力</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>判定</strong></td>
+<td>能判定任意 <code>chunk_id</code> 是否已接收</td>
+</tr>
+<tr>
+<td><strong>枚举</strong></td>
+<td>能枚举当前<strong>尚未收到</strong>的 <code>chunk_id</code> 全集（按升序）</td>
+</tr>
+<tr>
+<td><strong>计数</strong></td>
+<td>能给出已接收 / 未接收的 chunk 数量</td>
+</tr>
+<tr>
+<td><strong>持久化</strong></td>
+<td>能写入持久化副本并从该副本恢复（见 09 章）</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>重复标记同一 <code>chunk_id</code> <strong>必须</strong>是幂等的（第二次标记不改变状态）。</li>
+<li>块<strong>必须</strong>在数据写入临时文件<strong>之后</strong>才被标记为「已收到」；
+  校验失败（<code>crc32</code>）的块<strong>必须</strong>保持「未收到」状态
+  （见 12 章「缺失块的定点补发」）。</li>
+<li><strong>复核轮（规范性）</strong>：复核轮启动时接收方<strong>必须</strong>把位图<strong>全部</strong>重置为「未收到」，
+  并<strong>必须</strong>重新计数（见 12 章）。</li>
+<li>位图的<strong>内部组织方式</strong>（位图字长、原子类型、内存布局）由实现决定，
+  <strong>不构成</strong>互操作要求。</li>
+<li>位图<strong>必须</strong>支持按 <code>chunk_id</code> 升序枚举 —— 缺失列表的分批下发依赖升序
+  （见本章「缺失列表的下发上限」）。</li>
+</ul>
+<h2>刷盘策略（推荐性）</h2>
+<ul>
+<li>建议每 1s 或每 100 chunk 刷盘一次</li>
+<li>避免每 chunk 同步刷盘</li>
+</ul>
+<h3>缺失计算优化</h3>
+<ul>
+<li>以 u64 为单位批量跳过全 1 的块</li>
+<li>只有当 word != u64::MAX 时才逐位检查</li>
+</ul>
+<h2>缺失列表的下发上限（规范性）</h2>
+<ul>
+<li>单条 <code>missing_chunks</code> 载荷中的 chunk 条目<strong>不得超过 4096 条</strong>
+  （受控制通道 <code>max_frame_len</code> = 1 MiB 的约束，见 06 章「帧格式」）。
+  二进制下 <code>chunks</code> 为 <code>chunk_list</code>（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组），
+  4096 条 = 4096 × 4 = <strong>16 KiB</strong>，仍远小于 <code>max_frame_len</code> = 1 MiB。</li>
+<li>接收方<strong>必须</strong>按位图顺序（chunk_id 升序）<strong>分批下发</strong>缺失列表：
+  一批被补齐后，下一批在随后的裁决周期中下发。</li>
+<li>载荷中的 <code>missing_count</code> 字段给出位图中<strong>尚未收到</strong>的 chunk <strong>精确总数</strong>，
+  用于发送方判断是否还有后续批次<strong>并推算在途量</strong>（见 11 章判据第 3 条）；
+  对端<strong>未携带</strong>该字段时（<code>flags.bit0 = 0</code>，此时该字段<strong>必须</strong>为 <code>0</code>），
+  发送方<strong>必须</strong>按「可能还有后续批次」处理，
+  并采用 11 章判据第 3 条规定的保守退化策略。</li>
+<li>缺口规模估算：100 GB 文件、<code>chunk_size = 1200</code> 约 8.9×10⁷ 块，
+  即使缺失 1% 也达 8.9×10⁵ 条，<strong>必须</strong>依赖上述分批机制。</li>
+</ul>
 
-  <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>能力</th>
-          <th>说明</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="c-chunk">判定</td>
-          <td>能判定任意 <code>chunk_id</code> 是否已接收</td>
-        </tr>
-        <tr>
-          <td class="c-chunk">枚举</td>
-          <td>能枚举当前<strong>尚未收到</strong>的 <code>chunk_id</code> 全集（按升序）</td>
-        </tr>
-        <tr>
-          <td class="c-chunk">计数</td>
-          <td>能给出已接收 / 未接收的 chunk 数量</td>
-        </tr>
-        <tr>
-          <td class="c-chunk">持久化</td>
-          <td>能写入持久化副本并从该副本恢复（见 09 章）</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <ul class="spec">
-    <li>重复标记同一 <code>chunk_id</code> <strong>必须</strong>是幂等的（第二次标记不改变状态）。</li>
-    <li>位图的<strong>内部组织方式</strong>（位图字长、原子类型、内存布局）由实现决定，<strong>不构成</strong>互操作要求。</li>
-    <li>位图<strong>必须</strong>支持按 <code>chunk_id</code> 升序枚举 —— 缺失列表的分批下发依赖升序
-      （见本章「缺失列表的下发上限」）。</li>
-  </ul>
-
-  <!-- ========== 块图数据结构 ========== -->
-  <h2>块图（Chunk Map）数据结构</h2>
-
-  <div class="diagram">
-    <div class="fields" style="--cols:12">
-      <div class="cell wide ruler-title">missing_chunks 载荷布局（缺失块列表 / 块图的对外表达）</div>
-
-      <div class="cell span3 f-type">mode (enum8)<br>0 = report / 1 = request</div>
-      <div class="cell span3 f-flags">flags (u8)<br>bit0 = missing_count 有效</div>
-      <div class="cell span3 f-len">missing_count (u32)<br>尚未收到的 chunk 精确总数</div>
-      <div class="cell span3 f-payload">chunks (chunk_list)<br>u32 条数 + u32 chunk_id 数组</div>
-    </div>
-  </div>
-
-  <div class="legend">
-    <span><i class="swatch" style="background:var(--b-type)"></i>mode</span>
-    <span><i class="swatch" style="background:var(--b-flags)"></i>flags</span>
-    <span><i class="swatch" style="background:var(--b-len)"></i>missing_count</span>
-    <span><i class="swatch" style="background:var(--b-payload)"></i>chunks</span>
-  </div>
-
-  <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>字段</th>
-          <th>类型</th>
-          <th>语义与约束</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="c-type">mode</td>
-          <td class="mono">enum8</td>
-          <td><code>0</code> = report（接收方下发缺失报告）、<code>1</code> = request（发送方索要缺失列表）</td>
-        </tr>
-        <tr>
-          <td class="c-payload">chunks</td>
-          <td class="mono">chunk_list</td>
-          <td><code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组；二进制下为升序排列；
-            单条载荷中的 chunk 条目<strong>不得超过 4096 条</strong></td>
-        </tr>
-        <tr>
-          <td class="c-len">missing_count</td>
-          <td class="mono">u32</td>
-          <td>位图中<strong>尚未收到</strong>的 chunk <strong>精确总数</strong>；
-            对端<strong>未携带</strong>该字段时（<code>flags.bit0 = 0</code>）该字段<strong>必须</strong>为 <code>0</code></td>
-        </tr>
-        <tr>
-          <td class="c-flags">flags</td>
-          <td class="mono">u8</td>
-          <td><code>bit0</code> = <code>missing_count</code> 有效；未携带该字段时<strong>必须</strong>置 <code>0</code></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <ul class="spec">
-    <li>载荷中的 <code>missing_count</code> 字段给出位图中<strong>尚未收到</strong>的 chunk <strong>精确总数</strong>，
-      用于发送方判断是否还有后续批次<strong>并推算在途量</strong>（见 11 章判据第 3 条）。</li>
-    <li>对端<strong>未携带</strong>该字段时（<code>flags.bit0 = 0</code>，此时该字段<strong>必须</strong>为 <code>0</code>），
-      发送方<strong>必须</strong>按「可能还有后续批次」处理，
-      并采用 11 章判据第 3 条规定的保守退化策略。</li>
-  </ul>
-
-  <!-- ========== 刷盘策略 ========== -->
-  <h2>刷盘策略（推荐性）</h2>
-
-  <ul class="spec">
-    <li>建议每 1s 或每 100 chunk 刷盘一次。</li>
-    <li>避免每 chunk 同步刷盘。</li>
-  </ul>
-
-  <h3>缺失计算优化</h3>
-
-  <ul class="spec">
-    <li>以 u64 为单位批量跳过全 1 的块。</li>
-    <li>只有当 <code>word != u64::MAX</code> 时才逐位检查。</li>
-  </ul>
-
+  <!-- ============ 导读提示：幂等性与常见陷阱（原页面导读，不与源文冲突） ============ -->
   <div class="note">
-    位图的<strong>内部组织方式</strong>由实现决定，<strong>不构成</strong>互操作要求；
-    上述刷盘与扫描策略属于<strong>推荐性</strong>内容，协议只约束位图的对外语义
-    （判定 / 升序枚举 / 计数 / 持久化）。
-  </div>
+  <strong>幂等性</strong>：重复标记同一 <code>chunk_id</code> <strong>必须</strong>是幂等的
+  （第二次标记不改变状态）；因此重放保护在 <code>session_id</code> 校验与越界拒收之外，
+  由位图幂等性兜底（重复 chunk 静默丢弃，见 20 章）。<br>
+  <strong>复核轮</strong>：复核轮启动时接收方<strong>必须</strong>把位图<strong>全部</strong>重置为「未收到」，
+  并<strong>必须</strong>重新计数（见 12 章）。
+</div>
 
-  <!-- ========== 下发上限 ========== -->
-  <h2>缺失列表的下发上限（规范性）</h2>
+<div class="note warn">
+  <strong>常见实现陷阱</strong>：把缺失列表一次性塞进单条载荷（超过 4096 条）；
+  下发顺序不按 <code>chunk_id</code> 升序；用「缺口条数」而不是位图的精确总数填写 <code>missing_count</code>；
+  在对端未携带 <code>missing_count</code> 时仍按「没有后续批次」处理。
+  单条载荷受控制通道 <code>max_frame_len</code>（1 MiB）约束，必须走分批机制。
+</div>
 
-  <ul class="spec">
-    <li>单条 <code>missing_chunks</code> 载荷中的 chunk 条目<strong>不得超过 4096 条</strong>
-      （受控制通道 <code>max_frame_len</code> = 1 MiB 的约束，见 06 章「帧格式」）。
-      二进制下 <code>chunks</code> 为 <code>chunk_list</code>（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组），
-      4096 条 = 4096 × 4 = <strong>16 KiB</strong>，仍远小于 <code>max_frame_len</code> = 1 MiB。</li>
-    <li>接收方<strong>必须</strong>按位图顺序（<code>chunk_id</code> 升序）<strong>分批下发</strong>缺失列表：
-      一批被补齐后，下一批在随后的裁决周期中下发。</li>
-    <li>载荷中的 <code>missing_count</code> 字段给出位图中<strong>尚未收到</strong>的 chunk <strong>精确总数</strong>，
-      用于发送方判断是否还有后续批次<strong>并推算在途量</strong>（见 11 章判据第 3 条）；
-      对端<strong>未携带</strong>该字段时（<code>flags.bit0 = 0</code>，此时该字段<strong>必须</strong>为 <code>0</code>），
-      发送方<strong>必须</strong>按「可能还有后续批次」处理，
-      并采用 11 章判据第 3 条规定的保守退化策略。</li>
-    <li>缺口规模估算：100 GB 文件、<code>chunk_size = 1200</code> 约 8.9×10⁷ 块，
-      即使缺失 1% 也达 8.9×10⁵ 条，<strong>必须</strong>依赖上述分批机制。</li>
-  </ul>
-
-  <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>限制项</th>
-          <th>取值</th>
-          <th>依据</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="c-payload">单条 <code>missing_chunks</code> 的 chunk 条目上限</td>
-          <td class="mono">4096</td>
-          <td><strong>规范性</strong>：<strong>不得</strong>超过 4096 条</td>
-        </tr>
-        <tr>
-          <td class="c-payload">4096 条的二进制大小</td>
-          <td class="mono">16 KiB</td>
-          <td>4096 × 4 字节（<code>u32</code> <code>chunk_id</code> 数组）</td>
-        </tr>
-        <tr>
-          <td class="c-frame">控制通道 <code>max_frame_len</code></td>
-          <td class="mono">1 MiB</td>
-          <td>见 06 章「帧格式」，16 KiB 远小于该上限</td>
-        </tr>
-        <tr>
-          <td class="c-len">下发顺序</td>
-          <td class="mono">chunk_id 升序</td>
-          <td>接收方<strong>必须</strong>按位图顺序分批下发</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="note warn">
-    <strong>常见实现陷阱</strong>：把缺失列表一次性塞进单条载荷（超过 4096 条）；
-    下发顺序不按 <code>chunk_id</code> 升序；用「缺口条数」而不是位图的精确总数填写 <code>missing_count</code>；
-    在对端未携带 <code>missing_count</code> 时仍按「没有后续批次」处理。
-  </div>
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/18-bitmap-and-chunk-map.md">docs/spec/18-bitmap-and-chunk-map.md</a></footer>
 </div>

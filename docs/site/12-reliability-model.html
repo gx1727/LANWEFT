@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>12 可靠性模型（Reliability Model） — LANWEFT</title>
+<title>12 可靠性模型（Reliability） — LANWEFT</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,358 +16,434 @@
     <a href="../spec/12-reliability-model.md">规范源文</a>
   </nav>
 
-  <h1>12 可靠性模型（Reliability Model）</h1>
+  <h1>12 可靠性模型（Reliability）</h1>
 
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
-    <strong>本章要点</strong>：可靠性由「<strong>裁决</strong> + 完整性校验 + 重传 + 恢复 + 提交」五层构成。
-    <strong>裁决是唯一的推进依据（规范性）</strong>：接收方<strong>必须</strong>至少每 <strong>50 ms</strong> 下发一次
-    <code>missing_chunks</code>（<code>mode=report</code>），<strong>包括缺失列表为空的情况</strong>。
-    看门狗与保底轮询使用<strong>同一个 1000 ms 索要规则</strong>。控制连接断开<strong>不得</strong>直接置为
-    <code>ABORTED</code>，只有 60 秒会话活动超时才终止会话。
+    <strong>本章要点</strong>：可靠性由「<strong>裁决 + 完整性校验 + 重传 + 中断恢复 + 完成与提交</strong>」五层构成。
+    接收方<strong>必须</strong>至少每 50 ms 下发一次 <code>missing_chunks</code>
+    （<code>mode=report</code>），<strong>包括缺失列表为空的情况</strong>；
+    发送方每 1000 ms 至少索要一次裁决 —— 看门狗与保底轮询使用<strong>同一个</strong>索要规则。
+    控制连接断开<strong>不得</strong>直接置为 <code>ABORTED</code>；文件级失配<strong>必须</strong>走恢复阶梯
+    <strong>① 摘要对帐 → ② 复核轮 → ③ 中止</strong>，<strong>每一级至多一次</strong>。
   </div>
 
-  <!-- ============ 分层保障 ============ -->
+
+  <!-- ============ 分层保障（搬自原页面） ============ -->
   <h2>分层保障</h2>
-  <div class="diagram">
-    <div class="fields">
-      <div class="cell ruler-title">可靠性分层（自下而上）</div>
 
-      <div class="cell wide f-session">① 缺失裁决与位图 · 控制面统计缺失并下发 <code>missing_chunks</code>(<code>mode=report</code>)；接收端乱序写盘与位图</div>
-      <div class="cell wide f-crc">② 完整性校验 · <code>crc32</code> 包级 + 文件级 Blake3</div>
-      <div class="cell wide f-len">③ 重传 · UDP 不即时重传；聚合缺失后统一下发；重传优先级高于新数据</div>
-      <div class="cell wide f-flags">④ 中断与恢复 · 不回滚已写入；恢复后加载位图并补传缺失</div>
-      <div class="cell wide f-chunk">⑤ 完成与提交 · bitmap 全真 → 校验 hash → 原子重命名 → 发布完成消息</div>
-    </div>
+<div class="diagram">
+  <div class="fields">
+    <div class="cell ruler-title">可靠性分层（自下而上）</div>
+
+    <div class="cell wide f-session">① 缺失裁决与位图 · 控制面统计缺失并下发 <code>missing_chunks</code>（<code>mode=report</code>）；接收端乱序写盘与位图</div>
+    <div class="cell wide f-crc">② 完整性校验 · <code>crc32</code> 包级 + 文件级 Blake3</div>
+    <div class="cell wide f-len">③ 重传 · UDP 不即时重传；聚合缺失后统一下发；重传优先级高于新数据</div>
+    <div class="cell wide f-flags">④ 中断与恢复 · 不回滚已写入；恢复后加载位图并补传缺失</div>
+    <div class="cell wide f-chunk">⑤ 完成与提交 · bitmap 全真 → 校验 hash → 原子重命名 → 发布完成消息</div>
   </div>
+</div>
 
-  <div class="note">
-    <strong>裁决是唯一的推进依据（规范性）</strong>：接收方<strong>必须</strong>至少每 50 ms 下发一次
-    <code>missing_chunks</code>（<code>mode=report</code>），<strong>包括缺失列表为空的情况</strong>；
-    发送方据此推进窗口。详见 11 章「窗口推进判据」。
+<div class="caption">
+  自下而上：裁决与位图是推进依据，包级 / 文件级校验负责完整性，重传与恢复负责补齐，最后才进入提交。
+</div>
+
+
+  <!-- ============ 恢复阶梯（由源文「恢复阶梯」表绘成） ============ -->
+  <h2>恢复阶梯：文件级失配后的三级恢复</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:3">
+    <div class="cell wide ruler-title">文件级失配 → 每一级至多一次，逐级下降</div>
+
+    <div class="cell f-digest">① 摘要对帐</div>
+    <div class="cell f-len">② 复核轮</div>
+    <div class="cell f-crc">③ 中止</div>
+
+    <div class="cell f-digest">逐区间比对摘要，<strong>零内容流量</strong>地定位差异区间 → 清零可疑块位图 → 复用既有缺失裁决定点补发<br><span class="mono">网络代价极小（每次比较只传摘要）</span></div>
+    <div class="cell f-len">重新读取源文件并<strong>全量重发</strong><br><span class="mono">对帐无法定位或超限时启用；代价为一个完整文件</span></div>
+    <div class="cell f-crc"><code>session_abort</code><br><span class="mono">reason = <code>FILE_HASH_MISMATCH</code></span></div>
+
+    <div class="cell wide f-muted">每一级结束后<strong>必须</strong>重新计算文件级 Blake3：通过即进入 COMMIT，否则进入下一级；
+      计数随位图持久化，重启后<strong>不得</strong>重新获得机会</div>
+
+    <div class="cell wide f-type">分支：对帐的<strong>根区间摘要一致</strong> → 判定请求的 <code>file_hash</code> 与源文件不符
+      → <code>SOURCE_FILE_MISMATCH</code>，<strong>不</strong>进入复核轮</div>
   </div>
+</div>
 
-  <!-- ============ missing_chunks 结构 ============ -->
-  <h2><code>missing_chunks</code> 消息结构</h2>
-  <div class="card">
-    <table>
-      <thead>
-        <tr><th>字段</th><th>类型</th><th>说明</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="c-type">mode</td><td class="mono">enum8</td>
-          <td><code>0</code> = <code>report</code>、<code>1</code> = <code>request</code></td>
-        </tr>
-        <tr>
-          <td class="c-chunk">chunks</td><td class="mono">chunk_list</td>
-          <td><code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>；
-            「缺失列表为空」即 <code>chunk_list</code> 的条数为 <code>0</code></td>
-        </tr>
-        <tr>
-          <td class="c-len">missing_count</td><td class="mono">u32</td>
-          <td>位图中<strong>尚未收到</strong>的 chunk <strong>精确总数</strong>，
-            <strong>不是</strong>本批 <code>chunks</code> 的长度</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="caption">见 06 章「missing_chunks」。</div>
+<div class="caption">
+  阶梯顺序是规范性要求：摘要对帐必须先于复核轮；复核轮是最后一级的有界手段（代价为一个完整文件），
+  复核轮后仍失配才中止会话。
+</div>
 
-  <!-- ============ 时间轴 ============ -->
+
+  <!-- ============ 时间轴（搬自原页面；图内数值均为变量） ============ -->
   <h2>时间轴：周期、超时与看门狗</h2>
-  <div class="diagram">
-    <div class="fields" style="--cols:4">
-      <div class="cell ruler-title">可靠性相关时间尺度 · 非等比示意</div>
 
-      <div class="cell bitnum">t = 0</div>
-      <div class="cell bitnum">50 ms</div>
-      <div class="cell bitnum">1000 ms</div>
-      <div class="cell bitnum">60 s</div>
+<div class="diagram">
+  <div class="fields" style="--cols:4">
+    <div class="cell ruler-title">可靠性相关时间尺度 · 非等比示意</div>
 
-      <div class="cell half f-session">裁决周期 50 ms · 接收方至少每 50 ms 下发 <code>missing_chunks</code>(<code>mode=report</code>)，<strong>空列表也必须下发</strong></div>
-      <div class="cell half f-len">索要周期 1000 ms · 发送方每 1000 ms 至少索要一次裁决（看门狗 / 保底轮询共用同一规则）</div>
+    <div class="cell bitnum">t = 0</div>
+    <div class="cell bitnum">50 ms</div>
+    <div class="cell bitnum">1000 ms</div>
+    <div class="cell bitnum">60 s</div>
 
-      <div class="cell wide f-crc">会话活动超时 60 s · 无任何控制面交互或数据面活动 → 置为 <code>ABORTED</code> 并清理（09 章）</div>
-      <div class="cell wide f-muted">控制连接断开 = <strong>中断</strong>（可恢复），<strong>不得</strong>直接置为 ABORTED；位图与临时文件<strong>必须</strong>保留</div>
-    </div>
+    <div class="cell half f-session">裁决周期 50 ms · 接收方至少每 50 ms 下发 <code>missing_chunks</code>（<code>mode=report</code>），<strong>空列表也必须下发</strong></div>
+    <div class="cell half f-len">索要周期 1000 ms · 发送方每 1000 ms 至少索要一次裁决（看门狗 / 保底轮询共用同一规则）</div>
+
+    <div class="cell wide f-crc">会话活动超时 60 s · 无任何控制面交互或数据面活动 → 置为 <code>ABORTED</code> 并清理（09 章）</div>
+    <div class="cell wide f-muted">控制连接断开 = <strong>中断</strong>（可恢复），<strong>不得</strong>直接置为 ABORTED；位图与临时文件<strong>必须</strong>保留</div>
   </div>
+</div>
 
-  <div class="card">
-    <table>
-      <thead>
-        <tr><th>数值</th><th>含义</th><th>来源</th></tr>
-      </thead>
-      <tbody>
-        <tr><td class="num">50 ms</td><td>接收方至少每 50 ms 下发一次 <code>missing_chunks</code>（<code>mode=report</code>），<strong>包括缺失列表为空的情况</strong></td><td>本章「分层保障」；11 章「窗口推进判据」</td></tr>
-        <tr><td class="num">1000 ms</td><td>发送方每 1000 ms 至少索要一次裁决，直到收到 <code>mode=report</code> 为止</td><td>本章「看门狗」；11 章判据第 4 条</td></tr>
-        <tr><td class="num">1000 ms</td><td>保底轮询<strong>使用</strong>同一个 1000 ms 索要规则</td><td>本章「保底轮询」</td></tr>
-        <tr><td class="num">60 s</td><td>会话活动超时 → 置为 <code>ABORTED</code> 并清理资源</td><td>本章「连接断开的语义」；09 章</td></tr>
-      </tbody>
-    </table>
+<div class="caption">
+  三个时间尺度用途不同：裁决周期驱动窗口推进，索要周期是兜底，会话活动超时才终止会话。
+</div>
+
+
+  <!-- ============ 摘要对帐流程（搬自原页面） ============ -->
+  <h2>摘要对帐流程</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:2">
+    <div class="cell ruler-title">接收方（请求方 · 恒定）</div>
+    <div class="cell ruler-title">发送方（应答方 · 恒定）</div>
+
+    <div class="cell f-type">VERIFY 检测到文件级失配 → 状态退回 TRANSFERRING</div>
+    <div class="cell f-muted">保持源文件（size 必须与会话记录一致）</div>
+
+    <div class="cell f-type">reconcile_request {ranges=[根区间], flags.bit0=根轮标志}</div>
+    <div class="cell f-muted">校验源文件 size；为每个区间计算 BLAKE3 摘要</div>
+
+    <div class="cell f-digest">用临时文件独立计算同区间摘要 → 逐区间比对</div>
+    <div class="cell f-digest">reconcile_response {digests[]} —— 各区间的发送方侧摘要</div>
+
+    <div class="cell f-type">不一致 → 每个区间二等分为左半 / 右半，逐层下降</div>
+    <div class="cell f-type">reconcile_request {ranges=[左半,右半]} —— 同一轮所有区间同层</div>
+
+    <div class="cell f-chunk">chunk_count 达到 1 → 定位可疑块 → 位图清零</div>
+    <div class="cell f-muted">（根区间一致时改判 <code>SOURCE_FILE_MISMATCH</code>，不再进入复核轮）</div>
+
+    <div class="cell f-type">missing_chunks {mode=report, chunks=可疑块}</div>
+    <div class="cell f-muted">按缺失列表定点补发（重传优先级高于新数据）</div>
   </div>
+</div>
 
-  <!-- ============ 保底轮询 ============ -->
-  <h2>保底轮询（Keep-Alive Polling）</h2>
-  <ul class="spec">
-    <li>Client 发送完全部数据后，若 Server 持续返回 <code>missing_chunks</code>（<code>mode=report</code>）
-      且 <code>chunks</code> 为空（缺失列表为空），但<strong>始终未下发</strong> <code>upload_complete</code>，
-      Client 进入保底轮询状态。</li>
-    <li>保底轮询<strong>使用</strong> 11 章判据第 4 条的<strong>同一个 1000 ms 索要规则</strong>：
-      Client <strong>必须</strong>按该周期发布 <code>missing_chunks</code>（<code>mode=request</code>）
-      持续索要缺失列表，直至收到 <code>upload_complete</code> 或触发超时。</li>
-    <li>目的：防止对端状态机卡死导致的会话悬挂。</li>
-  </ul>
+<div class="caption">
+  摘要对帐的<strong>至多一次</strong>约束、下降规则与边界情形见正文「上限」「边界情形」；
+  修复阶段<strong>不引入任何新消息</strong> —— 复用既有的位图与裁决机制。
+</div>
 
-  <!-- ============ 连接断开的语义 ============ -->
-  <h2>连接断开的语义（规范性）</h2>
-  <div class="note warn">
-    控制连接断开时，该连接承载的<strong>全部</strong>会话<strong>必须</strong>视为<strong>中断</strong>（可恢复），
-    <strong>不得</strong>直接置为 <code>ABORTED</code>。
-  </div>
-  <ul class="spec">
-    <li>断连<strong>不</strong>回滚已写入的数据，位图与临时文件<strong>必须</strong>保留。</li>
-    <li>断连<strong>原因</strong>按 19 章分类记录：连接被关闭 → <code>CONNECTION_CLOSED</code>；心跳超时 → <code>TIMEOUT_HEARTBEAT</code>；链路层异常 → <code>NETWORK_ERROR</code>。</li>
-    <li>Client 重连后通过 <code>login</code> 的恢复列表恢复（见 13 章）。</li>
-    <li>只有会话活动超时（60 秒，见 09 章）才把会话置为 <code>ABORTED</code> 并清理资源。</li>
-  </ul>
 
-  <!-- ============ 看门狗 ============ -->
-  <h2>看门狗（Watchdog）</h2>
-  <ul class="spec">
-    <li>看门狗的职责与 11 章判据第 4 条的索要规则<strong>完全一致</strong>：
-      发送方每 <strong>1000 ms</strong> 至少索要一次裁决，直到收到 <code>mode=report</code> 为止。</li>
-    <li>重复的 <code>mode=request</code> 是<strong>幂等</strong>的，与幂等要求兼容
-      （见 06 章「未识别消息必须忽略，保持幂等性」）。</li>
-  </ul>
-
-  <!-- ============ 完整性校验 ============ -->
-  <h2>完整性校验</h2>
-  <div class="card">
-    <table>
-      <thead>
-        <tr><th>层级 / 情形</th><th>规范要求</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><strong>包级</strong></td>
-          <td>每个 UDP 包尾部携带 CRC32（覆盖 16 字节头 + payload），校验失败直接丢弃，<strong>不得</strong>写入位图；
-            该块随即成为「未收到」，按<strong>定点补发</strong>处理 ——
-            单次校验失败的代价是<strong>一个块</strong>，不是整个文件</td>
-        </tr>
-        <tr>
-          <td><strong>文件级</strong></td>
-          <td>传输完成后，接收方计算全文件 Blake3 哈希，与请求中的 <code>file_hash</code> 比对
-            （<code>file_hash</code> 为 <strong>32 字节原始 Blake3 摘要</strong>，<code>hash32</code> 类型，非十六进制串）；
-            一致才进入 COMMIT 并发布完成消息（上传方向 <code>upload_complete</code>，
-            下载方向 <code>download_complete</code>）</td>
-        </tr>
-        <tr>
-          <td><strong>恢复阶梯</strong></td>
-          <td>文件级失配后按 <strong>① 摘要对帐 → ② 复核轮 → ③ 中止</strong> 逐级恢复，<strong>每一级至多一次</strong>：<br>
-            ① <strong>摘要对帐</strong>：逐区间比对摘要，<strong>零内容流量</strong>地定位差异区间 →
-            清零可疑块位图 → 复用既有缺失裁决定点补发；<br>
-            ② <strong>复核轮</strong>：重新读取源文件并全量重发；<br>
-            ③ <strong>中止</strong>：<code>session_abort(FILE_HASH_MISMATCH)</code>。<br>
-            对帐的<strong>根区间摘要一致</strong>时，判定请求的 <code>file_hash</code> 与源文件不符 →
-            <code>SOURCE_FILE_MISMATCH</code>，不再进入复核轮。</td>
-        </tr>
-        <tr>
-          <td><strong>文件级校验失败 → 复核轮</strong></td>
-          <td>接收方<strong>不得</strong>立即终止会话，<strong>必须</strong>进入<strong>复核轮</strong>：<br>
-            ① 清空位图（临时文件保留）；② 发布带<strong>复核轮标志</strong>
-            （<code>missing_chunks.flags.bit1 = 1</code>）的裁决，<code>chunks</code> 为空列表、
-            <code>missing_count</code> = <code>chunk_count</code>；③ 发送方<strong>必须</strong>重新读取源文件、
-            从 <code>chunk_id = 0</code> 起全量重发；④ 重新校验文件级 Blake3。<br>
-            复核轮<strong>至多一次</strong>（计数必须随位图持久化）。<br>
-            <strong>次数上限的统一表述</strong>：接收方对每个会话至多<strong>发起 1 次</strong>摘要对帐、
-            至多<strong>发起 1 次</strong>复核轮；发送方对每一次发起至多<strong>响应 1 次</strong>；
-            三者<strong>互不叠加</strong>，且重启后不得重新获得机会。</td>
-        </tr>
-        <tr>
-          <td><strong>复核轮后仍失配</strong></td>
-          <td>接收方<strong>必须</strong>发布 <code>session_abort</code>（<code>reason</code> = <code>FILE_HASH_MISMATCH</code>）
-            终止会话。此时源文件确实不可读或已被改动。<br>
-            这是<strong>接收侧唯一有权发起的终止</strong>（见 10 章「终止权」）；其余终止原因一律由 Server 发起。</td>
-        </tr>
-        <tr>
-          <td><strong>秒传路径</strong></td>
-          <td>跳过数据传输时没有位图，完成条件为「既有文件校验通过并原子提交」（见 10 章「秒传路径」）</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- ============ 摘要对帐 ============ -->
-  <h2>摘要对帐（Reconciliation）</h2>
-
-  <div class="note blue">
-    <strong>目的</strong>：在<strong>不传输文件内容</strong>的前提下，定位「接收方临时文件」与「发送方源文件」
-    之间的差异区间，从而把修复代价从「整个文件」降到「损坏的那几块」。
-    它是恢复阶梯的第 ① 级，<strong>必须</strong>先于复核轮启用。
-  </div>
-
-  <h3>消息与方向（规范性）</h3>
-  <div class="card">
-    <table>
-      <thead><tr><th>消息</th><th>方向</th><th>说明</th></tr></thead>
-      <tbody>
-        <tr>
-          <td class="mono">reconcile_request</td><td>接收方 → 发送方</td>
-          <td>携带待比较的区间列表；<strong>第 1 轮只携带根区间</strong>，并置 <code>flags.bit0</code>（根轮标志）</td>
-        </tr>
-        <tr>
-          <td class="mono">reconcile_response</td><td>发送方 → 接收方</td>
-          <td>携带各区间在<strong>发送方侧</strong>的摘要</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="caption">
-    发布方恒定：请求方恒为<strong>接收方</strong>，应答方恒为<strong>发送方</strong>
-    （与 <code>missing_chunks</code> 的方向规则同源，见 06 章）。
-  </div>
-
-  <h3>对帐区间（规范性）</h3>
-  <div class="card">
-    <table>
-      <thead><tr><th>项目</th><th>规范要求</th></tr></thead>
-      <tbody>
-        <tr><td class="mono">first_chunk</td><td><code>u32</code>：区间起始的 <code>chunk_id</code>（含）</td></tr>
-        <tr><td class="mono">chunk_count</td><td><code>u32</code>：区间包含的 chunk 数</td></tr>
-        <tr><td>字节范围</td><td><code>[first_chunk × chunk_size, (first_chunk + chunk_count) × chunk_size)</code>，<strong>必须</strong>截断到文件末尾（最后一个区间的末尾 chunk 可能不满块）</td></tr>
-        <tr><td>区间摘要</td><td>该字节范围的 <strong>BLAKE3 摘要</strong>（<code>hash32</code>），<strong>必须</strong>与文件级 hash 使用<strong>同一算法与同一输出长度</strong>（32 字节）</td></tr>
-        <tr><td>根区间</td><td><code>first_chunk = 0</code>、<code>chunk_count = chunk_count</code>；其摘要<strong>恒等于</strong>该文件的文件级 Blake3 摘要</td></tr>
-        <tr><td>适用前提</td><td>发送方<strong>必须</strong>仍持有该源文件，且其 <code>size</code> <strong>必须</strong>与会话记录一致</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>流程（规范性）</h3>
-  <div class="diagram">
-    <div class="fields" style="--cols:2">
-      <div class="cell ruler-title">接收方（请求方 · 恒定）</div>
-      <div class="cell ruler-title">发送方（应答方 · 恒定）</div>
-
-      <div class="cell f-type">VERIFY 检测到文件级失配 → 状态退回 TRANSFERRING</div>
-      <div class="cell f-muted">保持源文件（size 必须与会话记录一致）</div>
-
-      <div class="cell f-type">reconcile_request {ranges=[根区间], flags.bit0=根轮标志}</div>
-      <div class="cell f-muted">校验源文件 size；为每个区间计算 BLAKE3 摘要</div>
-
-      <div class="cell f-digest">用临时文件独立计算同区间摘要 → 逐区间比对</div>
-      <div class="cell f-digest">reconcile_response {digests[]} —— 各区间的发送方侧摘要</div>
-
-      <div class="cell f-type">不一致 → 每个区间二等分为左半 / 右半，逐层下降</div>
-      <div class="cell f-type">reconcile_request {ranges=[左半,右半]} —— 同一轮所有区间同层</div>
-
-      <div class="cell f-chunk">chunk_count 达到 1 → 定位可疑块 → 位图清零</div>
-      <div class="cell f-muted">（根区间一致时改判 <code>SOURCE_FILE_MISMATCH</code>，不再进入复核轮）</div>
-
-      <div class="cell f-type">missing_chunks {mode=report, chunks=可疑块}</div>
-      <div class="cell f-muted">按缺失列表定点补发（重传优先级高于新数据）</div>
-    </div>
-  </div>
-  <div class="caption">
-    摘要对帐的<strong>至多一次</strong>约束、下降规则与边界情形见下方各表；修复阶段<strong>不引入任何新消息</strong> ——
-    复用既有的位图与裁决机制。
-  </div>
-
-  <ul class="spec">
-    <li>接收方在 VERIFY 阶段检测到文件级失配 → <strong>必须</strong>先尝试<strong>摘要对帐</strong>；
-      接收侧状态<strong>必须</strong>由 VERIFY 退回 TRANSFERRING。</li>
-    <li>发送方收到请求后，<strong>必须</strong>校验源文件的 <code>size</code> 与会话记录一致；
-      不一致时<strong>必须</strong>置 <code>reconcile_response.flags.bit0</code>（源文件已变更）且<strong>不</strong>计算任何摘要。</li>
-    <li>发送方<strong>必须</strong>为请求中的<strong>每个</strong>区间读取源文件的对应字节并计算 BLAKE3 摘要，
-      然后以 <code>reconcile_response</code> 返回。</li>
-    <li>接收方收到应答后，<strong>必须</strong>用<strong>临时文件</strong>的对应字节独立计算摘要，并与应答中的摘要<strong>逐区间</strong>比对。</li>
-    <li><strong>根区间一致</strong> → 双方文件内容相同 → 请求的 <code>file_hash</code> 与实际文件不符 →
-      接收方<strong>必须</strong>发布 <code>session_abort</code>（<code>reason</code> = <code>SOURCE_FILE_MISMATCH</code>）
-      并终止会话，<strong>不得</strong>进入复核轮。</li>
-    <li><strong>根区间不一致</strong> → 把每个「不一致」的区间<strong>二等分</strong>为左右两个子区间
-      （左半 = 前 <code>chunk_count ÷ 2</code> 个 chunk，右半 = 其余），组成下一轮的待比较区间集合；
-      <strong>同一轮的所有区间必须同层</strong>，二等分规则由 <code>(first_chunk, chunk_count)</code> 唯一确定，双方无须协商。</li>
-    <li>重复下降，直到某区间的 <code>chunk_count</code> 达到<strong>最小粒度</strong>（规范取 <strong>1</strong>，
-      即定位到单个 chunk）；该 chunk 即为<strong>可疑块</strong>。</li>
-    <li>接收方<strong>必须</strong>把全部可疑块的<strong>位图位清零</strong>，随后按<strong>常规缺失裁决</strong>
-      （<code>missing_chunks</code>，<code>mode=report</code>）报告它们；发送方<strong>必须</strong>定点补发这些块。</li>
-    <li>补发完成后，接收方<strong>必须</strong>重新计算文件级 Blake3；通过则进入 COMMIT，否则转入<strong>复核轮</strong>。</li>
-  </ul>
-
-  <h3>边界情形（规范性）</h3>
-  <div class="card">
-    <table>
-      <thead><tr><th>情形</th><th>规范要求</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><strong>源文件已变更</strong></td>
-          <td><code>reconcile_response.flags.bit0</code> 置位时，接收方<strong>必须</strong>中止对帐并转入<strong>复核轮</strong></td>
-        </tr>
-        <tr>
-          <td><strong>请求被拒绝</strong></td>
-          <td><code>reconcile_response.flags.bit1</code>（请求超限）置位时，接收方<strong>必须</strong>中止对帐并转入<strong>复核轮</strong></td>
-        </tr>
-        <tr>
-          <td><strong>对帐不可用</strong></td>
-          <td>发送方<strong>不实现</strong>摘要对帐（收到请求后不回应答）时，接收方<strong>必须</strong>在等待超时后转入复核轮，<strong>不得</strong>无限等待</td>
-        </tr>
-        <tr>
-          <td><strong>本地 I/O 失败</strong></td>
-          <td>接收方在回读临时文件计算区间摘要时遇到 I/O 错误，<strong>必须</strong>发布 <code>session_abort</code>
-            （<code>reason</code> = <code>FILESYSTEM_ERROR</code>）终止会话，<strong>不得</strong>把它当作「内容不符」</td>
-        </tr>
-        <tr>
-          <td><strong>区间摘要一致但文件级失配</strong></td>
-          <td>只可能发生在<strong>根区间</strong>，此时<strong>必须</strong>判定为 <code>SOURCE_FILE_MISMATCH</code></td>
-        </tr>
-        <tr>
-          <td><strong>对帐期间的连接中断</strong></td>
-          <td>对帐计数随会话元数据持久化（见 09 章），恢复后<strong>不得</strong>重新获得一次对帐机会；恢复流程按 13 章执行</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>上限（规范性）</h3>
-  <div class="card">
-    <table>
-      <thead><tr><th>参数</th><th>规范取值</th><th>含义</th></tr></thead>
-      <tbody>
-        <tr><td class="mono">对帐次数</td><td><strong>每会话至多 1 次</strong></td><td>与复核轮同等约束；重启后不得重新获得机会（见 09 章持久化）</td></tr>
-        <tr><td class="mono">层级</td><td>≤ 32</td><td><code>chunk_count</code> ≤ 2³²−1，最大深度 32 层</td></tr>
-        <tr><td class="mono">单次请求区间数</td><td>≤ <strong>64</strong></td><td>超出时接收方<strong>必须</strong>分为多个请求分批发送，并<strong>必须</strong>收齐全部应答后才下降</td></tr>
-        <tr><td class="mono">单次会话累计区间比较数</td><td>≤ <strong>8192</strong></td><td>超出即中止对帐，转入复核轮</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="note warn">
-    接收方<strong>必须</strong>在累计比较数超限时<strong>立即</strong>停止对帐并转入复核轮；
-    发送方<strong>必须</strong>在收到超出上限的请求时<strong>拒绝</strong>该请求
-    （以 <code>reconcile_response</code> 的 <code>flags.bit1</code> 表示请求超限），<strong>不得</strong>无条件执行。
-  </div>
-
-  <!-- ============ 复核轮的触发概率 ============ -->
-  <h3>复核轮为何必要：包级 CRC32 的漏检概率</h3>
-  <div class="note">
-    文件级失配意味着「接收到的字节整体不等于源文件」。包级 CRC32 只有 32 位：
-    若一个包已经损坏，且错误的 CRC 余数近似均匀，漏检的<strong>条件概率约为 2⁻³²</strong>。
-    实际漏检率还取决于<strong>包损坏率与差错模式</strong>，<strong>不能仅凭文件大小推出</strong>；
-    文件级校验还覆盖包校验之后发生的<strong>写盘差错</strong>。
-    未检出的损坏会一路存活到文件级校验，从而触发恢复阶梯。
-  </div>
-  <div class="note">
-    <strong>为何不立即终止（说明）</strong>：文件级失配一律立即终止，会让一个刚传完的百 GB 文件
-    因为<strong>一次瞬态读写错误</strong>而被丢弃。复核轮把它降级为「一次重传」而非「全部重来」；
-    复核轮<strong>至多一次</strong>的约束保证了最坏情况下的代价上界是<strong>两次</strong>传输，而不是无限重试。
-  </div>
-
-  <div class="note">
-    <strong>本章与其它章的关系</strong>：窗口推进与索要判据见 11 章；会话状态与终止权见 10 章；
-    断线恢复见 13 章；会话超时阈值见 09 章；包级校验与包头布局见 07 章与 08 章。
-    常见实现陷阱：把 50 ms 的裁决周期当成「有缺失才下发」，或把 <code>missing_count</code> 误当作本批
-    <code>chunks</code> 的长度；以及把<strong>文件级失配</strong>直接实现成终止 —— 那会让
-    一个刚传完的百 GB 文件因为一次瞬态读写错误而全部作废（包级 CRC32 的漏检条件概率约为 2⁻³²，
-    但实际漏检率<strong>不能仅凭文件大小推出</strong>）。
-  </div>
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
+  <h2>分层保障</h2>
+<ul>
+<li>控制面统计缺失并下发 <code>missing_chunks</code>（<code>mode=report</code>）；接收端乱序写盘与位图</li>
+<li>crc32 包级完整性；文件级内容 hash 校验（Blake3）</li>
+<li>重传：UDP 不即时重传；聚合缺失后统一下发；重传优先级高于新数据</li>
+<li>中断与恢复：不回滚已写入；恢复后加载位图并补传缺失</li>
+<li>完成与提交：bitmap 全真 → 校验 hash → 原子重命名 → 发布完成消息</li>
+</ul>
+<p><strong>裁决是唯一的推进依据（规范性）</strong>：接收方<strong>必须</strong>至少每 50ms 下发一次 <code>missing_chunks</code>
+（<code>mode=report</code>），<strong>包括缺失列表为空的情况</strong>；发送方据此推进窗口。
+详见 11 章「窗口推进判据」。</p>
+<p><code>missing_chunks</code> 的 <code>mode</code> 为 <code>enum8</code>（<code>0</code> = report、<code>1</code> = request）；
+<code>chunks</code> 为 <code>chunk_list</code>（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>），
+「缺失列表为空」即 <code>chunk_list</code> 的条数为 <code>0</code>；<code>missing_count</code> 为位图中
+<strong>尚未收到</strong>的 chunk <strong>精确总数</strong>（<code>u32</code>），<strong>不是</strong>本批 <code>chunks</code> 的长度。
+见 06 章「missing_chunks」。</p>
+<h2>保底轮询（Keep-Alive Polling）</h2>
+<ul>
+<li>Client 发送完全部数据后，若 Server 持续返回 <code>missing_chunks</code>（<code>mode=report</code>）
+  且 <code>chunks</code> 为空、<strong>未置复核轮标志</strong>（即「没有缺失」而非「全部重发」），
+  但<strong>始终未下发</strong> <code>upload_complete</code>，Client 进入保底轮询状态。</li>
+<li>保底轮询<strong>使用</strong> 11 章判据第 4 条的<strong>同一个 1000 ms 索要规则</strong>：
+  Client <strong>必须</strong>按该周期发布 <code>missing_chunks</code>（<code>mode=request</code>）
+  持续索要缺失列表，直至收到 <code>upload_complete</code> 或触发超时。</li>
+<li>目的：防止对端状态机卡死导致的会话悬挂。</li>
+</ul>
+<h2>连接断开的语义（规范性）</h2>
+<p>控制连接断开时，该连接承载的<strong>全部</strong>会话<strong>必须</strong>视为<strong>中断</strong>（可恢复），
+<strong>不得</strong>直接置为 ABORTED：</p>
+<ul>
+<li>断连<strong>不</strong>回滚已写入的数据，位图与临时文件<strong>必须</strong>保留。</li>
+<li>Client 重连后通过 <code>login</code> 的恢复列表恢复（见 13 章）。</li>
+<li>会话活动超时（60 秒）可停止传输，不得据此判定远端提交失败；资源回收与最终结果分别按 09、13 章处理。</li>
+<li>断连<strong>原因</strong>按 19 章分类记录：连接被关闭 → <code>CONNECTION_CLOSED</code>；
+  心跳超时 → <code>TIMEOUT_HEARTBEAT</code>；链路层异常（不可达、复位等）→ <code>NETWORK_ERROR</code>。</li>
+</ul>
+<h2>看门狗（Watchdog）</h2>
+<p>看门狗的职责与 11 章判据第 4 条的索要规则<strong>完全一致</strong>：
+发送方每 <strong>1000 ms</strong> 至少索要一次裁决，直到收到 <code>mode=report</code> 为止。
+重复的 <code>mode=request</code> 是幂等的，与幂等要求兼容
+（见 06 章「未识别消息必须忽略，保持幂等性」）。</p>
+<h2>完整性校验</h2>
+<h3>包级</h3>
+<ul>
+<li>每个 UDP 数据包尾部携带 CRC32，覆盖 <strong>16 字节头部 + payload</strong>
+  （见 08 章）；校验失败直接丢弃，<strong>不得</strong>写入位图。</li>
+<li>TCP 数据面帧<strong>不</strong>携带 CRC32 —— TCP 已提供字节流校验与可靠重传
+  （见 07 章）。</li>
+</ul>
+<h3>缺失块的定点补发（规范性）</h3>
+<p>本协议<strong>不采用逐包 ACK</strong>，而采用「<strong>位图 + 缺失裁决</strong>」。
+因此包级校验失败<strong>不会</strong>导致整文件重传：</p>
+<ul>
+<li>校验失败的包被丢弃 → 对应块<strong>不标记位图</strong> → 该块保持「<strong>未收到</strong>」状态；</li>
+<li>接收方<strong>必须</strong>通过<strong>常规缺失裁决</strong>（<code>missing_chunks</code>，<code>mode=report</code>）
+  报告该块；</li>
+<li>发送方<strong>必须</strong>按 11 章的「重传优先级高于新数据」<strong>只补发该块</strong>。</li>
+</ul>
+<p><strong>单次校验失败的代价是一个块，与文件大小无关。</strong>
+包头被损坏导致该包的 <code>chunk_id</code> 不可信时，归属由位图裁决自动恢复：
+真正丢失的块本来就未被标记，裁决必然把它报出来。</p>
+<h3>文件级</h3>
+<ul>
+<li>传输完成后，接收方计算全文件 Blake3 哈希，与请求中的 <code>file_hash</code> 比对
+  （<code>file_hash</code> 为 <strong>32 字节原始 Blake3 摘要</strong>，<code>hash32</code> 类型，非十六进制串）；
+  一致才进入 COMMIT 并发布完成消息（上传方向 <code>upload_complete</code>，
+  下载方向 <code>download_complete</code>）</li>
+<li><strong>文件级校验失败</strong>：<strong>不得</strong>直接终止会话，<strong>必须</strong>进入<strong>恢复阶梯</strong>（见下）。</li>
+</ul>
+<h3>恢复阶梯（规范性）</h3>
+<p>文件级失配后的恢复<strong>必须</strong>按以下阶梯进行，<strong>每一级至多一次</strong>：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>级别</th>
+<th>手段</th>
+<th>网络代价</th>
+<th>本地代价</th>
+<th>适用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>①</td>
+<td><strong>摘要对帐</strong>（见下）</td>
+<td>极小（每次比较 32 字节摘要）</td>
+<td>每端约 2N 读盘 + 哈希</td>
+<td>定位损坏区间并定点修复</td>
+</tr>
+<tr>
+<td>②</td>
+<td><strong>复核轮</strong>（见下）</td>
+<td>全量重传（N 字节）</td>
+<td>发送端读 N、接收端写 N</td>
+<td>对帐无法定位或超限时</td>
+</tr>
+<tr>
+<td>③</td>
+<td>中止</td>
+<td>——</td>
+<td>——</td>
+<td>仍失配</td>
+</tr>
+</tbody>
+</table></div>
+<p>每一级结束后<strong>必须</strong>重新计算文件级 Blake3；通过即进入 COMMIT（见 10 章），
+否则进入下一级。</p>
+<blockquote>
+<p><strong>为何把摘要对帐放在复核轮之前（说明）</strong>：复核轮是「把第一次做的事原样再做一遍」，
+因此它<strong>只</strong>修复<strong>瞬态</strong>故障（发送侧偶发读错、接收侧写入丢失或扇区被重映射）；
+对<strong>持续性</strong>故障（接收侧某一偏移反复写坏）它只会完整地重传一遍文件后再次失败。
+摘要对帐是<strong>双向比对</strong>，既能定位损坏区间，也能区分
+「接收方副本有误」与「发送方源文件本就不满足请求」，因而信息量更高、
+网络代价更低。</p>
+</blockquote>
+<h3>摘要对帐（Reconciliation）</h3>
+<p><strong>数据修复代号（规范性）</strong>：每个会话从代号 0 开始。对帐定位可疑块并清位时切到 1；
+全量复核清位时切到 2（允许从 0 直接到 2）。同一会话代号不复用、不回退。
+接收方必须将代号、清位后的位图和修复次数作为一次可恢复的更新持久化，再发布新代号的裁决。
+更新须与在途写盘串行化：切换生效后，旧代号的写入不得落盘或标位。
+发送方按有序控制连接上的 report 设置 DATA 代号；新代号的补发须重新读取源数据，
+不得给旧队列中的载荷换标志后重发。位图未清零的正确块继续有效。</p>
+<p><strong>目的</strong>：在<strong>不传输文件内容</strong>的前提下，定位「接收方临时文件」与「发送方源文件」
+之间的差异区间，从而把修复代价从「整个文件」降到「损坏的那几块」。</p>
+<p><strong>适用前提（规范性）</strong>：发送方<strong>必须</strong>仍持有该源文件，
+且其 <code>size</code> <strong>必须</strong>与会话记录一致。</p>
+<h4>对帐区间（规范性）</h4>
+<p>对帐以 <strong>chunk</strong> 为最小单位。区间由 <code>(first_chunk, chunk_count)</code> 唯一确定：</p>
+<ul>
+<li><code>first_chunk</code>（u32）：区间起始的 <code>chunk_id</code>（含）；</li>
+<li>
+<p><code>chunk_count</code>（u32）：区间包含的 chunk 数。</p>
+</li>
+<li>
+<p>区间的<strong>字节范围</strong>为
+  <code>[first_chunk × chunk_size, (first_chunk + chunk_count) × chunk_size)</code>，
+  并<strong>必须</strong>截断到文件末尾（最后一个区间的末尾 chunk 可能不满块）。</p>
+</li>
+<li><strong>区间的摘要</strong>（<code>hash32</code>）：该字节范围的 <strong>BLAKE3 摘要</strong>，
+  <strong>必须</strong>与文件级 hash 使用<strong>同一算法与同一输出长度</strong>（32 字节）。</li>
+<li>因此，<strong>根区间</strong>（<code>first_chunk = 0</code>，<code>chunk_count = chunk_count</code>）的摘要
+  <strong>恒等于</strong>该文件的文件级 Blake3 摘要。</li>
+</ul>
+<h4>消息与方向（规范性）</h4>
+<ul>
+<li><code>reconcile_request</code>（<code>0x14</code>）：<strong>接收方 → 发送方</strong>，携带待比较的区间列表；</li>
+<li><code>reconcile_response</code>（<code>0x15</code>）：<strong>发送方 → 接收方</strong>，携带各区间在<strong>发送方侧</strong>的摘要。</li>
+</ul>
+<p>发布方恒定：请求方恒为<strong>接收方</strong>，应答方恒为<strong>发送方</strong>
+（与 <code>missing_chunks</code> 的方向规则同源，见 06 章）。</p>
+<h4>流程（规范性）</h4>
+<ol>
+<li>接收方在 VERIFY 阶段检测到文件级失配 → <strong>必须</strong>先尝试<strong>摘要对帐</strong>
+   （<strong>至多一次</strong>，见「上限」）；接收侧状态<strong>必须</strong>由 VERIFY 退回 TRANSFERRING
+   （见 10 章）。</li>
+<li>接收方发布 <code>reconcile_request</code>，<strong>第 1 轮只携带根区间</strong>，
+   并置 <code>flags.bit0</code>（根轮标志）。</li>
+<li>发送方收到请求后：
+   - <strong>必须</strong>校验源文件的 <code>size</code> 与会话记录一致；不一致时<strong>必须</strong>置
+     <code>reconcile_response.flags.bit0</code>（源文件已变更）且<strong>不</strong>计算任何摘要；
+   - <strong>必须</strong>为请求中的<strong>每个</strong>区间读取源文件的对应字节并计算 BLAKE3 摘要，
+     然后以 <code>reconcile_response</code> 返回。</li>
+<li>接收方收到应答后，<strong>必须</strong>用<strong>临时文件</strong>的对应字节独立计算摘要，
+   并与应答中的摘要<strong>逐区间</strong>比对：
+   - <strong>根区间一致</strong> → 双方文件内容相同 → 请求的 <code>file_hash</code> 与实际文件不符
+     → 接收方<strong>必须</strong>发布 <code>session_abort</code>（<code>reason</code> = <code>SOURCE_FILE_MISMATCH</code>）
+     并终止会话，<strong>不得</strong>进入复核轮；
+   - <strong>根区间不一致</strong> → 继续第 5 步。</li>
+<li><strong>下降</strong>：接收方<strong>必须</strong>把每个「不一致」的区间<strong>二等分</strong>为左右两个子区间
+   （左半 = 前 <code>chunk_count ÷ 2</code> 个 chunk，右半 = 其余），
+   组成<strong>下一轮</strong>的待比较区间集合。<strong>同一轮的所有区间必须同层</strong>。
+   二等分规则由 <code>(first_chunk, chunk_count)</code> 唯一确定，双方无须协商。</li>
+<li>重复第 3–5 步，直到某区间的 <code>chunk_count</code> 达到<strong>最小粒度</strong>
+   （规范取 <strong>1</strong>，即定位到单个 chunk）；该 chunk 即为<strong>可疑块</strong>。</li>
+<li>接收方<strong>必须</strong>把全部<strong>可疑块</strong>的<strong>位图位清零</strong>（置为「未收到」），
+   随后按<strong>常规缺失裁决</strong>（<code>missing_chunks</code>，<code>mode=report</code>）报告它们；
+   发送方<strong>必须</strong>按 11 章的「重传优先级高于新数据」补发这些块。
+   <strong>修复阶段不引入任何新消息</strong> —— 复用既有的位图与裁决机制。</li>
+<li>补发完成后，接收方<strong>必须</strong>重新计算文件级 Blake3；通过则进入 COMMIT，
+   否则转入<strong>复核轮</strong>。</li>
+</ol>
+<h4>上限（规范性）</h4>
+<p><strong>次数上限的统一表述（规范性）</strong>：接收方对<strong>每个会话</strong>至多<strong>发起 1 次</strong>
+摘要对帐、至多<strong>发起 1 次</strong>复核轮；发送方对<strong>每一次</strong>发起至多<strong>响应 1 次</strong>。
+三者<strong>互不叠加</strong>，且在进程重启后<strong>不得</strong>重新获得机会
+（计数<strong>必须</strong>与位图一同持久化，见 09 章「持久化」）。</p>
+<p>对账会诱导发送方反复读取源文件，<strong>必须</strong>设限：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>规范取值</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>对帐次数</td>
+<td><strong>每会话至多 1 次</strong></td>
+<td>与复核轮同等约束；重启后不得重新获得机会（见 09 章持久化）</td>
+</tr>
+<tr>
+<td>层级</td>
+<td>≤ 32</td>
+<td><code>chunk_count</code> ≤ 2³²−1，最大深度 32 层</td>
+</tr>
+<tr>
+<td>单次请求区间数</td>
+<td>≤ <strong>64</strong></td>
+<td>超出时接收方<strong>必须</strong>分为多个请求分批发送，并<strong>必须</strong>收齐全部应答后才下降</td>
+</tr>
+<tr>
+<td>单次会话累计区间比较数</td>
+<td>≤ <strong>8192</strong></td>
+<td>超出即中止对帐，转入复核轮</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>接收方<strong>必须</strong>在累计比较数超限时<strong>立即</strong>停止对帐并转入复核轮。</li>
+<li>发送方<strong>必须</strong>在收到超出上限的请求时<strong>拒绝</strong>该请求
+  （以 <code>reconcile_response</code> 的 <code>flags.bit1</code> 表示请求超限），不得无条件执行。</li>
+</ul>
+<h4>边界情形（规范性）</h4>
+<ul>
+<li><strong>源文件已变更</strong>：<code>reconcile_response.flags.bit0</code> 置位时，
+  接收方<strong>必须</strong>中止对帐并转入<strong>复核轮</strong>（源文件已变，复核轮同样会失败，
+  但复核轮是最后一级）。</li>
+<li><strong>请求被拒绝</strong>：<code>reconcile_response.flags.bit1</code>（请求超限）置位时，
+  接收方<strong>必须</strong>中止对帐并转入<strong>复核轮</strong>。</li>
+<li><strong>对帐不可用</strong>：发送方<strong>不实现</strong>摘要对帐（收到请求后不回应答）时，
+  接收方<strong>必须</strong>在等待超时后转入<strong>复核轮</strong>，<strong>不得</strong>无限等待。</li>
+<li><strong>本地 I/O 失败</strong>：接收方在回读临时文件计算区间摘要时遇到 I/O 错误，
+  <strong>必须</strong>发布 <code>session_abort</code>（<code>reason</code> = <code>FILESYSTEM_ERROR</code>）终止会话，
+  <strong>不得</strong>把它当作「内容不符」。</li>
+<li><strong>区间摘要一致但文件级失配</strong>：只可能发生在<strong>根区间</strong>，
+  此时<strong>必须</strong>按第 4 步判定为 <code>SOURCE_FILE_MISMATCH</code>。</li>
+<li><strong>对帐期间的连接中断</strong>：对帐计数随会话元数据持久化（见 09 章），
+  恢复后<strong>不得</strong>重新获得一次对帐机会；恢复流程按 13 章执行。</li>
+</ul>
+<blockquote>
+<p><strong>代价说明</strong>：每轮比较<strong>两个</strong>半段（否则无法确定该往哪一侧下降），
+因此单次对帐的读取与哈希总量约为 <strong>2N</strong>（N 为文件大小），
+而网络流量仅为每区间 32 字节。
+它与复核轮的取舍取决于「链路速度」与「本地磁盘 + 哈希速度」之比：
+1 Gbps 链路上全量重传 100 GiB 约需 859 秒，而对帐约需 143 秒（每端）；
+10 Gbps 链路上则相反。<strong>因此对帐不取代复核轮，而是它的前置一级。</strong></p>
+</blockquote>
+<h3>复核轮（Re-verify Round）</h3>
+<p>复核轮是<strong>恢复阶梯的第 ② 级</strong>：当摘要对帐无法定位、或对帐后仍失配时启用。
+文件级失配意味着「接收到的字节整体不等于源文件」。
+若一个包已经损坏，且错误的 CRC 余数近似均匀，漏检的条件概率约为 2⁻³²。
+实际漏检率还取决于包损坏率与差错模式，不能仅凭文件大小推出。
+文件级校验还覆盖包校验之后发生的写盘差错。</p>
+<p>未检出的损坏会一路存活到文件级校验，从而触发恢复。
+复核轮的手段是：<strong>重新读取源文件并全量重发</strong> ——
+它是<strong>最后一级</strong>的有界手段（代价为一个完整文件），
+因此<strong>必须</strong>在摘要对帐之后才启用。</p>
+<p><strong>前置条件（规范性）</strong>：接收方<strong>必须</strong>已完成一次<strong>摘要对帐</strong>，
+或因对帐不可用（发送方拒绝、源文件已变更、对帐超限）而无法进行对帐；
+<strong>不得</strong>跳过对帐直接进入复核轮。</p>
+<p><strong>接收方（规范性）</strong>：</p>
+<ol>
+<li>接收方<strong>必须</strong>进入复核轮，<strong>不得</strong>立即发布 <code>session_abort</code>。</li>
+<li>接收方<strong>必须</strong>清空位图（全部块置为「未收到」），临时文件<strong>保留</strong>
+   （复核轮将覆盖写入相同偏移）。</li>
+<li>接收方<strong>必须</strong>发布 <code>missing_chunks</code>（<code>mode=report</code>）并置<strong>复核轮标志</strong>
+   （<code>flags.bit1</code> = 1）；该条裁决的 <code>chunks</code> <strong>必须</strong>为空列表，
+   <code>missing_count</code> <strong>必须</strong>等于 <code>chunk_count</code>（见 06 章）。</li>
+<li>接收方<strong>必须</strong>记录复核轮计数，并<strong>必须</strong>将其与位图一同<strong>持久化</strong>
+   （见 09 章「持久化」），使进程重启后不得重复使用复核轮。</li>
+<li>复核轮结束后，接收方<strong>必须</strong>重新计算文件级 Blake3 并再次比对。</li>
+</ol>
+<p><strong>发送方（规范性）</strong>：</p>
+<ol>
+<li>收到带复核轮标志的裁决时，发送方<strong>必须</strong>按 11 章判据第 3 条
+   「复核轮」条目重置顺序流与在途量基线。</li>
+<li>发送方<strong>必须</strong>重新打开源文件并<strong>重新读取</strong>内容 ——
+   <strong>不得</strong>复用先前已读入内存或页缓存中的旧副本；
+   发送方<strong>应当</strong>绕过操作系统页缓存重新读取（实现建议）。</li>
+<li>发送方<strong>必须</strong>从 <code>chunk_id</code> = 0 起全量重发。</li>
+<li>发送方<strong>必须</strong>对同一会话<strong>最多响应一次</strong>复核轮。</li>
+</ol>
+<p><strong>终止条件（规范性）</strong>：</p>
+<ul>
+<li>复核轮结束后文件级校验<strong>仍</strong>失配 → 接收方<strong>必须</strong>发布
+  <code>session_abort</code>（<code>reason</code> = <code>FILE_HASH_MISMATCH</code>）终止会话。
+  此时源文件确实不可读或已被改动，已无可恢复的手段。</li>
+<li>复核轮<strong>至多一次</strong>：接收方<strong>不得</strong>对同一会话发起第二次复核轮。</li>
+</ul>
+<blockquote>
+<p><strong>为何不立即终止（说明）</strong>：文件级失配一律立即终止，会让一个刚传完的百 GB 文件
+因为一次瞬态读写错误而被丢弃。复核轮允许在同一会话中重新校验和提交。
+复核轮<strong>至多一次</strong>的约束保证了最坏情况下的代价上界是<strong>两次</strong>传输，
+而不是无限重试。</p>
+<p><strong>复核轮能修什么、不能修什么（说明）</strong>：复核轮是「把第一次做的事原样再做一遍」，
+因此它<strong>只</strong>修复<strong>瞬态</strong>故障 ——
+发送侧偶发读错（重读即可）、接收侧写入丢失或扇区被重映射（重写同一位置即可）。
+对<strong>持续性</strong>故障（磁盘满、只读挂载、同一个逻辑地址反复失败），
+复核轮只会完整地重传一遍文件，然后再次失败并中止。</p>
+</blockquote>
+<h3>秒传路径</h3>
+<ul>
+<li>跳过数据传输时没有位图，完成条件为「既有文件校验通过并原子提交」
+  （见 10 章「秒传路径」）。</li>
+</ul>
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/12-reliability-model.md">docs/spec/12-reliability-model.md</a></footer>
 </div>

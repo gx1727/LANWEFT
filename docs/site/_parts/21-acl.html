@@ -1,0 +1,23 @@
+<h2>四层访问控制</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:4">
+    <div class="cell wide ruler-title">跨 device_id 隔离的四层（自协议层到资源记录）</div>
+
+    <div class="cell f-session acl-layer">1 · 连接级<span class="acl-sub"><br>一条控制连接只承载一个 device_id（见 06 章「会话与连接的关系」）；跨 device_id 的会话在协议层无法表达</span></div>
+    <div class="cell f-flags acl-layer">2 · Server 级<span class="acl-sub"><br>Server 必须校验会话的 device_id 与连接绑定一致；不一致必须以 session_abort（reason = ACL_DENY）拒绝</span></div>
+    <div class="cell f-crc acl-layer">3 · 资源级<span class="acl-sub"><br>素材记录（asset_id）的所有权由 Server 维护；asset_recall 必须校验发起方的 device_id 对该记录的所有权，越权时回 code = ACL_DENY（见 06 章）</span></div>
+    <div class="cell f-payload acl-layer">4 · 共享清单级<span class="acl-sub"><br>预置素材记录的归属者是 Server；所有已认证设备都可以列举（material_list）与拉取（download_start），但不得撤回 —— 对预置素材记录发布 asset_recall 必须以 ACL_DENY 拒绝（见 09 章「预置素材与共享清单」）</span></div>
+  </div>
+</div>
+
+<div class="legend">
+  <span><i class="swatch" style="background:var(--b-session)"></i>连接级</span>
+  <span><i class="swatch" style="background:var(--b-flags)"></i>Server 级</span>
+  <span><i class="swatch" style="background:var(--b-crc)"></i>资源级</span>
+  <span><i class="swatch" style="background:var(--b-payload)"></i>共享清单级</span>
+</div>
+
+<div class="caption">
+  四层同时生效：前三层拒绝跨 <code>device_id</code> 的会话与越权撤回，第四层约束预置素材的可见性与不可撤回。
+</div>

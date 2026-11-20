@@ -1,0 +1,7 @@
+  <div class="note blue">
+    <strong>本章要点</strong>：客户端身份应当<strong>全局唯一、稳定可复用、设备级粒度、低耦合、安全可控</strong>。
+    <code>client_id</code> 一旦分配即固定，<strong>不得</strong>因设备重装、换网或升级而改变；
+    它与文件哈希（Blake3，{{VAR:hash_bytes}} 字节原始摘要）<strong>无关</strong>，两者不可互相推导。
+    <code>login</code> 中的 <code>device_id</code> <strong>必须</strong>与认证凭据绑定的身份一致，
+    否则 Server <strong>必须</strong>以 <code>CLIENT_ID_INVALID</code> 拒绝登录。
+  </div>

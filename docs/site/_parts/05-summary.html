@@ -1,0 +1,11 @@
+<div class="note blue">
+  <strong>本章要点</strong>：协议分为<strong>控制层（TCP）</strong>与<strong>数据层（UDP / TCP 兜底）</strong>，
+  两者<strong>相互独立</strong>：控制面拥有<strong>最终裁决权</strong>，数据面仅负责<strong>搬运与落盘</strong>；
+  <strong>完整性分两层</strong>——包级 CRC32 与文件级 Blake3（见
+  <a href="12-reliability-model.html">12 章</a>）。
+  一条控制连接承载 N 个会话时，数据面端口<strong>可以</strong>被多个会话共用 ——
+  UDP 包头中的 <code>session_id</code> 足以区分（见
+  <a href="08-packet-format.html">08 章</a>）。
+  <strong>完成消息由接收方发布；缺失裁决由接收方发起</strong>（见
+  <a href="10-state-machine.html">10 章「视角定义」</a>）。
+</div>

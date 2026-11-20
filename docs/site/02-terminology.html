@@ -18,97 +18,105 @@
 
   <h1>02 术语（Terminology）</h1>
 
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
-    <strong>本章要点</strong>：本章定义协议的<strong>字段与核心概念</strong>；
-    消息与消息方向的速查见 <a href="../spec/99-glossary.md">99 章「术语表」</a>，
-    两章如有出入，<strong>以本章为准</strong>。
-  </div>
+  <strong>本章要点</strong>：本章定义协议的<strong>字段与核心概念</strong>，分为基础术语、会话与方向、
+  状态与控制、控制通道、流控参数（发送端本地）五组；<strong>消息与消息方向的速查</strong>见
+  <a href="../spec/99-glossary.md">99 章「术语表」</a>，两章如有出入，<strong>以本章为准</strong>。
+  贯穿全章的两条主线：<strong>完成消息一律由接收方发布、缺失报告一律由接收方发起</strong>；
+  <code>window</code>（会话级）与 <code>connection_window</code>（连接级）是两个<strong>不同的在途上限</strong>。
+</div>
 
-  <h2>基础术语</h2>
-  <div class="card">
-    <table>
-      <thead><tr><th>术语</th><th>类型</th><th>说明</th></tr></thead>
-      <tbody>
-        <tr><td class="c-session">session_id</td><td class="mono">u64</td><td>会话唯一标识；控制帧、UDP 数据包与 TCP 数据面帧中<strong>均以 u64 承载</strong>；跨 Server 进程重启<strong>不复用</strong>（见 06、09 章）</td></tr>
-        <tr><td class="c-payload">file_hash</td><td class="mono">hash32</td><td>文件哈希；<strong>32 字节原始 Blake3 摘要</strong>（非十六进制串，见 06 章）</td></tr>
-        <tr><td class="c-payload">file_name</td><td class="mono">str</td><td>文件名（<code>u16</code> 长度 + UTF-8 字节）</td></tr>
-        <tr><td class="c-payload">size</td><td class="mono">u64</td><td>文件大小（字节）</td></tr>
-        <tr><td class="c-payload">mtime</td><td class="mono">u64</td><td>文件修改时间戳（UTC 秒）</td></tr>
-        <tr><td class="c-len">chunk_size</td><td class="mono">u32</td><td>数据块大小（字节）；建议 1024–1350，上限 1400（见 08 章）</td></tr>
-        <tr><td class="c-chunk">chunk_id</td><td class="mono">u32</td><td>数据块标识；从 0 开始</td></tr>
-        <tr><td class="c-chunk">chunk_count</td><td class="mono">u32</td><td>总块数 = <code>ceil(size / chunk_size)</code></td></tr>
-        <tr><td class="c-len">payload_len</td><td class="mono">u16</td><td>载荷长度</td></tr>
-        <tr><td class="c-flags">flags</td><td class="mono">u16</td><td>标志位</td></tr>
-        <tr><td class="c-session">client_id</td><td class="mono">str (device_id)</td><td>客户端设备 ID（见 23 章）</td></tr>
-      </tbody>
-    </table>
-  </div>
 
-  <h2>会话与方向</h2>
-  <div class="card">
-    <table>
-      <thead><tr><th>术语</th><th>类型</th><th>说明</th></tr></thead>
-      <tbody>
-        <tr><td class="c-frame">direction</td><td class="mono">enum8</td><td>会话方向，<code>0</code> = <code>upload</code>、<code>1</code> = <code>download</code> —— <strong>决定接收方与发送方的身份</strong>（见 06、09 章与 10 章「视角定义」）</td></tr>
-        <tr><td class="c-chunk">接收方</td><td>—</td><td>持有位图与临时文件的一方；<strong>完成消息由它发布，缺失裁决由它发起</strong></td></tr>
-        <tr><td class="c-session">发送方</td><td>—</td><td>发送数据的一方；上传方向为 Client，下载方向为 Server</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h2>状态与控制</h2>
-  <div class="card">
-    <table>
-      <thead><tr><th>术语</th><th>类型</th><th>说明</th></tr></thead>
-      <tbody>
-        <tr><td class="c-payload">bitmap</td><td>—</td><td>接收进度位图；记录各 <code>chunk_id</code> 的接收状态（见 18 章）</td></tr>
-        <tr><td class="c-len">window</td><td class="mono">u32</td><td>滑动窗口大小（<strong>会话级在途上限</strong>，Server 下发，Client 不得修改，见 11 章）</td></tr>
-        <tr><td class="c-len">connection_window</td><td class="mono">u32</td><td><strong>连接级</strong>在途上限；一条控制连接上<strong>所有会话</strong>的在途量之和不得超过该值（见 11 章）</td></tr>
-        <tr><td class="c-flags">复核轮</td><td>—</td><td>文件级失配后接收方要求发送方<strong>重新读取源文件并全量重发</strong>的恢复过程，<strong>至多一次</strong>（见 12 章）</td></tr>
-        <tr><td class="c-len">在途量</td><td>—</td><td>已发出但尚未被对端确认接收的 chunk 数；<strong>不得超过 <code>window</code></strong>（见 11 章）</td></tr>
-        <tr><td class="c-crc">missing_chunks</td><td class="mono">chunk_list</td><td>缺失数据块列表（<code>u32</code> 条数 + <code>u32</code> 数组，<strong>必须</strong>升序）；语义为「<strong>发布方自己尚未收到的块</strong>」<br>· 发布方恒为<strong>接收方</strong>（<code>mode=report</code>）；发送方发布时（<code>mode=request</code>）该列表<strong>必须</strong>为空列表</td></tr>
-        <tr><td class="c-flags">mode</td><td class="mono">enum8</td><td><code>missing_chunks</code> 的判别字段：<code>0</code> = <code>report</code>（报告缺失）/ <code>1</code> = <code>request</code>（索要缺失列表）</td></tr>
-        <tr><td class="c-len">missing_count</td><td class="mono">u32</td><td>位图中<strong>未收到</strong>的 chunk 总数（精确值）；未携带时由<strong>存在标志位</strong>表示（见 06、18 章）</td></tr>
-        <tr><td class="c-type">udp_ready</td><td>—</td><td>UDP 就绪通知</td></tr>
-        <tr><td class="c-type">resume_session</td><td>—</td><td>暂停后的会话恢复请求（见 13 章）</td></tr>
-        <tr><td class="c-type">resume_ack</td><td>—</td><td>暂停后的会话恢复应答（见 13 章）</td></tr>
-        <tr><td class="c-type">progress_update</td><td>—</td><td>传输进度更新；<strong>发布方恒为接收方</strong>（见 06 章）</td></tr>
-        <tr><td class="c-type">session_pause</td><td>—</td><td>会话暂停请求</td></tr>
-        <tr><td class="c-len">file_exists</td><td class="mono">bool (u8)</td><td>秒传标志：<code>0</code> = 假、<code>1</code> = 真；Server 侧已存在相同 <code>file_hash</code> 时为 <code>1</code>（见 10 章）</td></tr>
-        <tr><td class="c-payload">asset_id</td><td class="mono">str</td><td>Server 为素材记录分配的标识（见 06 章）</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h2>控制通道</h2>
-  <div class="card">
-    <table>
-      <thead><tr><th>术语</th><th>说明</th></tr></thead>
-      <tbody>
-        <tr><td class="c-frame">帧</td><td>控制通道的消息单元：<code>u32 magic</code> + <code>u32 frame_len</code> + <code>u32 header_crc32</code> + <strong>16 字节定长帧头</strong> + 二进制消息体；长度前缀，接收方<strong>必须读满后解析</strong>；<code>magic</code> / <code>header_crc32</code> / <code>frame_len</code> 三项校验任一失败即判定失步并断连（见 06 章）</td></tr>
-        <tr><td class="c-frame">失步</td><td>desync：帧边界不再可信的状态；控制面<strong>必须</strong>关闭连接并按 13 章恢复（见 06 章）</td></tr>
-        <tr><td class="c-len">max_frame_len</td><td>控制通道单帧上限（<strong>1 MiB</strong>，见 06 章）</td></tr>
-        <tr><td class="c-session">权威快照</td><td><code>login_ack.sessions</code> 或 <code>resume_ack</code> 携带的会话状态，接收方<strong>必须</strong>以其<strong>覆盖</strong>本地状态（见 13 章）</td></tr>
-        <tr><td class="c-type">ping / pong</td><td>心跳与心跳应答，周期 <strong>10 秒</strong>，空闲超时 <strong>30 秒</strong>（见 06 章）</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h2>流控参数（发送端本地）</h2>
-  <div class="card">
-    <table>
-      <thead><tr><th>参数</th><th>类型</th><th>初值</th><th>范围</th></tr></thead>
-      <tbody>
-        <tr><td class="c-len">burst_size</td><td class="mono">u32</td><td class="mono">= min(256, window)</td><td class="mono">[min(64, window), window]</td></tr>
-        <tr><td class="c-len">batch_gap_us</td><td class="mono">u32</td><td class="mono">2000</td><td class="mono">[0, 100000]</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="note warn">
-    <strong>注意</strong>：<code>burst_size</code> 与 <code>batch_gap_us</code> 是<strong>发送端本地策略参数</strong>，
-    <strong>不是</strong>协议层参数；不同实现<strong>可以</strong>采用不同取值（见 11 章）。
-  </div>
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
+  <blockquote>
+<p>本章定义<strong>协议字段与核心概念</strong>；<strong>消息与消息方向速查</strong>见
+<a href="99-glossary.md">99 章「术语表」</a>。两章如有出入，以本章为准。</p>
+</blockquote>
+<h2>基础术语</h2>
+<ul>
+<li><code>session_id</code>（u64）：会话唯一标识；控制帧、UDP 数据包与 TCP 数据面帧中
+  <strong>均以 u64 承载</strong>（见 06、07、08、09 章）</li>
+<li><code>file_hash</code>（hash32）：文件哈希；<strong>32 字节原始 Blake3 摘要</strong>（非十六进制串，见 06 章）</li>
+<li><code>file_name</code>（str）：文件名（<code>u16</code> 长度 + UTF-8 字节）</li>
+<li><code>size</code>（u64）：文件大小（字节）</li>
+<li><code>mtime</code>（u64）：文件修改时间戳（UTC 秒）</li>
+<li><code>chunk_size</code>（u32）：数据块大小（字节）；建议 1024–1350，上限 1400（见 08 章）</li>
+<li><code>chunk_id</code>（u32）：数据块标识；从 0 开始</li>
+<li><code>chunk_count</code>（u32）：总块数 = <code>ceil(size / chunk_size)</code>；
+  <strong>必须</strong> ≤ 2³² − 1（文件大小上限，见 09 章）</li>
+<li><code>payload_len</code>（u16）：载荷长度</li>
+<li><code>flags</code>（u16）：标志位</li>
+<li><code>client_id</code>（device_id，str）：客户端设备 ID（见 23 章）</li>
+</ul>
+<h2>会话与方向</h2>
+<ul>
+<li><code>direction</code>（enum8）：会话方向，<code>0</code> = <code>upload</code>、<code>1</code> = <code>download</code> —— <strong>决定接收方与发送方的身份</strong>
+  （见 06 章、09 章、10 章「视角定义」）</li>
+<li><strong>接收方</strong>：持有位图与临时文件的一方；完成消息由它发布，缺失裁决由它发起</li>
+<li><strong>发送方</strong>：发送数据的一方；上传方向为 Client，下载方向为 Server</li>
+</ul>
+<h2>状态与控制</h2>
+<ul>
+<li><code>bitmap</code>：接收进度位图；记录各 <code>chunk_id</code> 的接收状态（见 18 章）</li>
+<li><code>window</code>（u32）：滑动窗口大小（<strong>会话级在途上限</strong>，Server 下发，
+  Client 不得修改，见 11 章）</li>
+<li><code>connection_window</code>（u32）：<strong>连接级</strong>在途上限；
+  一条控制连接上所有会话的在途量之和<strong>不得超过</strong>该值（见 11 章）</li>
+<li><strong>在途量</strong>：已发出但尚未被对端确认接收的 chunk 数；不得超过 <code>window</code>（见 11 章）</li>
+<li><code>missing_chunks</code>（chunk_list）：缺失数据块列表（<code>u32</code> 条数 + <code>u32</code> 数组，<strong>必须</strong>升序）；
+  语义为「<strong>发布方自己尚未收到的块</strong>」</li>
+<li>发布方恒为<strong>接收方</strong>（<code>mode=report</code>）；发送方发布时（<code>mode=request</code>）该列表<strong>必须</strong>为空列表</li>
+<li><code>mode</code>（enum8）：<code>missing_chunks</code> 的判别字段，<code>0</code> = <code>report</code>（报告缺失）/ <code>1</code> = <code>request</code>（索要缺失列表）</li>
+<li><strong>复核轮</strong>：文件级校验失配后，接收方要求发送方<strong>重新读取源文件并全量重发</strong>的
+  恢复过程；<strong>至多一次</strong>（见 12 章）。由 <code>missing_chunks.flags.bit1</code> 表达</li>
+<li><strong>摘要对帐</strong>：文件级校验失配后，接收方与发送方<strong>逐区间比对摘要</strong>以定位
+  差异区间、进而定点修复的过程；<strong>至多一次</strong>（见 12 章）。
+  由 <code>reconcile_request</code> / <code>reconcile_response</code> 表达</li>
+<li><strong>对帐区间</strong>：摘要对帐的比较单位，由 <code>(first_chunk, chunk_count)</code> 确定，
+  以 chunk 为最小粒度（见 12 章「对帐区间」）</li>
+<li><code>missing_count</code>（u32）：位图中<strong>未收到</strong>的 chunk 总数（精确值）；
+  未携带时由<strong>存在标志位</strong>表示（见 06 章、18 章）</li>
+<li><code>udp_ready</code>：UDP 就绪通知</li>
+<li><code>resume_session</code> / <code>resume_ack</code>：暂停后的会话恢复请求 / 应答（见 13 章）</li>
+<li><code>progress_update</code>：传输进度更新；发布方恒为<strong>接收方</strong>（见 06 章）</li>
+<li><code>session_pause</code>：会话暂停请求</li>
+<li><code>file_exists</code>（bool，u8 编码：<code>0</code> = 假、<code>1</code> = 真）：秒传标志；
+  已授权引用且既有内容校验通过时为 <code>1</code>（见 09、10 章）</li>
+<li><code>asset_id</code>（str）：Server 为素材记录分配的标识（见 06 章）</li>
+<li><strong>私有素材记录</strong>：由客户端上传产生、归属于该 <code>device_id</code> 的素材记录；
+  仅归属方可拉取与撤回（见 09 章）</li>
+<li><strong>预置素材记录</strong>：由 Server 创建、归 Server 所有的素材记录；
+  构成<strong>共享清单</strong>，所有已认证设备均可列举与拉取，但不可撤回（见 09 章）</li>
+<li><strong>共享清单</strong>（catalog）：Server 侧全部<strong>预置素材记录</strong>的集合；
+  通过 <code>material_list</code> 查询、通过 <code>material_available</code> 通知变更（见 09 章）</li>
+<li><code>seq</code>（u64）：共享清单条目的<strong>单调递增</strong>序号；
+  Client 的增量水位与分页游标（见 09 章）</li>
+<li><strong>主动投递</strong>：Server 在 Client 未请求的情况下，向在线 Client 投递文件；
+  方向恒为 download，携带全套会话参数（见 09 章）</li>
+</ul>
+<h2>控制通道</h2>
+<ul>
+<li><strong>帧</strong>：控制通道的消息单元；<code>u32 magic</code> + <code>u32 frame_len</code> + <code>u32 header_crc32</code> +
+  <code>u8 msg_type</code> + <code>u8 flags</code> + <code>u8 body_version</code> + <code>u8 reserved</code> +
+  <strong>16 字节定长帧头</strong> + 二进制消息体；
+  长度前缀，接收方<strong>必须</strong>读满后解析；<code>magic</code> / <code>header_crc32</code> / <code>frame_len</code>
+  三项校验任一失败即判定失步并断连（见 06 章）</li>
+<li><strong>失步</strong>（desync）：帧边界不再可信的状态；控制面<strong>必须</strong>关闭连接并按 13 章恢复</li>
+<li><code>max_frame_len</code>：控制通道单帧上限（<strong>1 MiB</strong>，见 06 章）</li>
+<li><strong>权威快照</strong>：<code>login_ack.sessions</code> 或 <code>resume_ack</code> 携带的会话状态，
+  用于同步会话参数，不覆盖接收方持久化位图与提交阶段（见 13 章）</li>
+<li><code>ping</code> / <code>pong</code>：心跳与心跳应答，周期 10 秒，空闲超时 30 秒（见 06 章）</li>
+</ul>
+<h2>流控参数（发送端本地）</h2>
+<ul>
+<li><code>burst_size</code>（u32）：发送批次大小；初值 = <code>min(256, window)</code>，范围 <code>[min(64, window), window]</code></li>
+<li><code>batch_gap_us</code>（u32）：批间隔（微秒）；初值 2000，范围 <code>[0, 100000]</code></li>
+</ul>
+<blockquote>
+<p><code>burst_size</code> 与 <code>batch_gap_us</code> 是<strong>发送端本地策略参数</strong>，
+<strong>不</strong>是协议层参数；不同实现<strong>可以</strong>采用不同取值（见 11 章）。</p>
+</blockquote>
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/02-terminology.md">docs/spec/02-terminology.md</a></footer>
 </div>

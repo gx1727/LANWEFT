@@ -1,0 +1,9 @@
+<div class="note blue">
+  <strong>本章要点</strong>：协议分层为<strong>应用层 → 控制层（TCP） → 数据层（UDP/TCP） → 网络层（LAN）</strong>。
+  控制面负责连接握手与认证、会话建立 / 协商、缺失统计与重传裁决、UDP 可用性探测、完成与终止、进度通知，
+  以及<strong>由连接存续直接表达</strong>的心跳与在线状态；数据面只负责 Chunk 传输、CRC32 包级校验与随机写盘位图。
+  原则：<strong>状态机仅由控制面推进</strong>，数据面只更新位图、<strong>不直接触发状态转移</strong>；
+  <strong>Server 拥有一般终止权</strong>（会话参数、状态、超时的裁决由 Server 做出），
+  非 Server 的接收方可因完整性或持久化失败终止，允许的原因与条件以
+  <a href="10-state-machine.html">10 章「终止权」</a>为准。
+</div>

@@ -1,0 +1,9 @@
+<div class="note blue">
+    <strong>本章要点</strong>：下载方向由 <strong>Client 主动发起</strong>，Server
+    <strong>不得</strong>向未知端口推送 UDP；客户端端口由 <code>download_accept.udp_port</code>
+    与 UDP 探测共同确定。
+    控制面与可靠性机制与上传一致；<strong>完成消息一律由接收方发布</strong>（规范性）——
+    接收方持有位图与临时文件，只有它能完成「校验 hash → 原子重命名」并判定成败。
+    裁决与进度节奏与上传对称：缺失报告由<strong>接收方</strong>每 {{VAR:report_interval}} 下发，
+    进度由<strong>接收方</strong>每 {{VAR:progress_interval}} 发布。
+  </div>

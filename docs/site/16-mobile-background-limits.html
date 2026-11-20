@@ -18,55 +18,77 @@
 
   <h1>16 移动端后台限制</h1>
 
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
     <strong>本章要点</strong>：移动端的后台限制由<strong>操作系统</strong>决定，协议侧以
-    <strong>「后台视为中断」+ <code>resume_session</code> 恢复</strong>的方式适配；
-    协议不提供「长期后台无 UI 传输」这一能力（见 04 章非目标）。
+    <strong>「后台视为中断」</strong>的方式适配：
+    Android 用 <strong>Foreground Service</strong> 并<strong>展示同步状态</strong>，
+    iOS <strong>仅前台</strong>可用、<strong>后台视为中断</strong>。
+    回前台后按连接是否存活选择恢复路径：连接已断用 <code>login</code> 恢复；
+    <strong>仅</strong>连接仍存活<strong>且</strong>会话已显式暂停时才用 <code>resume_session</code>（见 13 章）。
+    协议<strong>不</strong>提供「长期后台无 UI 传输」这一能力（见 04 章非目标）。
   </div>
 
+
+  <!-- ============ 平台差异（对比图，搬自原页面） ============ -->
   <h2>平台差异</h2>
-  <div class="cols">
-    <section>
-      <h3 style="margin-top:0">Android</h3>
-      <div class="card">
-        <ul class="spec" style="margin:0;padding:14px 14px 14px 34px">
-          <li>使用 <strong>Foreground Service</strong>（前台服务）</li>
-          <li><strong>展示同步状态</strong>（通知栏）</li>
-        </ul>
-      </div>
-    </section>
-    <section>
-      <h3 style="margin-top:0">iOS</h3>
-      <div class="card">
-        <ul class="spec" style="margin:0;padding:14px 14px 14px 34px">
-          <li><strong>仅前台</strong>可用</li>
-          <li>进入后台<strong>视为中断</strong></li>
-          <li>回到前台需发 <code>resume_session</code></li>
-        </ul>
-      </div>
-    </section>
-  </div>
 
-  <h2>与恢复机制的衔接</h2>
-  <div class="diagram">
-    <div class="fields" style="--cols:2">
-      <div class="cell ruler-title">移动端 Client</div>
-      <div class="cell ruler-title">Server</div>
-      <div class="cell f-type">前台传输中</div>
-      <div class="cell f-chunk">TRANSFERRING</div>
-      <div class="cell f-len">进入后台 → 视为中断（会话暂停 / 位图保留）</div>
-      <div class="cell f-muted">保留位图与临时文件（见 13 章、17 章）</div>
-      <div class="cell f-type">回到前台 → resume_session</div>
-      <div class="cell f-type">resume_ack {next_chunk_id, missing_count, udp_port}</div>
-      <div class="cell wide f-chunk">各视角各自回到断线前状态（PAUSED 保持 PAUSED）</div>
-    </div>
+<div class="diagram">
+  <div class="fields" style="--cols:2">
+    <div class="cell ruler-title">Android</div>
+    <div class="cell ruler-title">iOS</div>
+    <div class="cell f-chunk">Foreground Service（前台服务）</div>
+    <div class="cell f-len"><strong>仅前台</strong>可用</div>
+    <div class="cell f-chunk">展示同步状态</div>
+    <div class="cell f-len">进入后台<strong>视为中断</strong></div>
   </div>
+</div>
 
-  <div class="note">
+<div class="caption">
+  两栏均为源文「Android」/「iOS」小节条目的对照；
+  后台行为差异在协议侧的落点是同一条 —— <strong>后台视为中断</strong>，
+  中断<strong>不回滚</strong>已写入数据、<strong>保留</strong>位图与临时文件（见 13 章）。
+</div>
+
+
+  <!-- ============ 回到前台后的恢复路径（搬自原页面，按源文修正） ============ -->
+  <h2>回到前台后的恢复路径</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:2">
+    <div class="cell ruler-title">移动端 Client</div>
+    <div class="cell ruler-title">Server</div>
+    <div class="cell f-type">前台传输中</div>
+    <div class="cell f-chunk">TRANSFERRING</div>
+    <div class="cell f-len">进入后台 → 视为中断</div>
+    <div class="cell f-muted">保留位图与临时文件（见 13 章、17 章）</div>
+    <div class="cell wide f-type">回到前台：按「连接是否存活」分两条路径（见 13 章）</div>
+    <div class="cell f-session">连接<strong>已断</strong> → <code>login</code>（恢复列表）→ <code>login_ack</code> 权威快照</div>
+    <div class="cell f-chunk">连接<strong>仍存活</strong>且会话已显式暂停 → <code>resume_session</code> → <code>resume_ack</code></div>
+    <div class="cell wide f-chunk">各视角各自回到断线前状态（PAUSED 保持 PAUSED）</div>
+  </div>
+</div>
+
+<div class="note">
     <strong>实现提示</strong>：iOS 的「后台视为中断」与 13 章「暂停后恢复（连接存活）」语义一致；
     若连接已断开，则走 13 章「断线重连（连接重建）」路径，由 <code>login</code> 的恢复列表与
     <code>login_ack</code> 的权威快照重建状态。
+    协议<strong>不</strong>提供「移动端长期后台无 UI 传输」的能力（见 04 章非目标）。
   </div>
+
+
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
+  <h2>Android</h2>
+<ul>
+<li>Foreground Service</li>
+<li>展示同步状态</li>
+</ul>
+<h2>iOS</h2>
+<ul>
+<li>仅前台</li>
+<li>后台视为中断</li>
+<li>回前台若连接已断，使用 <code>login</code> 恢复；仅连接仍存活且会话已显式暂停时使用 <code>resume_session</code>（见 13 章）。</li>
+</ul>
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/16-mobile-background-limits.md">docs/spec/16-mobile-background-limits.md</a></footer>
 </div>

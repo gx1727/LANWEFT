@@ -1,0 +1,28 @@
+<div class="diagram">
+  <div class="fields" style="--cols:4">
+    <div class="cell ruler-title">应用层 → 控制层（TCP） → 数据层（UDP/TCP） → 网络层（LAN）</div>
+
+    <div class="cell wide f-body">应用层</div>
+    <div class="cell wide f-muted">↓</div>
+
+    <div class="cell wide f-frame">控制层（TCP）</div>
+    <div class="cell wide f-muted">↓</div>
+
+    <div class="cell wide f-type">数据层（UDP / TCP）</div>
+    <div class="cell wide f-muted">↓</div>
+
+    <div class="cell wide f-session">网络层（LAN）</div>
+  </div>
+</div>
+
+<div class="legend">
+  <span><i class="swatch" style="background:var(--b-body)"></i>应用层</span>
+  <span><i class="swatch" style="background:var(--b-frame)"></i>控制层（TCP）</span>
+  <span><i class="swatch" style="background:var(--b-type)"></i>数据层（UDP/TCP）</span>
+  <span><i class="swatch" style="background:var(--b-session)"></i>网络层（LAN）</span>
+</div>
+<div class="caption">
+  分层顺序自上而下，取自本章源文「分层架构」。各层职责见下文正文；
+  控制面细节见 <a href="06-control-plane-tcp.html">06 章</a>，
+  数据面数据包格式见 <a href="08-packet-format.html">08 章</a>。
+</div>

@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>01 系统架构（Architecture） — LANWEFT</title>
+<title>01 架构（Architecture） — LANWEFT</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,117 +16,117 @@
     <a href="../spec/01-architecture.md">规范源文</a>
   </nav>
 
-  <h1>01 系统架构（Architecture）</h1>
+  <h1>01 架构（Architecture）</h1>
 
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
-    <strong>本章要点</strong>：LANWEFT 采用<strong>应用层 → 控制层（TCP）→ 数据层（UDP/TCP）→ 网络层（LAN）</strong>的分层结构。
-    控制面负责握手认证、会话协商、缺失统计与重传裁决、UDP 可用性探测、完成与终止、进度通知以及心跳与在线状态；
-    数据面只负责 Chunk 传输、CRC32 校验与随机写盘位图。<strong>状态机仅由控制面推进</strong>，
-    <strong>Server 为最终裁决者</strong>——任何进入 <code>ABORTED</code> 的转换只能由 Server 发起。
-  </div>
+  <strong>本章要点</strong>：协议分层为<strong>应用层 → 控制层（TCP） → 数据层（UDP/TCP） → 网络层（LAN）</strong>。
+  控制面负责连接握手与认证、会话建立 / 协商、缺失统计与重传裁决、UDP 可用性探测、完成与终止、进度通知，
+  以及<strong>由连接存续直接表达</strong>的心跳与在线状态；数据面只负责 Chunk 传输、CRC32 包级校验与随机写盘位图。
+  原则：<strong>状态机仅由控制面推进</strong>，数据面只更新位图、<strong>不直接触发状态转移</strong>；
+  <strong>Server 拥有一般终止权</strong>（会话参数、状态、超时的裁决由 Server 做出），
+  非 Server 的接收方可因完整性或持久化失败终止，允许的原因与条件以
+  <a href="10-state-machine.html">10 章「终止权」</a>为准。
+</div>
 
-  <h2>分层架构</h2>
 
+  <!-- ============ 分层条带图（层级取自源文） ============ -->
   <div class="diagram">
-    <div class="fields" style="--cols:4">
-      <div class="cell ruler-title">应用层 → 控制层（TCP） → 数据层（UDP/TCP） → 网络层（LAN）</div>
+  <div class="fields" style="--cols:4">
+    <div class="cell ruler-title">应用层 → 控制层（TCP） → 数据层（UDP/TCP） → 网络层（LAN）</div>
 
-      <div class="cell wide f-body">应用层</div>
-      <div class="cell wide f-muted">↓</div>
+    <div class="cell wide f-body">应用层</div>
+    <div class="cell wide f-muted">↓</div>
 
-      <div class="cell wide f-frame">控制层（TCP）</div>
-      <div class="cell wide f-muted">↓</div>
+    <div class="cell wide f-frame">控制层（TCP）</div>
+    <div class="cell wide f-muted">↓</div>
 
-      <div class="cell wide f-type">数据层（UDP / TCP）</div>
-      <div class="cell wide f-muted">↓</div>
+    <div class="cell wide f-type">数据层（UDP / TCP）</div>
+    <div class="cell wide f-muted">↓</div>
 
-      <div class="cell wide f-session">网络层（LAN）</div>
-    </div>
+    <div class="cell wide f-session">网络层（LAN）</div>
   </div>
+</div>
 
-  <div class="legend">
-    <span><i class="swatch" style="background:var(--b-body)"></i>应用层</span>
-    <span><i class="swatch" style="background:var(--b-frame)"></i>控制层（TCP）</span>
-    <span><i class="swatch" style="background:var(--b-type)"></i>数据层（UDP/TCP）</span>
-    <span><i class="swatch" style="background:var(--b-session)"></i>网络层（LAN）</span>
-  </div>
-  <div class="caption">分层顺序自上而下：应用层 → 控制层（TCP）→ 数据层（UDP/TCP）→ 网络层（LAN）。</div>
+<div class="legend">
+  <span><i class="swatch" style="background:var(--b-body)"></i>应用层</span>
+  <span><i class="swatch" style="background:var(--b-frame)"></i>控制层（TCP）</span>
+  <span><i class="swatch" style="background:var(--b-type)"></i>数据层（UDP/TCP）</span>
+  <span><i class="swatch" style="background:var(--b-session)"></i>网络层（LAN）</span>
+</div>
+<div class="caption">
+  分层顺序自上而下，取自本章源文「分层架构」。各层职责见下文正文；
+  控制面细节见 <a href="06-control-plane-tcp.html">06 章</a>，
+  数据面数据包格式见 <a href="08-packet-format.html">08 章</a>。
+</div>
 
-  <h2>各层职责</h2>
 
-  <h3>控制面</h3>
-  <ul class="spec">
-    <li>连接握手与认证</li>
-    <li>会话建立 / 协商</li>
-    <li>缺失统计与重传裁决</li>
-    <li>UDP 可用性探测</li>
-    <li>完成与终止</li>
-    <li>进度通知</li>
-    <li>心跳与在线状态（<strong>由连接存续直接表达</strong>，见 06 章）</li>
-  </ul>
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
+  <h2>分层架构</h2>
+<p>应用层 → 控制层（TCP） → 数据层（UDP/TCP） → 网络层（LAN）。</p>
+<h2>各层职责</h2>
+<h3>控制面</h3>
+<ul>
+<li>连接握手与认证</li>
+<li>会话建立/协商</li>
+<li>缺失统计与重传裁决</li>
+<li>UDP 可用性探测</li>
+<li>完成与终止</li>
+<li>进度通知</li>
+<li>心跳与在线状态（<strong>由连接存续直接表达</strong>，见 06 章）</li>
+</ul>
+<h3>数据面</h3>
+<ul>
+<li>Chunk 传输</li>
+<li>CRC32 包级校验（覆盖头部与载荷）</li>
+<li>随机写盘与位图</li>
+</ul>
+<h2>角色与视角</h2>
+<p>协议区分两个角色视角（详见 10 章「视角定义」）：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>视角</th>
+<th>定义</th>
+<th>上传方向</th>
+<th>下载方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>发送侧</strong></td>
+<td>发送数据的一方</td>
+<td>Client</td>
+<td>Server</td>
+</tr>
+<tr>
+<td><strong>接收侧</strong></td>
+<td>持有位图与临时文件的一方</td>
+<td>Server</td>
+<td>Client</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>完成消息一律由接收方发布</strong>：<code>upload_complete</code> 由 Server 发布，
+  <code>download_complete</code> 由 Client 发布。</li>
+<li><strong>缺失报告一律由接收方发起</strong>：<code>missing_chunks</code>（<code>mode=report</code>）由接收方下发，
+  发送方据此补发。</li>
+</ul>
+<h2>原则</h2>
+<ul>
+<li>状态机仅由控制面推进；数据面只更新位图，不直接触发状态转移</li>
+<li><strong>Server 拥有一般终止权</strong>：会话参数、状态、超时的裁决由 Server 做出</li>
+<li>非 Server 的接收方可因完整性或持久化失败终止，允许的原因与条件以 10 章「终止权」为准。</li>
+<li>控制面拥有最终裁决权；数据面仅负责搬运与落盘</li>
+</ul>
 
-  <h3>数据面</h3>
-  <ul class="spec">
-    <li>Chunk 传输</li>
-    <li>CRC32 校验</li>
-    <li>随机写盘与位图</li>
-  </ul>
-
-  <div class="note">
-    控制面细节见 <a href="06-control-plane-tcp.html">06 章「控制面（TCP）」</a>；
-    数据面细节见 <a href="08-packet-format.html">08 章「数据包结构」</a>。
-  </div>
-
-  <h2>角色与视角</h2>
-
-  <p>协议区分两个角色视角（详见 10 章「视角定义」）：</p>
-
-  <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>视角</th>
-          <th>定义</th>
-          <th>上传方向</th>
-          <th>下载方向</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><strong>发送侧</strong></td>
-          <td>发送数据的一方</td>
-          <td class="num">Client</td>
-          <td class="num">Server</td>
-        </tr>
-        <tr>
-          <td><strong>接收侧</strong></td>
-          <td>持有位图与临时文件的一方</td>
-          <td class="num">Server</td>
-          <td class="num">Client</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <ul class="spec">
-    <li><strong>完成消息一律由接收方发布</strong>：<code>upload_complete</code> 由 Server 发布，
-      <code>download_complete</code> 由 Client 发布。</li>
-    <li><strong>缺失报告一律由接收方发起</strong>：<code>missing_chunks</code>（<code>mode=report</code>）由接收方下发，
-      发送方据此补发。</li>
-  </ul>
-
-  <h2>原则</h2>
-
-  <ul class="spec">
-    <li>状态机<strong>仅由控制面推进</strong>；数据面只更新位图，<strong>不直接触发状态转移</strong>。</li>
-    <li><strong>Server 为最终裁决者</strong>：任何进入 <code>ABORTED</code> 的转换<strong>只能</strong>由 Server 发起。</li>
-    <li>控制面拥有最终裁决权；数据面仅负责搬运与落盘。</li>
-  </ul>
-
+  <!-- ============ 导读补充（数据面与控制面的边界） ============ -->
   <div class="note warn">
-    <strong>注意</strong>：数据面收到重复或乱序的数据包时<strong>只能</strong>更新位图，
-    <strong>不得</strong>直接触发状态转移；缺失的裁决与重传请求一律经由控制面完成。
-  </div>
+  <strong>注意</strong>：数据面收到重复或乱序的数据包时<strong>只能</strong>更新位图，
+  <strong>不得</strong>直接触发状态转移；缺失的裁决与重传请求一律经由控制面完成。
+</div>
+
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/01-architecture.md">docs/spec/01-architecture.md</a></footer>
 </div>

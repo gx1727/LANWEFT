@@ -1,0 +1,24 @@
+<div class="diagram">
+    <div class="fields" style="--cols:2">
+      <div class="cell ruler-title">Server（投递方）</div>
+      <div class="cell ruler-title">Client（接收方）</div>
+
+      <div class="cell f-type">delivery_offer {session_id, 参数, file_hash, file_name}</div>
+      <div class="cell f-muted">决策（策略 / 配额 / 用户）—— 可以拒绝</div>
+
+      <div class="cell f-muted">等待该会话的 UDP_PROBE 确认对端地址</div>
+      <div class="cell f-type">delivery_response {result=success} 或 {result=fail + code}</div>
+
+      <div class="cell f-muted">收到接受后才可发送数据面数据包</div>
+      <div class="cell f-muted">重复的 delivery_offer 被幂等忽略</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--b-type)"></i>控制面消息</span>
+    <span><i class="swatch" style="background:#f7f8fa"></i>对端动作 / 说明</span>
+  </div>
+  <div class="caption">
+    对应正文「主动投递的边界（规范性）」：消息名取自源文正文与 24 章「主动投递」时序；
+    投递方向恒为 <strong>download</strong>、完成消息恒由接收方发布（见 24 章）。
+  </div>

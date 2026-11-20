@@ -1,0 +1,38 @@
+<h3><code>login_ack</code> 快照记录的字段构成</h3>
+
+<div class="diagram">
+  <div class="fields" style="--cols:4">
+    <div class="cell wide ruler-title">快照记录 = 定长区（字段顺序与类型取自源文「通用规则」）+ 内联 code 字符串</div>
+
+    <div class="cell span2 f-session">session_id (u64)</div>
+    <div class="cell span2 f-type">result / direction / state (enum8 × 3)</div>
+
+    <div class="cell f-chunk">chunk_count (u32)</div>
+    <div class="cell f-chunk">chunk_size (u32)</div>
+    <div class="cell f-len">window (u32)</div>
+    <div class="cell f-len">connection_window (u32)</div>
+
+    <div class="cell f-len">next_chunk_id (u32)</div>
+    <div class="cell f-len">missing_count (u32)</div>
+    <div class="cell span2 f-flags">udp_port / tcp_port / code_len (u16 × 3)</div>
+
+    <div class="cell wide f-body">定长区共 {{VAR:snapshot_rec_bytes}} 字节 → 紧随其后是 code_len 字节内联的 code 字符串</div>
+  </div>
+</div>
+
+<div class="caption">
+  字段名称、顺序与类型取自源文「断线重连（连接重建）· 通用规则（规范性）」；
+  定长区长度 <strong>{{VAR:snapshot_rec_bytes}} 字节</strong>由源文声明。
+  图中<strong>不含手敲偏移</strong>：定长区内的字节排布由源文定义，字段类型即其宽度。
+</div>
+
+<div class="note">
+  <strong>条目数上界与可编码性</strong>：<code>resume_count</code> 与 <code>sessions_count</code>
+  <strong>必须</strong> ≤ <code>max_sessions_per_connection</code>（{{VAR:sess_cap}}）。
+  <code>login.resume[]</code> 每条为 <strong>{{VAR:resume_rec_bytes}} 字节定长</strong>记录
+  （字段：<code>session_id</code> / <code>next_chunk_id</code> / <code>missing_count</code> / <code>flags</code>），
+  恢复列表最大 {{VAR:sess_cap}} × {{VAR:resume_rec_bytes}} = <strong>{{VAR:resume_list_max}} 字节</strong>；
+  快照最大 {{VAR:sess_cap}} × ({{VAR:snapshot_rec_bytes}} + <code>code_len</code>) 字节，
+  均<strong>远小于</strong> <code>max_frame_len</code>（{{VAR:max_frame_len_13}}）——
+  该上界保证两者<strong>始终可编码</strong>。
+</div>

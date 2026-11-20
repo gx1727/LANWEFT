@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>13 中断与恢复（Resume & Recovery） — LANWEFT</title>
+<title>13 中断与恢复（Resume &amp; Recovery） — LANWEFT</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,229 +16,394 @@
     <a href="../spec/13-resume-and-recovery.md">规范源文</a>
   </nav>
 
-  <h1>13 中断与恢复（Resume & Recovery）</h1>
+  <h1>13 中断与恢复（Resume &amp; Recovery）</h1>
 
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
     <strong>本章要点</strong>：恢复有<strong>两条路径</strong>（断线重连 / 暂停后恢复），语义<strong>一致</strong>：
     都返回接收方的<strong>权威续传位置与数据面端口</strong>，都使会话回到<strong>可传输状态</strong>；
     区别只在于<strong>是否需要重建连接</strong>。
+    断线<strong>不解除</strong>显式暂停 —— <code>PAUSED</code> 会话在重连后<strong>必须</strong>仍处于 <code>PAUSED</code>，
+    由 <code>resume_session</code> / <code>resume_ack</code> 显式恢复；
+    恢复后<strong>各视角各自回到断线前的状态</strong>。
+    续传起点 <code>next_chunk_id</code> <strong>必须</strong>是接收方位图中<strong>第一个尚未收到的块</strong>，
+    位图中的空洞由周期下发的 <code>missing_chunks</code>（<code>mode=report</code>）负责指认。
   </div>
 
-  <h2>中断处理</h2>
-  <ul class="spec">
-    <li>可随时中断</li>
-    <li>保留已写入与位图</li>
-    <li>中断<strong>不回滚</strong>已写入数据</li>
-    <li><strong>控制连接断开时，其上承载的全部会话一并进入中断</strong>（见 09 章）</li>
-  </ul>
 
-  <h2>恢复的两条路径（规范性）</h2>
-  <div class="card">
-    <table>
-      <thead><tr><th>路径</th><th>触发条件</th><th>消息</th><th>权威状态载体</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><strong>断线重连</strong></td><td>控制连接断开后重新建立</td>
-          <td class="mono">login（恢复列表） → login_ack</td>
-          <td><code>login_ack</code> 的 <code>sessions[]</code> 快照记录</td>
-        </tr>
-        <tr>
-          <td><strong>暂停后恢复</strong></td><td>会话处于 <code>PAUSED</code>，连接仍存活</td>
-          <td class="mono">resume_session → resume_ack</td>
-          <td><code>resume_ack</code></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
+  <!-- ============ 两条恢复路径（时序图，搬自原页面） ============ -->
   <div class="cols">
-    <section>
-      <h2 style="margin-top:30px">路径一 · 断线重连</h2>
-      <div class="diagram">
-        <div class="fields" style="--cols:2">
-          <div class="cell ruler-title">Client（发送方 / 接收方）</div>
-          <div class="cell ruler-title">Server</div>
-          <div class="cell f-flags">TCP connect</div>
-          <div class="cell f-flags">接受连接</div>
-          <div class="cell f-type">login {resume[]}</div>
-          <div class="cell f-muted">加载自己的位图</div>
-          <div class="cell f-muted">按快照覆盖本地状态</div>
-          <div class="cell f-type">login_ack {sessions[] 权威快照}</div>
-          <div class="cell wide f-chunk">各视角各自回到断线前状态（PAUSED 保持 PAUSED）</div>
-        </div>
+  <section>
+    <h2 style="margin-top:30px">路径一 · 断线重连</h2>
+    <div class="diagram">
+      <div class="fields" style="--cols:2">
+        <div class="cell ruler-title">Client（发送方 / 接收方）</div>
+        <div class="cell ruler-title">Server</div>
+        <div class="cell f-flags">TCP connect</div>
+        <div class="cell f-flags">接受连接</div>
+        <div class="cell f-type">login {resume[]}</div>
+        <div class="cell f-muted">加载自己的位图</div>
+        <div class="cell f-muted">按快照覆盖本地状态</div>
+        <div class="cell f-type">login_ack {sessions[] 权威快照}</div>
+        <div class="cell wide f-chunk">各视角各自回到断线前状态（PAUSED 保持 PAUSED）</div>
       </div>
-      <div class="caption">
-        <strong>快照的权限边界（规范性）</strong>：Server 确定会话关联、协商参数和端口；
-        只有<strong>数据接收方</strong>的持久化位图决定块是否收到。两个计数不能表示稀疏位图，
-        <strong>不得</strong>用于重建或覆盖它。下载时 Server <strong>必须</strong>回显 Client 提供的续传摘要；
-        Client 保留本地 VERIFY / COMMIT 阶段。位图丢失且无法可靠重建时<strong>不得</strong>凭摘要续传。
-      </div>
-    </section>
-
-    <section>
-      <h2 style="margin-top:30px">路径二 · 暂停后恢复</h2>
-      <div class="diagram">
-        <div class="fields" style="--cols:2">
-          <div class="cell ruler-title">Client</div>
-          <div class="cell ruler-title">Server</div>
-          <div class="cell f-type">session_pause</div>
-          <div class="cell f-muted">进入 PAUSED，停止发送数据包</div>
-          <div class="cell f-type">resume_session {session_id, …}</div>
-          <div class="cell f-muted">回填权威续传位置</div>
-          <div class="cell f-muted">按快照重建状态</div>
-          <div class="cell f-type">resume_ack {result, next_chunk_id, missing_count, udp_port}</div>
-          <div class="cell wide f-chunk">双方回到 TRANSFERRING（该路径的前提就是解除暂停）</div>
-        </div>
-      </div>
-      <div class="caption">
-        两条路径的语义一致：都返回<strong>接收方</strong>的权威续传位置与数据面端口，都使会话回到<strong>可传输状态</strong>。
-        <strong>恢复后各视角各自回到断线前状态</strong>（共享状态按快照，接收方本地校验与提交阶段按持久化记录）：
-        <code>PAUSED</code> <strong>保持 PAUSED</strong>（断线不解除显式暂停），
-        <code>VERIFY</code> / <code>COMMIT</code> 的接收侧回到原状态。
-      </div>
-    </section>
-  </div>
-
-  <h2>断线重连：通用规则（规范性）</h2>
-  <div class="card">
-    <table>
-      <tbody>
-        <tr><td><code>login.resume[]</code></td><td><strong>必须</strong>列出<strong>全部</strong>待恢复的会话。<strong>条目数上界</strong>：<code>resume_count</code> 与 <code>login_ack</code> 的 <code>sessions_count</code> <strong>必须</strong> ≤ <code>max_sessions_per_connection</code>（64，见 09 章）—— 该上界保证两者<strong>始终可编码</strong>（64 × 20 = 1,280 B；64 × (42 + code_len) B，均<strong>远小于</strong> <code>max_frame_len</code> = 1 MiB）。定长区 <code>resume_count</code>（u16）给出条目数（无待恢复会话时为 0），变长区给出 <code>resume_count</code> 条 <strong>20 字节定长</strong>记录：<code>session_id</code>(u64) / <code>next_chunk_id</code>(u32) / <code>missing_count</code>(u32) / <code>flags</code>(u8：bit0 = <code>next_chunk_id</code> 有效，bit1 = <code>missing_count</code> 有效)</td></tr>
-        <tr><td><strong>恢复提示的来源</strong></td><td>续传起点来自<strong>接收方</strong>的位图，因此<strong>只有接收方才可能提供</strong>它</td></tr>
-        <tr><td><strong>上传方向</strong>（接收方 = Server）</td><td>Client <strong>必须</strong>不提供恢复提示（<code>flags</code> bit0 / bit1 = 0，相应字段<strong>必须</strong>取 0），由 Server 用<strong>自己</strong>的位图计算</td></tr>
-        <tr><td><strong>下载方向</strong>（接收方 = Client）</td><td>Client <strong>必须</strong>依据<strong>自己的位图</strong>提供恢复提示（<code>flags</code> bit0 / bit1 = 1）</td></tr>
-        <tr><td><code>login_ack.sessions[]</code></td><td>Server <strong>必须</strong>为<strong>每一个</strong>待恢复会话给出一项，标明 <code>result</code>（enum8：0 = fail，1 = success）与 <code>code</code>（失败原因，见 19 章）。定长区 <code>sessions_count</code>（u16）给出条目数，变长区按顺序给出 <code>sessions_count</code> 条<strong>快照记录</strong>，每条 = <strong>42 字节定长</strong>（<code>session_id</code>(u64) / <code>result</code>(enum8) / <code>direction</code>(enum8) / <code>state</code>(enum8) / <code>chunk_count</code>(u32) / <code>chunk_size</code>(u32) / <code>window</code>(u32) / <code>connection_window</code>(u32) / <code>next_chunk_id</code>(u32) / <code>missing_count</code>(u32) / <code>udp_port</code>(u16) / <code>tcp_port</code>(u16) / <code>code_len</code>(u16)）+ 紧随其后的 <code>code_len</code> 字节内联 <code>code</code> 字符串</td></tr>
-        <tr><td>恢复成功后</td><td>发送方<strong>必须</strong>丢弃恢复前推导的在途量估计并重建（见 11 章判据第 3 条）</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>快照记录的 42 字节定长区</h3>
-  <div class="diagram">
-    <div class="fields" style="--cols:8">
-      <div class="cell bitnum">0</div>
-      <div class="cell bitnum">4</div>
-      <div class="cell bitnum">8</div>
-      <div class="cell bitnum">12</div>
-      <div class="cell bitnum">16</div>
-      <div class="cell bitnum">20</div>
-      <div class="cell bitnum">24</div>
-      <div class="cell bitnum">28</div>
-      <div class="cell span2 f-session">session_id (u64)</div>
-      <div class="cell f-type">result / direction / state (enum8 ×3)</div>
-      <div class="cell f-chunk">chunk_count (u32)</div>
-      <div class="cell f-chunk">chunk_size (u32)</div>
-      <div class="cell f-len">window (u32)</div>
-      <div class="cell f-len">connection_window (u32)</div>
-      <div class="cell f-len">next_chunk_id (u32)</div>
-      <div class="cell f-len">missing_count (u32)</div>
-      <div class="cell f-flags">udp_port / tcp_port / code_len (u16 ×3)</div>
-      <div class="cell wide f-body">42 字节定长区之后：+ code_len 字节内联 code 字符串</div>
     </div>
+    <div class="caption">
+      <strong>快照的权限边界（规范性）</strong>：Server 确定会话关联、协商参数和端口；
+      只有<strong>数据接收方</strong>的持久化位图决定块是否收到。两个计数不能表示稀疏位图，
+      <strong>不得</strong>用于重建或覆盖它。下载时 Server <strong>必须</strong>回显 Client 提供的续传摘要；
+      Client 保留本地 VERIFY / COMMIT 阶段。位图丢失且无法可靠重建时<strong>不得</strong>凭摘要续传。
+    </div>
+  </section>
+
+  <section>
+    <h2 style="margin-top:30px">路径二 · 暂停后恢复</h2>
+    <div class="diagram">
+      <div class="fields" style="--cols:2">
+        <div class="cell ruler-title">Client</div>
+        <div class="cell ruler-title">Server</div>
+        <div class="cell f-type">session_pause</div>
+        <div class="cell f-muted">进入 PAUSED，停止发送数据包</div>
+        <div class="cell f-type">resume_session {session_id, …}</div>
+        <div class="cell f-muted">回填权威续传位置</div>
+        <div class="cell f-muted">按快照重建状态</div>
+        <div class="cell f-type">resume_ack {result, next_chunk_id, missing_count, udp_port}</div>
+        <div class="cell wide f-chunk">双方回到 TRANSFERRING（该路径的前提就是解除暂停）</div>
+      </div>
+    </div>
+    <div class="caption">
+      两条路径的语义一致：都返回<strong>接收方</strong>的权威续传位置与数据面端口，都使会话回到<strong>可传输状态</strong>。
+      <strong>恢复后各视角各自回到断线前状态</strong>（共享状态按快照，接收方本地校验与提交阶段按持久化记录）：
+      <code>PAUSED</code> <strong>保持 PAUSED</strong>（断线不解除显式暂停），
+      <code>VERIFY</code> / <code>COMMIT</code> 的接收侧回到原状态。
+    </div>
+  </section>
+</div>
+
+
+  <!-- ============ login_ack 快照记录结构（字段顺序取自源文） ============ -->
+  <h3><code>login_ack</code> 快照记录的字段构成</h3>
+
+<div class="diagram">
+  <div class="fields" style="--cols:4">
+    <div class="cell wide ruler-title">快照记录 = 定长区（字段顺序与类型取自源文「通用规则」）+ 内联 code 字符串</div>
+
+    <div class="cell span2 f-session">session_id (u64)</div>
+    <div class="cell span2 f-type">result / direction / state (enum8 × 3)</div>
+
+    <div class="cell f-chunk">chunk_count (u32)</div>
+    <div class="cell f-chunk">chunk_size (u32)</div>
+    <div class="cell f-len">window (u32)</div>
+    <div class="cell f-len">connection_window (u32)</div>
+
+    <div class="cell f-len">next_chunk_id (u32)</div>
+    <div class="cell f-len">missing_count (u32)</div>
+    <div class="cell span2 f-flags">udp_port / tcp_port / code_len (u16 × 3)</div>
+
+    <div class="cell wide f-body">定长区共 42 字节 → 紧随其后是 code_len 字节内联的 code 字符串</div>
   </div>
+</div>
 
-  <h3>两个方向的具体流程</h3>
-  <div class="cols">
-    <section>
-      <h3 style="margin-top:0">上传方向（Client = 发送方）</h3>
-      <ul class="spec">
-        <li>Client 重连 → 发送 <code>login</code>，其 <code>resume[]</code> 记录只带 <code>session_id</code>，<code>next_chunk_id</code> / <code>missing_count</code> <strong>必须</strong>未携带</li>
-        <li>Server 加载<strong>自己</strong>的位图 → 计算缺失 → 在 <code>login_ack.sessions[]</code> 中给出 <code>next_chunk_id</code> / <code>missing_count</code> / <code>udp_port</code></li>
-        <li>Client 按快照重建本地状态 → 仅在快照允许传输且仍有缺块时继续发送；<code>PAUSED</code> 保持暂停，<code>COMPLETED</code> 停止数据传输并等待原回执</li>
-      </ul>
-    </section>
-    <section>
-      <h3 style="margin-top:0">下载方向（Client = 接收方）</h3>
-      <ul class="spec">
-        <li>Server <strong>没有</strong> Client 的位图，无从计算续传起点 → 由 Client 在 <code>login.resume[]</code> 中提供恢复提示（<code>flags</code> bit0 / bit1 = 1）</li>
-        <li>Server 在 <code>login_ack.sessions[]</code> 中回填权威状态（含 <code>udp_port</code> 与 <code>state</code>）</li>
-        <li>Server 仅在可传输且仍有缺块时，从 <code>next_chunk_id</code> 起继续向 Client 推送 chunk；Client 以 <code>missing_chunks</code>（<code>mode=report</code>）报告自己的缺失块</li>
-        <li>双方各自回到断线前状态（发送侧回 <code>TRANSFERRING</code>；接收侧回断线前状态）</li>
-      </ul>
-    </section>
-  </div>
+<div class="caption">
+  字段名称、顺序与类型取自源文「断线重连（连接重建）· 通用规则（规范性）」；
+  定长区长度 <strong>42 字节</strong>由源文声明。
+  图中<strong>不含手敲偏移</strong>：定长区内的字节排布由源文定义，字段类型即其宽度。
+</div>
 
-  <h3>恢复失败</h3>
-  <div class="card">
-    <table>
-      <thead><tr><th>code</th><th>含义</th></tr></thead>
-      <tbody>
-        <tr><td class="mono">SESSION_NOT_FOUND</td><td>会话不存在（Server 重启且状态已丢弃，或从未存在）</td></tr>
-        <tr><td class="mono">SESSION_ABORTED</td><td>会话已进入终态（见 10 章），不可恢复</td></tr>
-        <tr><td class="mono">INVALID_STATE</td><td>当前状态不允许恢复</td></tr>
-      </tbody>
-    </table>
-  </div>
-  <div class="caption">
-    <code>login_ack.sessions[]</code> 中该会话的 <code>result</code> = <code>0</code>（fail）时，其记录内联 <code>code</code> 取上述<strong>符号名</strong>；
-    Client <strong>必须</strong>把这类会话视为<strong>已终止</strong>，<strong>不得</strong>继续使用其本地状态。
-  </div>
+<div class="note">
+  <strong>条目数上界与可编码性</strong>：<code>resume_count</code> 与 <code>sessions_count</code>
+  <strong>必须</strong> ≤ <code>max_sessions_per_connection</code>（64）。
+  <code>login.resume[]</code> 每条为 <strong>20 字节定长</strong>记录
+  （字段：<code>session_id</code> / <code>next_chunk_id</code> / <code>missing_count</code> / <code>flags</code>），
+  恢复列表最大 64 × 20 = <strong>1,280 字节</strong>；
+  快照最大 64 × (42 + <code>code_len</code>) 字节，
+  均<strong>远小于</strong> <code>max_frame_len</code>（1 MiB）——
+  该上界保证两者<strong>始终可编码</strong>。
+</div>
 
-  <!-- ============ 最终回执的交付 ============ -->
-  <h2>最终回执的交付（规范性）</h2>
 
-  <div class="note blue">
-    <strong>完成交付不属于恢复数据传输</strong>：接收方以 <code>(device_id, session_id, direction)</code> 为键，
-    在提交前持久化<strong>提交意图</strong>（含目标、预分配的 <code>asset_id</code> 和预期哈希）。
-    文件和素材记录提交成功后持久化<strong>不可变</strong>的完整 <code>upload_complete</code> 或
-    <code>download_complete</code>，再发布回执。
-  </div>
-
-  <ul class="spec">
-    <li>进程若在提交与记录回执之间退出，<strong>必须</strong>先依据意图核对并幂等完成同一笔提交，
-      <strong>不得</strong>再次创建素材、分配新 <code>asset_id</code> 或在提交成功前公布成功。</li>
-    <li>接收方<strong>必须</strong>保留待交付回执直到收到对应 <code>complete_ack</code>；
-      60 秒活动超时只回收未完成传输，<strong>不得</strong>清除待交付回执。
-      回执不占活跃会话配额；存储不足时<strong>应当</strong>限制新会话，而非驱逐未确认结果。</li>
-    <li>每次成功登录后，双方<strong>必须</strong>在各自发送 <code>login_ack</code> 或收到成功
-      <code>login_ack</code> 后，向已认证的原对端<strong>重发所有未确认回执</strong>
-      （逐条普通控制帧，不塞入快照）。发送方<strong>必须</strong>持久化会话与设备、方向的绑定，
-      直到最终结果可确认；传输超时本身不是对端提交失败的证明。</li>
-    <li>上传时，若 Client 把本地仍在传输的会话列入 <code>resume[]</code> 且 Server 已有成功回执，
-      则快照返回 <code>result=success, state=COMPLETED</code>，
-      <code>next_chunk_id=chunk_count, missing_count=0</code>，随后交付原回执。
-      Client 不再传数据，<strong>不得仅凭快照宣告成功</strong>。
-      下载时，已提交的 Client <strong>不</strong>将终态列入 <code>resume[]</code>，
-      直接在握手后重发 <code>download_complete</code>。</li>
-    <li>数据发送方<strong>必须</strong>核对设备、会话与消息方向，持久化完整结果后才发 <code>complete_ack</code>；
-      相同回执再次到达只重发确认，<strong>不</strong>重复业务操作。
-      相同键但内容不一致<strong>不得</strong>覆盖既有结果或确认。
-      收到确认的一方可删除待交付副本，<strong>不得</strong>因重复确认重新打开会话。</li>
-  </ul>
-
-  <h2><code>resume_ack</code> 语义</h2>
-  <div class="card">
-    <table>
-      <thead><tr><th>字段</th><th>语义</th></tr></thead>
-      <tbody>
-        <tr><td class="mono">result / code</td><td>恢复是否成功（<code>result</code> 为 enum8，0 = fail、1 = success）；<code>code</code> 为 str，失败时的机器可判定错误码（见 19、06 章）</td></tr>
-        <tr><td class="mono">next_chunk_id</td><td><strong>续传顺序起点</strong>：<strong>接收方</strong>位图中<strong>第一个尚未收到的 chunk_id</strong>；位图已全真时为 <code>chunk_count</code>（u32）</td></tr>
-        <tr><td class="mono">missing_count</td><td><strong>接收方</strong>位图中尚未收到的 chunk 总数（精确值，u32）</td></tr>
-        <tr><td class="mono">udp_port</td><td>数据面端口（u16），可能因会话重建而变化，<strong>Client 必须使用回执中的端口</strong></td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="note warn">
-    <strong><code>next_chunk_id</code> 的定义（规范性）</strong>：<strong>接收方</strong>位图中<strong>第一个尚未收到</strong>的 <code>chunk_id</code>。
-    本协议显式支持乱序写与随机访问，位图可能出现<strong>空洞</strong> ——
-    若以 <code>max_received_id + 1</code> 作为续传起点，空洞块将<strong>永远不会被重传</strong>，
-    文件级 Blake3 校验必然失配并导致会话中止。因此续传起点<strong>必须</strong>是<strong>第一个缺失块</strong>。
-  </div>
-
-  <h2>空洞块的补发</h2>
-  <ul class="spec">
-    <li><code>next_chunk_id</code> 只决定<strong>顺序发送流</strong>从哪里继续；位图中低于当前发送位置的空洞由周期下发的 <code>missing_chunks</code>（<code>mode=report</code>）负责指认</li>
-    <li>接收方<strong>必须</strong>在裁决中报告<strong>全部</strong>未收到的 chunk_id，而不只是从 <code>next_chunk_id</code> 开始的连续区间</li>
-    <li>发送方<strong>必须</strong>优先重传裁决报告的缺失块，优先级高于新数据</li>
-  </ul>
-
-  <h2>失败与清理</h2>
-  <ul class="spec">
-    <li>长时间未恢复可清理，删除临时文件 / 位图 / 元数据</li>
-    <li>清理前应确认会话已进入 <code>ABORTED</code> 状态</li>
-    <li>会话超时时长见 09 章「超时与回收」</li>
-  </ul>
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
+  <h2>中断处理</h2>
+<ul>
+<li>可随时中断</li>
+<li>保留已写入与位图</li>
+<li>中断不回滚已写入数据</li>
+<li><strong>控制连接断开时，其上承载的全部会话一并进入中断</strong>（见 09 章）</li>
+<li><strong>帧失步</strong>导致的断连（见 06、07 章「帧同步与失步处理」）同样属于
+  <strong>断线重连</strong>路径：失步的连接<strong>不得</strong>就地续解，
+  恢复一律经 <code>login</code> / <code>login_ack</code> 的<strong>权威快照</strong>重建</li>
+</ul>
+<h2>恢复的两条路径（规范性）</h2>
+<div class="card"><table>
+<thead>
+<tr>
+<th>路径</th>
+<th>触发条件</th>
+<th>消息</th>
+<th>权威状态载体</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>断线重连</strong></td>
+<td>控制连接断开后重新建立</td>
+<td><code>login</code>（恢复列表） → <code>login_ack</code></td>
+<td><code>login_ack</code> 的 <code>sessions[]</code> 快照记录</td>
+</tr>
+<tr>
+<td><strong>暂停后恢复</strong></td>
+<td>会话处于 <code>PAUSED</code>，连接仍存活</td>
+<td><code>resume_session</code> → <code>resume_ack</code></td>
+<td><code>resume_ack</code></td>
+</tr>
+</tbody>
+</table></div>
+<p>两条路径的语义<strong>一致</strong>：都返回接收方的权威续传位置与数据面端口，
+都使会话回到<strong>可传输状态</strong>。区别只在于<strong>是否需要重建连接</strong>。</p>
+<blockquote>
+<p><strong>恢复后的状态（规范性）</strong>：恢复后<strong>各视角各自回到断线前的状态</strong>
+（共享状态按快照，接收方本地校验与提交阶段按持久化记录，见「待恢复会话的判定」）。
+「暂停后恢复」路径<strong>必须</strong>回到 <code>TRANSFERRING</code>（该路径的前提就是解除暂停）；
+「断线重连」路径则<strong>必须</strong>按上表处理 ——
+<code>PAUSED</code> 保持 <code>PAUSED</code>，<code>VERIFY</code> / <code>COMMIT</code> 的接收侧回到 <code>VERIFY</code> / <code>COMMIT</code>
+（发送侧<strong>没有</strong>这两个状态，回到 <code>TRANSFERRING</code>）。</p>
+</blockquote>
+<h2>断线重连（连接重建）</h2>
+<h3>通用规则（规范性）</h3>
+<ul>
+<li><strong>待恢复会话的判定（规范性）</strong>：「待恢复」指断线时<strong>处于可恢复状态</strong>的会话，
+  判定<strong>按会话断线前的状态</strong>（见 10 章「状态定义」）：</li>
+</ul>
+<div class="card"><table>
+<thead>
+<tr>
+<th>断线前状态</th>
+<th>列入 <code>login.resume[]</code>？</th>
+<th>恢复后的状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>INIT</code> / <code>NEGOTIATING</code></td>
+<td><strong>否</strong></td>
+<td>不恢复；会话按新会话重新发起</td>
+</tr>
+<tr>
+<td><code>TRANSFERRING</code></td>
+<td><strong>是</strong></td>
+<td>各视角回到 <code>TRANSFERRING</code></td>
+</tr>
+<tr>
+<td><code>PAUSED</code></td>
+<td><strong>是</strong></td>
+<td><strong>保持 <code>PAUSED</code></strong> —— 断线<strong>不解除</strong>显式暂停；恢复仍走「暂停后恢复」（<code>resume_session</code> / <code>resume_ack</code>）</td>
+</tr>
+<tr>
+<td><code>VERIFY</code> / <code>COMMIT</code></td>
+<td><strong>是</strong></td>
+<td><strong>各视角各自回到断线前的状态</strong>（接收侧回 <code>VERIFY</code> / <code>COMMIT</code>，发送侧回 <code>TRANSFERRING</code>）</td>
+</tr>
+<tr>
+<td><code>COMPLETED</code> / <code>ABORTED</code></td>
+<td><strong>否</strong></td>
+<td>不恢复（终态，见 10 章）</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>为何断线不解除暂停（说明）</strong>：暂停是<strong>显式</strong>的用户/策略意图，
+网络抖动<strong>不是</strong>解除暂停的理由。若断线即自动恢复传输，
+「暂停」将退化为「建议」—— 用户无法保证文件在暂停期间不被继续传输。
+因此 <code>PAUSED</code> 会话在重连后<strong>必须</strong>仍处于 <code>PAUSED</code>，
+由 <code>resume_session</code> / <code>resume_ack</code> 显式恢复。</p>
+</blockquote>
+<ul>
+<li><strong>条目数上界（规范性）</strong>：<code>resume_count</code> 与 <code>login_ack</code> 的 <code>sessions_count</code>
+  <strong>必须</strong> ≤ <code>max_sessions_per_connection</code>（64，见 09 章）。
+  该上界保证两者<strong>始终可编码</strong>：
+  <code>resume[]</code> 最大 64 × 20 = <strong>1,280 字节</strong>，
+  快照最大 64 × (42 + <code>code_len</code>) 字节，
+  均<strong>远小于</strong> <code>max_frame_len</code>（1 MiB，见 06 章）。
+  （无该上界时，<code>u16</code> 的值域将超出帧长上限 —— 65,535 × 42 字节 ≈ 2.6 MiB &gt; 1 MiB。）</li>
+<li><code>login</code> 的 <code>resume[]</code> <strong>必须</strong>列出全部待恢复的会话。
+  二进制表示：定长区 <code>resume_count</code>（<code>u16</code>）给出条目数（无待恢复会话时为 <code>0</code>），
+  变长区按顺序给出 <code>resume_count</code> 条 <strong>20 字节定长</strong>记录，
+  每条含 <code>session_id</code>（<code>u64</code>）/ <code>next_chunk_id</code>（<code>u32</code>）/ <code>missing_count</code>（<code>u32</code>）/
+  <code>flags</code>（<code>u8</code>：bit0 = <code>next_chunk_id</code> 有效，bit1 = <code>missing_count</code> 有效）。</li>
+<li>续传起点来自<strong>接收方</strong>的位图，因此<strong>只有接收方才可能提供</strong>它：</li>
+<li><strong>上传方向</strong>（接收方 = Server）：Client <strong>必须</strong>不提供恢复提示
+    （记录 <code>flags</code> 的 bit0 / bit1 = 0，相应字段<strong>必须</strong>取 <code>0</code>），
+    由 Server 用<strong>自己</strong>的位图计算。</li>
+<li><strong>下载方向</strong>（接收方 = Client）：Client <strong>必须</strong>依据<strong>自己的位图</strong>提供恢复提示
+    （记录 <code>flags</code> 的 bit0 / bit1 = 1）。</li>
+<li>Server <strong>必须</strong>在 <code>login_ack</code> 的 <code>sessions[]</code> 中为<strong>每一个</strong>待恢复会话给出一项，
+  标明 <code>result</code>（<code>enum8</code>：<code>0</code> = fail，<code>1</code> = success）与 <code>code</code>（失败原因，见 19 章）。
+  二进制表示：定长区 <code>sessions_count</code>（<code>u16</code>）给出条目数，
+  变长区按顺序给出 <code>sessions_count</code> 条<strong>快照记录</strong>，每条 =
+  <strong>42 字节定长</strong>（<code>session_id</code>(u64) / <code>result</code>(enum8) / <code>direction</code>(enum8) /
+  <code>state</code>(enum8) / <code>chunk_count</code>(u32) / <code>chunk_size</code>(u32) / <code>window</code>(u32) /
+  <code>connection_window</code>(u32) / <code>next_chunk_id</code>(u32) / <code>missing_count</code>(u32) /
+  <code>udp_port</code>(u16) / <code>tcp_port</code>(u16) / <code>code_len</code>(u16)）+
+  紧随其后的 <code>code_len</code> 字节内联 <code>code</code> 字符串。</li>
+<li><strong>快照的权限边界（规范性）</strong>：Server 确定会话关联、协商参数和端口；
+  只有数据接收方的持久化位图决定块是否收到。两个计数不能表示稀疏位图，
+  <strong>不得</strong>用于重建或覆盖它。下载时 Server 必须回显 Client 提供的续传摘要；
+  Client 保留本地 VERIFY / COMMIT 阶段。位图丢失且无法可靠重建时不得凭摘要续传。</li>
+<li>恢复成功后，发送方<strong>必须</strong>丢弃恢复前推导的在途量估计并重建（见 11 章判据第 3 条）。</li>
+</ul>
+<h3>上传方向（Client = 发送方，Server = 接收方）</h3>
+<ol>
+<li>Client 重连 → 发送 <code>login</code>，其 <code>resume[]</code> 记录只带 <code>session_id</code>（<code>u64</code>），
+   <code>next_chunk_id</code> / <code>missing_count</code> <strong>必须</strong>未携带（记录 <code>flags</code> 的 bit0 / bit1 = 0，
+   相应字段取 <code>0</code>）</li>
+<li>Server 加载<strong>自己</strong>的位图 → 计算缺失 → 在 <code>login_ack</code> 的 <code>sessions[]</code> 快照记录中给出
+   <code>next_chunk_id</code> / <code>missing_count</code> / <code>udp_port</code></li>
+<li>仅在快照允许传输且仍有缺块时继续发送；<code>PAUSED</code> 保持暂停，
+   <code>COMPLETED</code> 停止数据传输并等待原回执。
+   （双方各自回到断线前状态；发送侧断线前不可能是 <code>VERIFY</code> / <code>COMMIT</code>）</li>
+</ol>
+<h3>下载方向（Client = 接收方，Server = 发送方）</h3>
+<p>Server <strong>没有</strong> Client 的位图，无从计算续传起点，
+因此由 Client 在 <code>login</code> 的 <code>resume[]</code> 中提供恢复提示：</p>
+<ol>
+<li>Client 重连 → 发送 <code>login</code>，其 <code>resume[]</code> 记录携带
+   <code>session_id</code>（<code>u64</code>）/ <code>next_chunk_id</code>（<code>u32</code>）/ <code>missing_count</code>（<code>u32</code>），
+   并置记录 <code>flags</code> 的 bit0 / bit1 = 1</li>
+<li>Server 在 <code>login_ack</code> 的 <code>sessions[]</code> 快照记录中回填权威状态
+   （含 <code>udp_port</code>、<code>window</code>、<code>connection_window</code> 与 <code>state</code>）</li>
+<li>仅在可传输且仍有缺块时，Server 从 <code>next_chunk_id</code> 起继续向 Client 推送 chunk；
+   Client 以 <code>missing_chunks</code>（<code>mode=report</code>）报告自己的缺失块</li>
+<li>双方各自回到断线前状态（发送侧 = Server 回 <code>TRANSFERRING</code>；
+   接收侧 = Client 回断线前状态）</li>
+</ol>
+<h3>恢复失败</h3>
+<p><code>login_ack</code> 的 <code>sessions[]</code> 中该会话的 <code>result</code>（<code>enum8</code>）= <code>0</code>（fail），
+其记录内联 <code>code</code> 字符串取值为<strong>符号名</strong>：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>code</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SESSION_NOT_FOUND</code></td>
+<td>会话不存在（Server 重启且状态已丢弃，或从未存在）</td>
+</tr>
+<tr>
+<td><code>SESSION_ABORTED</code></td>
+<td>会话已进入终态（见 10 章），不可恢复</td>
+</tr>
+<tr>
+<td><code>INVALID_STATE</code></td>
+<td>当前状态不允许恢复</td>
+</tr>
+</tbody>
+</table></div>
+<p>Client <strong>必须</strong>把 <code>result</code> = <code>0</code>（fail）的会话视为<strong>已终止</strong>，
+<strong>不得</strong>继续使用其本地状态。</p>
+<h2>最终回执的交付（规范性）</h2>
+<p>完成交付不属于恢复数据传输。接收方以 <code>(device_id, session_id, direction)</code> 为键，
+在提交前持久化提交意图（含目标、预分配的 <code>asset_id</code> 和预期哈希）。文件和素材记录提交
+成功后持久化不可变的完整 <code>upload_complete</code> 或 <code>download_complete</code>，再发布回执。
+进程若在提交与记录回执之间退出，必须先依据意图核对并幂等完成同一笔提交，
+不得再次创建素材、分配新 <code>asset_id</code> 或在提交成功前公布成功。</p>
+<ul>
+<li>接收方保留待交付回执直到收到对应 <code>complete_ack</code>；60 秒活动超时只回收未完成传输，
+  不得清除待交付回执。回执不占活跃会话配额；存储不足时应限制新会话，而非驱逐未确认结果。</li>
+<li>每次成功登录后，双方必须在各自发送 <code>login_ack</code> 或收到成功 <code>login_ack</code> 后，
+  向已认证的原对端重发所有未确认回执（逐条普通控制帧，不塞入快照）。
+  发送方必须持久化会话与设备、方向的绑定，直到最终结果可确认；
+  传输超时本身不是对端提交失败的证明。</li>
+<li>上传时，若 Client 把本地仍在传输的会话列入 <code>resume[]</code>，Server 已有成功回执，
+  则快照返回 <code>result=success, state=COMPLETED</code>，<code>next_chunk_id=chunk_count, missing_count=0</code>，
+  随后交付原回执。Client 不再传数据，<strong>不得仅凭快照宣告成功</strong>。下载时，已提交的
+  Client 不将终态列入 <code>resume[]</code>，直接在握手后重发 <code>download_complete</code>。</li>
+<li>数据发送方核对设备、会话与消息方向，持久化完整结果后才发 <code>complete_ack</code>；
+  相同回执再次到达只重发确认，不重复业务操作。相同键但内容不一致不得覆盖既有结果或确认。
+  收到确认的一方可删除待交付副本，不得因重复确认重新打开会话。</li>
+</ul>
+<p><strong>下载超时后的结果</strong>：发送方的传输资源与业务结果分别记账。Server 超时后停止传输，
+业务结果保持「未知」（本地记录，不新增线上状态）。已认证 Client 迟到的成功或失败
+<code>download_complete</code> 仍必须按原会话绑定持久化并确认，不重建数据面、不改变已关闭的传输状态。
+若 Client 请求恢复已过期的下载，Server 回失败快照 <code>code=TIMEOUT_NO_ACTIVITY</code>；
+无提交意图的 Client 停止传输，持久化并交付同码的失败回执。已有提交意图的 Client
+必须先核实提交，交付实际结果；恢复被拒不推翻已提交的文件。</p>
+<h2>暂停后恢复（连接存活）</h2>
+<ol>
+<li>Client 发送 <code>resume_session</code>，其定长区携带
+   <code>session_id</code>（<code>u64</code>）/ <code>next_chunk_id</code>（<code>u32</code>）/ <code>missing_count</code>（<code>u32</code>），
+   并以 <code>flags</code> 存在标志位表明恢复提示是否携带
+   （bit0 = <code>next_chunk_id</code> 有效，bit1 = <code>missing_count</code> 有效；
+   标志位为 <code>0</code> 时该字段<strong>必须</strong>为 <code>0</code>）
+   —— 恢复提示的方向规则与断线重连<strong>相同</strong>：
+   上传方向<strong>必须</strong>不携带，下载方向<strong>必须</strong>携带。</li>
+<li>Server 回 <code>resume_ack</code>（含 <code>result</code> / <code>code</code>、
+   <code>next_chunk_id</code> / <code>missing_count</code> / <code>udp_port</code> / <code>connection_window</code>）</li>
+<li>双方回到 TRANSFERRING（该路径的前提就是解除暂停）</li>
+</ol>
+<h3>resume_ack 语义</h3>
+<div class="card"><table>
+<thead>
+<tr>
+<th>字段</th>
+<th>语义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>result</code> / <code>code</code></td>
+<td>恢复是否成功（<code>result</code> 为 <code>enum8</code>，<code>0</code> = fail、<code>1</code> = success）；<code>code</code> 为 <code>str</code>，失败时的机器可判定错误码（见 19 章、06 章）</td>
+</tr>
+<tr>
+<td><code>next_chunk_id</code></td>
+<td><strong>续传顺序起点</strong>：<strong>接收方</strong>位图中<strong>第一个尚未收到的 chunk_id</strong>；位图已全真时为 <code>chunk_count</code>（<code>u32</code>）</td>
+</tr>
+<tr>
+<td><code>missing_count</code></td>
+<td><strong>接收方</strong>位图中尚未收到的 chunk 总数（精确值，<code>u32</code>）</td>
+</tr>
+<tr>
+<td><code>udp_port</code></td>
+<td>数据面端口（<code>u16</code>），可能因会话重建而变化，<strong>Client 必须使用回执中的端口</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong><code>next_chunk_id</code> 的定义（规范性）</strong>：<strong>接收方</strong>位图中<strong>第一个尚未收到</strong>的 <code>chunk_id</code>。</p>
+<p>本协议显式支持乱序写与随机访问（见 01、17 章），位图可能出现<strong>空洞</strong> ——
+存在低于最大已收 id 的缺失块。若以 <code>max_received_id + 1</code> 作为续传起点，
+空洞块将<strong>永远不会被重传</strong>，文件级 Blake3 校验必然失配并导致会话中止。
+因此续传起点<strong>必须</strong>是<strong>第一个缺失块</strong>。</p>
+<h2>空洞块的补发</h2>
+<p><code>next_chunk_id</code> 只决定<strong>顺序发送流</strong>从哪里继续；位图中低于当前发送位置的空洞
+由周期下发的 <code>missing_chunks</code>（<code>mode=report</code>）负责指认：</p>
+<ul>
+<li>接收方<strong>必须</strong>在裁决中报告<strong>全部</strong>未收到的 chunk_id，而不只是从
+  <code>next_chunk_id</code> 开始的连续区间。</li>
+<li>发送方<strong>必须</strong>优先重传裁决报告的缺失块，优先级高于新数据。</li>
+<li>包级校验失败（<code>crc32</code>）的块同样计入「未收到」，并按本节的<strong>定点补发</strong>处理
+  （见 12 章「缺失块的定点补发」）。</li>
+</ul>
+<h2>复核轮与恢复</h2>
+<ul>
+<li>复核轮的计数<strong>必须</strong>与位图一同持久化（见 09 章「持久化」）。</li>
+<li>摘要对帐的计数<strong>同样必须</strong>持久化：恢复后<strong>不得</strong>因连接重建而重新获得
+  一次对帐机会（见 12 章「上限」）。</li>
+<li>复核轮<strong>进行中</strong>发生断线时，恢复后<strong>必须</strong>继续该复核轮，
+  <strong>不得</strong>因连接重建而获得第二次复核轮机会。</li>
+<li>暂停恢复或重连后，可传输会话的接收方须先发一条普通 report（bit1=0），携带
+  已持久化的修复代号及精确 <code>missing_count</code>；发送方收到前不得发 DATA。
+  发送方按该报告重建 <code>S = R = chunk_count − missing_count</code>，从恢复起点续传。
+  若代号为 2，须重新打开源文件，但不得重新清位或从零启动第二次全量复核。
+  即使启动裁决在断线前未送达，首次恢复报告也足以确定当前代号。</li>
+</ul>
+<h2>失败与清理</h2>
+<ul>
+<li>长时间未恢复可清理，删除临时文件/位图/元数据</li>
+<li>清理前应确认会话已进入 ABORTED 状态</li>
+<li>会话超时时长见 09 章「超时与回收」</li>
+</ul>
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/13-resume-and-recovery.md">docs/spec/13-resume-and-recovery.md</a></footer>
 </div>

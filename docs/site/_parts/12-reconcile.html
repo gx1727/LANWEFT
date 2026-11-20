@@ -1,0 +1,31 @@
+<h2>摘要对帐流程</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:2">
+    <div class="cell ruler-title">接收方（请求方 · 恒定）</div>
+    <div class="cell ruler-title">发送方（应答方 · 恒定）</div>
+
+    <div class="cell f-type">VERIFY 检测到文件级失配 → 状态退回 TRANSFERRING</div>
+    <div class="cell f-muted">保持源文件（size 必须与会话记录一致）</div>
+
+    <div class="cell f-type">reconcile_request {ranges=[根区间], flags.bit0=根轮标志}</div>
+    <div class="cell f-muted">校验源文件 size；为每个区间计算 BLAKE3 摘要</div>
+
+    <div class="cell f-digest">用临时文件独立计算同区间摘要 → 逐区间比对</div>
+    <div class="cell f-digest">reconcile_response {digests[]} —— 各区间的发送方侧摘要</div>
+
+    <div class="cell f-type">不一致 → 每个区间二等分为左半 / 右半，逐层下降</div>
+    <div class="cell f-type">reconcile_request {ranges=[左半,右半]} —— 同一轮所有区间同层</div>
+
+    <div class="cell f-chunk">chunk_count 达到 1 → 定位可疑块 → 位图清零</div>
+    <div class="cell f-muted">（根区间一致时改判 <code>SOURCE_FILE_MISMATCH</code>，不再进入复核轮）</div>
+
+    <div class="cell f-type">missing_chunks {mode=report, chunks=可疑块}</div>
+    <div class="cell f-muted">按缺失列表定点补发（重传优先级高于新数据）</div>
+  </div>
+</div>
+
+<div class="caption">
+  摘要对帐的<strong>至多一次</strong>约束、下降规则与边界情形见正文「上限」「边界情形」；
+  修复阶段<strong>不引入任何新消息</strong> —— 复用既有的位图与裁决机制。
+</div>

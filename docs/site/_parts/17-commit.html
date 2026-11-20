@@ -1,0 +1,18 @@
+<h2>完成与提交流程</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:1">
+    <div class="cell ruler-title">完成流程</div>
+    <div class="cell wide f-chunk">位图全真</div>
+    <div class="cell wide f-type">↓ 计算全文件 Blake3 并与 file_hash 比对（{{VAR:hash_bytes}} 字节原始摘要，hash32）</div>
+    <div class="cell wide f-payload">↓ 通过后原子重命名为最终文件名</div>
+    <div class="cell wide f-session">↓ 标记完成</div>
+  </div>
+</div>
+
+<div class="caption">
+  摘要长度（{{VAR:hash_bytes}} 字节）与类型（<code>hash32</code>）取自源文；
+  原子重命名<strong>必须</strong>是同一文件系统目录内的 <code>rename(2)</code> 操作，
+  以保证读者看到的要么是旧文件、要么是完整的新文件，<strong>不存在中间态</strong>。
+  摘要失配时先执行 12 章的摘要对帐，复核轮条件见 12 章。
+</div>

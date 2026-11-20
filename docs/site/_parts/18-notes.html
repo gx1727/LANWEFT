@@ -1,0 +1,14 @@
+<div class="note">
+  <strong>幂等性</strong>：重复标记同一 <code>chunk_id</code> <strong>必须</strong>是幂等的
+  （第二次标记不改变状态）；因此重放保护在 <code>session_id</code> 校验与越界拒收之外，
+  由位图幂等性兜底（重复 chunk 静默丢弃，见 20 章）。<br>
+  <strong>复核轮</strong>：复核轮启动时接收方<strong>必须</strong>把位图<strong>全部</strong>重置为「未收到」，
+  并<strong>必须</strong>重新计数（见 12 章）。
+</div>
+
+<div class="note warn">
+  <strong>常见实现陷阱</strong>：把缺失列表一次性塞进单条载荷（超过 {{VAR:missing_list_cap}} 条）；
+  下发顺序不按 <code>chunk_id</code> 升序；用「缺口条数」而不是位图的精确总数填写 <code>missing_count</code>；
+  在对端未携带 <code>missing_count</code> 时仍按「没有后续批次」处理。
+  单条载荷受控制通道 <code>max_frame_len</code>（{{VAR:max_frame_len_18}}）约束，必须走分批机制。
+</div>

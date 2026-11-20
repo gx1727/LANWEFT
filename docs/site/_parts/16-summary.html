@@ -1,0 +1,9 @@
+<div class="note blue">
+    <strong>本章要点</strong>：移动端的后台限制由<strong>操作系统</strong>决定，协议侧以
+    <strong>「后台视为中断」</strong>的方式适配：
+    Android 用 <strong>Foreground Service</strong> 并<strong>展示同步状态</strong>，
+    iOS <strong>仅前台</strong>可用、<strong>后台视为中断</strong>。
+    回前台后按连接是否存活选择恢复路径：连接已断用 <code>login</code> 恢复；
+    <strong>仅</strong>连接仍存活<strong>且</strong>会话已显式暂停时才用 <code>resume_session</code>（见 13 章）。
+    协议<strong>不</strong>提供「长期后台无 UI 传输」这一能力（见 04 章非目标）。
+  </div>

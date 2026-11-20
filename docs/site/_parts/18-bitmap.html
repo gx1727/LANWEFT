@@ -1,0 +1,46 @@
+<h2>位图示意</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:12">
+    <div class="cell wide ruler-title">位图位格：每个 chunk_id 对应一个位格（示意，chunk_count = 10）</div>
+
+    <div class="cell bitnum bm-bit">0</div>
+    <div class="cell bitnum bm-bit">1</div>
+    <div class="cell bitnum bm-bit">2</div>
+    <div class="cell bitnum bm-bit">3</div>
+    <div class="cell bitnum bm-bit">4</div>
+    <div class="cell bitnum bm-bit">5</div>
+    <div class="cell bitnum bm-bit">6</div>
+    <div class="cell bitnum bm-bit">7</div>
+    <div class="cell bitnum bm-bit">8</div>
+    <div class="cell bitnum bm-bit">9</div>
+    <div class="cell bitnum bm-bit">10</div>
+    <div class="cell bitnum bm-bit">11</div>
+
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-len bm-state">缺失</div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-len bm-state">缺失</div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-chunk bm-state">已收</div>
+    <div class="cell f-muted bm-state">空洞</div>
+    <div class="cell f-muted bm-state">空洞</div>
+  </div>
+</div>
+
+<div class="legend">
+  <span><i class="swatch" style="background:var(--b-chunk)"></i>已收（该 chunk_id 已接收）</span>
+  <span><i class="swatch" style="background:var(--b-len)"></i>缺失（尚未收到，进入缺失列表）</span>
+  <span><i class="swatch" style="background:#f7f8fa"></i>空洞（超出 <code>chunk_count</code> 的槽位，不属于文件）</span>
+</div>
+
+<div class="caption">
+  上排为 chunk_id，下排为该 chunk_id 在位图中的状态。<br>
+  本例中按 <code>chunk_id</code> 升序枚举的<strong>第一个缺失块 = chunk_id 5</strong>，
+  即缺失列表的<strong>起点</strong>：缺失列表必须按升序分批下发，发送方据此补发缺失块。<br>
+  空洞位格（<code>chunk_id ≥ chunk_count</code>）不属于文件内容，不参与缺失计数。
+</div>

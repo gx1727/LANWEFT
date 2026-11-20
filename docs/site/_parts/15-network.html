@@ -1,0 +1,20 @@
+<h2>可达性示意</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:2">
+    <div class="cell ruler-title">Client（同一局域网）</div>
+    <div class="cell ruler-title">Server</div>
+    <div class="cell f-type">TCP connect（控制面）</div>
+    <div class="cell f-type">监听控制端口</div>
+    <div class="cell f-type">UDP PROBE（数据面）</div>
+    <div class="cell f-type">PROBE_ACK（从会话数据面端口发出）</div>
+    <div class="cell wide f-muted">Server 以 PROBE 报文的源地址:端口作为该会话的对端数据面地址（见 07 章）</div>
+  </div>
+</div>
+
+<div class="caption">
+  图示仅表达本章「协议假设」：双方处于<strong>同一局域网</strong>，
+  <strong>Client 可主动</strong>向 Server 发起 TCP / UDP；
+  Server <strong>不</strong>主动向 Client 发起连接，也<strong>不</strong>做 NAT 穿透。
+  控制面与数据面的具体消息语义见 06、07 章。
+</div>

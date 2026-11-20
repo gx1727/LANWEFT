@@ -1,0 +1,239 @@
+11 流控（Flow Control） — LANWEFT
+目录
+◀ 10 状态机
+12 可靠性 ▶
+规范源文
+11 流控（Flow Control）
+本章要点：流控有两级在途上限 —— 会话级 window
+（规范默认值 8192）与连接级 connection_window
+（规范默认值 16384），二者必须同时满足。
+协议无逐包 ACK：发送方推进窗口的唯一依据是接收方周期性下发的
+missing_chunks（mode=report），空列表裁决也必须下发，
+否则窗口填满后协议死锁。AIMD 只是发送端本地策略，不属于互操作要求。
+两级在途上限
+两级额度必须同时满足（示意）
+会话 A 在途量
+≤ window（规范默认值 8192）
+会话 B 在途量
+≤ window（规范默认值 8192）
+同一控制连接上全部会话的在途量之和
+≤ connection_window（规范默认值 16384）
+会话之间的额度分配由发送方自行决定，不构成互操作要求；
+并发会话不得重复预留同一额度
+会话级上限约束单个会话，连接级上限约束整条控制连接上所有会话的在途量之和；
+图中“会话 A / B”仅为示意，额度分配策略不属于互操作要求。
+在途量估算：S − R
+在途量 = max(0, S − R) ≤ window
+chunk 0
+1
+2
+3
+4
+5
+…
+N
+发送进度 S：已发出的不同 chunk_id 数（重传不重复计数）
+已确认收到 R
+在途（未确认）
+接收方位图：R = chunk_count − missing_count（由最近一次裁决推出）
+空洞（低于 max_received_id 的缺失块）
+在途（未确认）
+空洞由 missing_chunks（mode=report）指认并补发；next_chunk_id 只决定顺序流的续点
+S = 已发不同 chunk 数，R = 对端已接收数 = chunk_count − missing_count，
+在途量 = max(0, S − R)；该估计是真实在途量的保守上界，按它执行上限不会突破 window。
+发送节奏：批次与批间隔
+按批次发送：连续 burst_size 个 chunk，批间隔 batch_gap_us（示意）
+批次 1 · burst_size 个 chunk
+批内不逐包停顿
+批间隔 batch_gap_us
+初值 2000 µs
+批次 2 · burst_size 个 chunk
+持续推进，直到全部发出
+burst_size 初值 = min(256, window)（建议值）；
+每批开始前必须在会话与连接两级预算中一次性预留新块额度
+burst_size 初值与 window 解耦，避免默认配置下单个突发过大；
+本批新块数 ≤ min(burst_size, 剩余新块数, 会话剩余额度, 连接剩余额度)，
+任一额度为零时不发新块。
+两级在途上限
+本协议有两级在途上限，二者必须同时满足：
+层级
+参数
+作用域
+归属
+会话级
+window
+单个会话的在途 chunk 数上限
+Server 在 accept 中下发
+连接级
+connection_window
+一条控制连接上所有会话在途 chunk 数之和的上限
+Server 在 accept 中下发
+会话级：window
+滑动窗口（window）是「在途上限」：已发送但尚未被对端确认接收的 chunk 数上限。
+window 由 Server 在 upload_accept / download_accept 中下发。
+协议层参数（互操作相关）：
+参数
+归属
+约束
+window
+Server 下发
+Client 不得擅自修改；规范默认值 8192
+connection_window
+Server 下发
+Client 不得擅自修改；规范默认值 16384
+chunk_size
+协商确定
+1024–1350，上限 1400（见 08 章）
+无逐包 ACK：可靠性完全由 missing_chunks 裁决提供（见 12 章）。
+连接级：connection_window（规范性）
+一条控制连接可以承载多个并发会话（见 09 章）。
+若每个会话各自遵守自己的 window，则整条连接的数据面流量
+等于各会话 window 之和 —— 单个会话看起来合规，整机流量却可能失控。
+Server 必须保证：同一控制连接上全部活跃会话的 window 之和
+不超过 connection_window。
+发送方必须保证：同一控制连接上全部会话的在途量之和
+不超过 connection_window。
+会话之间的额度分配由发送方自行决定，不构成互操作要求。
+connection_window 的当前值随 accept 消息下发（见 06 章）；
+发送方必须采用最新收到的值。
+Server 应当按目标链路速率设定 connection_window；
+规范默认值 16384 允许两个满窗口会话并发（8192 × 2）。
+窗口与吞吐的关系（规范性）
+稳态吞吐上限约为
+throughput ≈ window × chunk_size / 裁决周期
+以 chunk_size = 1200、裁决周期 50ms 计：
+window
+在途数据量
+吞吐上限
+1024
+1.2 MB
+约 24 MB/s（≈195 Mbps）
+4096
+4.9 MB
+约 98 MB/s（≈786 Mbps）
+8192
+9.8 MB
+约 196 MB/s（≈1.5 Gbps）
+Server 应当依据目标链路速率与 chunk_size 选取 window。
+规范默认值 8192 对应约 1.5 Gbps 的吞吐上限，足以跑满千兆。
+资源受限（内存 / 弱网）时可下调至 4096 ——
+其吞吐上限约 786 Mbps，不足以跑满千兆，属有意降级。
+单会话独占链路时，connection_window 应当取与 window 相同的值。
+在途量与实际接收能力（规范性）
+window 描述的是协议层的在途计数，它不等于接收端内核缓冲的实际容量。
+接收端必须保证其数据面接收缓冲足以吸收发送方的突发，
+否则突发会被内核直接丢弃，并以丢包的形式反馈给 AIMD
+（进而被误判为链路拥塞而错误降速）。
+接收方（规范性）：数据面接收缓冲必须能够容纳至少一个发送批次的突发
+（即 burst_size × chunk_size 量级）。
+按默认初值（burst_size = 256、chunk_size = 1200）计，该要求约 300 KB。
+发送方（推荐性）：burst_size 应当按对端的吸收能力选取，
+而不是直接取满 window。
+发送节奏
+发送方必须按批次发送：连续发送 burst_size 个 chunk（批内不逐包停顿），
+批间隔 batch_gap_us。
+burst_size 初值 = min(256, window)（建议值）；batch_gap_us 初值 = 2000 µs。
+burst_size 必须 ≤ window。
+初值为何与 window 解耦（说明）：若 burst_size 初值取 window，
+默认配置下单个突发将达 8192 × 1200 B ≈ 9.4 MB ——
+既要求接收方的数据面接收缓冲常备同等容量（见下），
+又极易触发 UDP 内核丢包，被 AIMD 误判为拥塞而降速。
+把初值定为 min(256, window) 后，默认突发约 300 KB，
+接收方的缓冲要求与丢包风险都落在可控范围；
+该初值仍落在 AIMD 的取值区间 [min(64, window), window] 内。
+发送方必须持续推进批次，直到 chunk_count 全部发出；
+任一级在途额度用尽时暂停发送新块（见「窗口推进判据」第 3 条）。
+窗口推进判据（规范性）
+这是发送方在「无逐包 ACK」下继续推进的唯一依据：
+发送方持续发送新 chunk，直到 chunk_count 全部发出。
+发送方必须以最近一次 missing_chunks（mode=report）裁决中报告的缺失列表
+作为重传依据，重传优先级高于新数据。
+发送方必须维护「已发送但尚未被对端确认接收」的 chunk 数估计，记为在途量。
+在途量不得超过 window；达到上限时，发送方必须暂停发送新数据
+（重传不受此限），直至收到下一次裁决后重新计算。
+每批开始前，必须在会话和连接两级预算中一次性预留新块额度：
+本批新块数 ≤ min(burst_size, 剩余新块数, 会话剩余额度, 连接剩余额度)。
+并发会话不得重复预留同一额度；任一额度为零时不发新块。已计入在途的块
+重发不重复占额，但首次发送某个块即使来自缺失列表，也必须占额。
+在途量估算（规范性）：对端已接收数由最近一次裁决的 missing_count 推出：
+R（对端已接收数） = chunk_count − missing_count
+S（已发不同 chunk 数）= 发送方已发出过的**不同** chunk_id 数量
+在途量 = max(0, S − R)
+「已发不同 chunk 数」不重复计数重传：同一 chunk_id 无论重传多少次，
+S 只增加一次。顺序发送流覆盖 0 … chunk_count-1，
+因此 S 可由「顺序流的下一个待发 chunk_id」与「已重传的空洞数」推出，
+无需维护整幅位图。
+missing_count 已知时按上式计算。该估计是真实在途量的保守上界：
+裁决反映的是对端在裁决时刻的已收数，该值不晚于当前真实已收数，
+因此估计值 ≥ 真实在途量 —— 按估计值执行上限不会突破 window。
+missing_count 未知（对端未携带该字段，即存在标志位为 0）时，
+R 无法求出，发送方必须采用保守退化：把裁决报告的缺失块全部视为仍未到达，
+在途量不得超过 window − len(chunks)；
+chunks 为空列表时退化为 window。
+恢复后的基线（规范性）：会话重建后，发送方必须把 S 的基线
+重置为 chunk_count − 权威快照的 missing_count（即 R）——
+权威快照为 login_ack.sessions[].missing_count（断线重连）
+或 resume_ack.missing_count（暂停后恢复）。
+这 R 个块已被对端确认收到，必然已经发出过。
+在恢复后首条普通 report 到达时，以其精确计数更新该基线（见 13 章）；
+基线重置后 S = R，在途量为 0，随后随新数据发送而增长。
+恢复后（连接重建）：发送方必须丢弃恢复前推导的在途量估计，
+在收到权威快照（login_ack.sessions 或 resume_ack）之前不得发送新数据；
+收到后按上述基线规则重建估计。
+复核轮（规范性）：收到带复核轮标志的裁决时
+（missing_chunks.flags.bit1 = 1，见 12 章），发送方必须：
+①把顺序流重置到 chunk_id = 0；
+②仅在首次启动全量复核时把基线重置为 S = R = 0；恢复同一轮使用实际已收数；
+③重新打开源文件并从头重读；
+④按原节奏从 chunk_id = 0 起全量重发。
+4. 裁决索要（单一规则）：发送方在「等待裁决」状态下必须保持一个 1000 ms 周期：
+距上一次收到 mode=report 已超过 1000 ms 时，必须发布
+missing_chunks（mode=request）主动索要裁决；
+每收到一条 mode=report（无论 chunks 是否为空）即重置该计时器。
+本规则统一了 12 章的「保底轮询」与「看门狗」——
+两者是同一机制的不同表述，不再各自定义独立周期。
+重复的 mode=request 是幂等的（见 06 章「未识别消息必须忽略，保持幂等性」）。
+5. 裁决节奏（接收侧义务）：
+接收方必须至少每 50 ms 下发一次 missing_chunks（mode=report），
+即使缺失列表为空也必须下发（空列表是「可以继续推进」的裁决）。
+接收方收到 missing_chunks（mode=request）时，必须在 50 ms 内
+以 mode=report 应答。
+空列表裁决是必需的（规范性）：若接收方只在「有缺失」时才下发，发送方将在窗口填满后
+永远等不到裁决，协议死锁。因此周期性下发空列表裁决是规范性要求，
+而非优化建议。
+动态流控：AIMD（推荐性）
+本节描述发送端本地策略，不属于互操作要求。
+两端实现可以采用完全不同的策略，协议行为必须保持一致。
+发送侧依据对端周期性下发的 progress_update 估算链路状况，
+据此调节 burst_size 与 batch_gap_us。
+上传方向的发送侧是 Client，下载方向的发送侧是 Server ——
+本节对两个方向同等适用。
+progress_update 的发布方恒为接收方（见 06 章），两个方向下都成立。
+丢包率估算
+loss_rate = 1.0 - (delta_received / delta_sent)
+delta_received：相邻两次 progress_update 之间接收方确认的 chunk 数增量
+delta_sent：同一区间内发送方实际发出的 chunk 数增量
+估算约束（规范性）：
+估算必须基于滑动窗口内累计值（窗口长度建议为最近 20 个 tick），而非单 tick 差值；
+样本量不足时（delta_sent < 16）不得据此调整；
+delta_sent 为 0 时不得触发除法。
+调整规则
+条件
+动作
+拥塞（loss_rate > 5%）
+batch_gap_us = min(max(batch_gap_us × 1.5, 200), 100000)
+burst_size = max(burst_size × 0.7, min(64, window))
+通畅（loss_rate < 1%）
+batch_gap_us = max(batch_gap_us - 10, 0)
+burst_size = min(burst_size + 2, window)
+中间区间（1% ≤ loss_rate ≤ 5%）
+保持不变
+batch_gap_us 范围 [0, 100000] µs；
+burst_size 范围 [min(64, window), window] —— 下界取 min(64, window)，
+以免 window < 64 时下界越过上界。
+每次调整应当加入随机抖动（jitter），避免多个 Client 同步震荡。
+前提条件
+AIMD 只作用于发送节奏，不改变协议语义；任何流控参数下协议行为都应一致
+AIMD 依赖 progress_update 的周期性下发（发送侧约每 500ms 收到一次）
+数据面不做拥塞控制，AIMD 属于客户端策略而非协议层机制
+LANWEFT · 规范文档可视化 · 对应 docs/spec/11-flow-control.md

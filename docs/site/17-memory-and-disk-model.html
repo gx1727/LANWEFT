@@ -18,109 +18,166 @@
 
   <h1>17 存储与内存模型</h1>
 
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
     <strong>本章要点</strong>：内存占用<strong>与文件大小解耦</strong>，只与 <code>chunk_size</code> 成正比；
-    接收方按 <code>chunk_id × chunk_size</code> 的偏移<strong>乱序写盘</strong>，重复写入<strong>必须</strong>幂等；
-    完成后以<strong>原子重命名</strong>提交。
+    接收方按 <code>chunk_id × chunk_size</code> 的偏移<strong>乱序写盘</strong>，重复写入<strong>必须</strong>幂等。
+    写入顺序是<strong>规范性</strong>的：<strong>先校验 <code>crc32</code>，再写盘，最后标记位图</strong>；
+    校验失败的块<strong>必须</strong>在写盘前丢弃。
+    提交时以同一文件系统目录内的 <code>rename(2)</code> <strong>原子重命名</strong>，
+    读者看到的要么是旧文件、要么是完整的新文件，<strong>不存在中间态</strong>。
   </div>
 
+
+  <!-- ============ 乱序写盘：偏移映射（搬自原页面） ============ -->
+  <h2>乱序写盘：偏移映射</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:8">
+    <div class="cell wide ruler-title">乱序写盘：offset = chunk_id × chunk_size</div>
+    <div class="cell bitnum">chunk 0</div>
+    <div class="cell bitnum">chunk 1</div>
+    <div class="cell bitnum">chunk 2</div>
+    <div class="cell bitnum">chunk 3</div>
+    <div class="cell bitnum">chunk 4</div>
+    <div class="cell bitnum">chunk 5</div>
+    <div class="cell bitnum">…</div>
+    <div class="cell bitnum">chunk N</div>
+    <div class="cell f-chunk">0</div>
+    <div class="cell f-chunk">chunk_size</div>
+    <div class="cell f-chunk">2×</div>
+    <div class="cell f-chunk">3×</div>
+    <div class="cell f-chunk">4×</div>
+    <div class="cell f-chunk">5×</div>
+    <div class="cell f-muted">…</div>
+    <div class="cell f-len">N×</div>
+    <div class="cell wide f-muted">接收方随机写盘 —— 到达顺序与落盘顺序无关；重复写同一 chunk_id 幂等</div>
+  </div>
+</div>
+
+<div class="caption">
+  第 <code>chunk_id</code> 块的数据<strong>必须</strong>写在文件偏移 <code>chunk_id × chunk_size</code> 处；
+  最后一个 chunk 的实际长度<strong>可以</strong>小于 <code>chunk_size</code>。
+  图中刻度为<strong>示意</strong>（<code>chunk_size</code> 的倍数），不含任何手敲的规范数值。
+</div>
+
+
+  <!-- ============ 写入顺序（由源文「写入语义」绘成） ============ -->
+  <h2>写入顺序（规范性）</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:4">
+    <div class="cell wide ruler-title">接收方的写入顺序：先校验 → 再写盘 → 最后标记位图</div>
+
+    <div class="cell f-crc">① 校验 crc32</div>
+    <div class="cell f-muted">校验失败 → <strong>写盘前丢弃</strong>，不得让未通过校验的数据进入临时文件（见 12 章）</div>
+    <div class="cell f-payload">② 写盘（偏移 = chunk_id × chunk_size）</div>
+    <div class="cell f-muted">重复写同一 chunk_id <strong>必须</strong>幂等（允许重复覆盖）</div>
+    <div class="cell f-chunk">③ 标记位图（该 chunk_id 记为「已收到」）</div>
+    <div class="cell wide f-body">块<strong>必须</strong>在数据写入临时文件<strong>之后</strong>才被标记为「已收到」（见 18 章「位图的协议能力」）</div>
+  </div>
+</div>
+
+<div class="caption">
+  三步顺序取自源文「写入语义（规范性）」中的<strong>写入顺序（规范性）</strong>一段；
+  图中不含手敲的规范数值（校验算法为 <code>crc32</code>，见 08 章）。
+</div>
+
+
+  <!-- ============ 内存与文件大小解耦（搬自原页面） ============ -->
+  <h2>内存与文件大小解耦</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:2">
+    <div class="cell ruler-title">文件大小</div>
+    <div class="cell ruler-title">常驻内存</div>
+    <div class="cell f-len">GB 级（线性增长）</div>
+    <div class="cell f-chunk">≈ 常数（payload 缓冲 + 位图 + 会话状态）</div>
+  </div>
+</div>
+
+<div class="caption">
+  常驻内存<strong>应当</strong>只包含：数据面 payload 缓冲、位图、会话状态；
+  内存占用<strong>应当</strong>与 <code>chunk_size</code> 成正比，
+  而<strong>不</strong>与文件大小成正比 —— 这是「内存与文件大小解耦」目标的直接体现（推荐性）。
+</div>
+
+
+  <!-- ============ 完成与提交流程（搬自原页面） ============ -->
+  <h2>完成与提交流程</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:1">
+    <div class="cell ruler-title">完成流程</div>
+    <div class="cell wide f-chunk">位图全真</div>
+    <div class="cell wide f-type">↓ 计算全文件 Blake3 并与 file_hash 比对（32 字节原始摘要，hash32）</div>
+    <div class="cell wide f-payload">↓ 通过后原子重命名为最终文件名</div>
+    <div class="cell wide f-session">↓ 标记完成</div>
+  </div>
+</div>
+
+<div class="caption">
+  摘要长度（32 字节）与类型（<code>hash32</code>）取自源文；
+  原子重命名<strong>必须</strong>是同一文件系统目录内的 <code>rename(2)</code> 操作，
+  以保证读者看到的要么是旧文件、要么是完整的新文件，<strong>不存在中间态</strong>。
+  摘要失配时先执行 12 章的摘要对帐，复核轮条件见 12 章。
+</div>
+
+
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
   <h2>目标</h2>
-  <ul class="spec">
-    <li>支持 <strong>GB 级文件</strong></li>
-    <li>内存占用与文件大小<strong>解耦</strong></li>
-    <li>支持<strong>乱序写</strong>与<strong>中断恢复</strong></li>
-  </ul>
-
-  <h2>临时文件（规范性）</h2>
-  <div class="card">
-    <table>
-      <tbody>
-        <tr><td><strong>必须</strong>创建临时文件</td><td>接收方<strong>必须</strong>为每个进行中的会话创建<strong>临时文件</strong>，其路径<strong>必须</strong>与最终文件路径相区分</td></tr>
-        <tr><td><strong>必须</strong>标记为「未完成」</td><td>临时文件<strong>必须</strong>被标记为 incomplete —— 在会话提交前，临时文件<strong>不得</strong>出现在最终位置</td></tr>
-        <tr><td><strong>可以</strong>预分配</td><td>临时文件<strong>可以</strong>预分配（稀疏文件），以避免写入过程中的空间分配开销</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h2>写入语义（规范性）</h2>
-  <div class="card">
-    <table>
-      <thead><tr><th>规则</th><th>说明</th></tr></thead>
-      <tbody>
-        <tr><td><strong>偏移映射</strong></td><td>第 <code>chunk_id</code> 块的数据<strong>必须</strong>写在文件偏移 <code>chunk_id × chunk_size</code> 处</td></tr>
-        <tr><td><strong>幂等</strong></td><td>重复写入同一 <code>chunk_id</code> <strong>必须</strong>是幂等的（允许重复覆盖）</td></tr>
-        <tr><td><strong>尾块</strong></td><td>最后一个 chunk 的实际长度<strong>可以</strong>小于 <code>chunk_size</code>（见 08 章）</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="diagram">
-    <div class="fields" style="--cols:8">
-      <div class="cell wide ruler-title">乱序写盘：offset = chunk_id × chunk_size</div>
-      <div class="cell bitnum">chunk 0</div>
-      <div class="cell bitnum">1</div>
-      <div class="cell bitnum">2</div>
-      <div class="cell bitnum">3</div>
-      <div class="cell bitnum">4</div>
-      <div class="cell bitnum">5</div>
-      <div class="cell bitnum">…</div>
-      <div class="cell bitnum">N</div>
-      <div class="cell f-chunk">0</div>
-      <div class="cell f-chunk">chunk_size</div>
-      <div class="cell f-chunk">2×</div>
-      <div class="cell f-chunk">3×</div>
-      <div class="cell f-chunk">4×</div>
-      <div class="cell f-chunk">5×</div>
-      <div class="cell f-muted">…</div>
-      <div class="cell f-len">N×</div>
-      <div class="cell wide f-muted">接收方随机写盘 —— 到达顺序与落盘顺序无关；重复写同一 chunk_id 幂等</div>
-    </div>
-  </div>
-
-  <div class="note warn">
-    <strong>与加密的约束</strong>：应用层加密<strong>不得</strong>改变 chunk 与文件偏移的映射关系（见 20 章「数据面」）。
-  </div>
-
-  <h2>内存占用（推荐性）</h2>
-  <div class="card">
-    <table>
-      <thead><tr><th>项</th><th>要求</th></tr></thead>
-      <tbody>
-        <tr><td><strong>常驻内存内容</strong></td><td><strong>应当</strong>只包含：数据面 payload 缓冲、位图、会话状态</td></tr>
-        <tr><td><strong>占用与谁成正比</strong></td><td>内存占用<strong>应当</strong>与 <code>chunk_size</code> 成正比，而<strong>不</strong>与文件大小成正比 —— 这是「内存与文件大小解耦」目标的直接体现</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="diagram">
-    <div class="fields" style="--cols:2">
-      <div class="cell ruler-title">文件大小</div>
-      <div class="cell ruler-title">常驻内存</div>
-      <div class="cell f-len">GB 级（线性增长）</div>
-      <div class="cell f-chunk">≈ 常数（payload 缓冲 + 位图 + 会话状态）</div>
-    </div>
-  </div>
-
-  <h2>完成与提交（规范性）</h2>
-  <div class="diagram">
-    <div class="fields" style="--cols:1">
-      <div class="cell ruler-title">完成流程</div>
-      <div class="cell wide f-chunk">位图全真</div>
-      <div class="cell wide f-type">↓ 计算全文件 Blake3 并与 file_hash 比对（32 字节原始摘要，hash32）</div>
-      <div class="cell wide f-payload">↓ 通过后原子重命名为最终文件名</div>
-      <div class="cell wide f-session">↓ 标记完成</div>
-    </div>
-  </div>
-
-  <div class="card">
-    <table>
-      <tbody>
-        <tr><td><strong>原子重命名</strong></td><td><strong>必须</strong>是同一文件系统目录内的 <code>rename(2)</code> 操作，以保证读者看到的要么是旧文件、要么是完整的新文件，<strong>不存在中间态</strong></td></tr>
-        <tr><td><strong>持久化前置</strong></td><td>提交前<strong>必须</strong>已持久化位图与临时文件（见 09 章「持久化」），否则重命名后无法回溯校验依据</td></tr>
-        <tr><td><strong>持久化失败</strong></td><td>位图 / 会话元数据落盘失败按 <code>DATABASE_ERROR</code> 记录（见 19 章），并<strong>必须</strong>中止该会话的推进 —— 位图不可信时继续传输会丢失或重复块</td></tr>
-      </tbody>
-    </table>
-  </div>
+<ul>
+<li>支持 GB 级文件</li>
+<li>内存占用与文件大小<strong>解耦</strong></li>
+<li>支持乱序写与中断恢复</li>
+</ul>
+<h2>临时文件（规范性）</h2>
+<ul>
+<li>接收方<strong>必须</strong>为每个进行中的会话创建<strong>临时文件</strong>，
+  其路径<strong>必须</strong>与最终文件路径相区分。</li>
+<li>临时文件<strong>必须</strong>被标记为「未完成」（incomplete）——
+  在会话提交前，临时文件<strong>不得</strong>出现在最终位置。</li>
+<li>临时文件<strong>可以</strong>预分配（稀疏文件），以避免写入过程中的空间分配开销。</li>
+</ul>
+<h2>写入语义（规范性）</h2>
+<ul>
+<li>第 <code>chunk_id</code> 块的数据<strong>必须</strong>写在文件偏移 <code>chunk_id × chunk_size</code> 处。</li>
+<li>重复写入同一 <code>chunk_id</code> <strong>必须</strong>是幂等的（允许重复覆盖）。</li>
+<li>最后一个 chunk 的实际长度<strong>可以</strong>小于 <code>chunk_size</code>（见 08 章）。</li>
+<li><strong>写入顺序（规范性）</strong>：接收方<strong>必须</strong>先校验 <code>crc32</code>，
+  再写盘，再标记位图；
+  校验失败的块<strong>必须</strong>在写盘前丢弃，
+  <strong>不得</strong>让未通过校验的数据进入临时文件（见 12 章）。</li>
+</ul>
+<blockquote>
+<p><strong>与加密的约束</strong>：应用层加密<strong>不得</strong>改变 chunk 与文件偏移的映射关系
+（见 20 章「数据面」）。</p>
+</blockquote>
+<h2>内存占用（推荐性）</h2>
+<ul>
+<li>常驻内存<strong>应当</strong>只包含：数据面 payload 缓冲、位图、会话状态。</li>
+<li>内存占用<strong>应当</strong>与 <code>chunk_size</code> 成正比，
+  而<strong>不</strong>与文件大小成正比 —— 这是「内存与文件大小解耦」目标的直接体现。</li>
+</ul>
+<h2>完成与提交（规范性）</h2>
+<p>完整流程见 12 章「完整性校验」与 10 章「秒传路径」，要点：</p>
+<ul>
+<li>位图全真 → 计算全文件 Blake3 并与 <code>file_hash</code> 比对
+  （失配时先执行摘要对帐，复核轮条件见 12 章）
+  （<code>file_hash</code> 为 <strong>32 字节原始 Blake3 摘要</strong>，<code>hash32</code> 类型，见 06 章「基本类型」）
+  → 通过后<strong>原子重命名</strong>为最终文件名 → 标记完成</li>
+<li>原子重命名<strong>必须</strong>是同一文件系统目录内的 <code>rename(2)</code> 操作，
+  以保证读者看到的要么是旧文件、要么是完整的新文件，
+  不存在中间态。</li>
+<li>提交前<strong>必须</strong>已持久化位图与临时文件（见 09 章「持久化」），
+  提交意图、崩溃恢复和最终回执的持久化顺序见 13 章。
+  持久化失败（位图 / 会话元数据落盘失败）按 <code>DATABASE_ERROR</code> 记录
+  （见 19 章），并<strong>必须</strong>按 10 章「终止权」报告并终止会话 ——
+  位图不可信时继续传输会丢失或重复块。</li>
+<li><strong>复核轮（规范性）</strong>：复核轮期间的写入<strong>必须</strong>覆盖同一偏移
+  （<code>chunk_id × chunk_size</code>）并<strong>必须</strong>在写入后重置对应位图标记；
+  复核轮期间<strong>不得</strong>创建新的临时文件，<strong>不得</strong>提前提交（见 12 章）。</li>
+</ul>
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/17-memory-and-disk-model.md">docs/spec/17-memory-and-disk-model.md</a></footer>
 </div>

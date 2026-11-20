@@ -1,0 +1,24 @@
+<div class="diagram">
+  <div class="fields" style="--cols:8">
+    <div class="cell ruler-title">控制帧帧头 = {{VAR:c06_hdr_size}} 字节 · 小端序（1 格 = 1 字节）</div>
+    <div class="cell span4 f-len">magic<br><span class="mono">{{VAR:c06_f_magic_off}} · {{VAR:c06_f_magic_size}}B</span></div>
+    <div class="cell span4 f-frame">frame_len<br><span class="mono">{{VAR:c06_f_frame_len_off}} · {{VAR:c06_f_frame_len_size}}B</span></div>
+    <div class="cell span4 f-crc">header_crc32<br><span class="mono">{{VAR:c06_f_crc_off}} · {{VAR:c06_f_crc_size}}B</span></div>
+    <div class="cell f-type">msg_type<br><span class="mono">{{VAR:c06_f_msg_type_off}} · {{VAR:c06_f_msg_type_size}}B</span></div>
+    <div class="cell f-flags">flags<br><span class="mono">{{VAR:c06_f_flags_off}} · {{VAR:c06_f_flags_size}}B</span></div>
+    <div class="cell f-payload">body_version<br><span class="mono">{{VAR:c06_f_body_ver_off}} · {{VAR:c06_f_body_ver_size}}B</span></div>
+    <div class="cell f-muted">reserved<br><span class="mono">{{VAR:c06_f_reserved_off}} · {{VAR:c06_f_reserved_size}}B</span></div>
+    <div class="cell wide f-body">body（偏移 {{VAR:c06_f_body_off}} 起；长度 = frame_len − {{VAR:c06_hdr_size}}）</div>
+    <div class="cell wide f-ext">扩展区 Extension（可选，接收方必须忽略）</div>
+  </div>
+</div>
+<div class="caption">
+  <code>magic</code> 恒为 <code>{{VAR:c06_magic_value}}</code>（“LANW”），不随版本变更；线上四字节为
+  <code>{{VAR:c06_magic_bytes}}</code>。抓包比对<strong>必须</strong>按线上字节序，
+  <strong>不得</strong>按 u32 的字节序反推。
+  <code>header_crc32</code> 覆盖帧内<strong>两段</strong>连续区间
+  （<code>magic</code> ‖ <code>frame_len</code>，以及 <code>msg_type</code> ‖ <code>flags</code> ‖
+  <code>body_version</code> ‖ <code>reserved</code>），合计 <strong>{{VAR:c06_crc_bytes}} 字节</strong>，
+  <strong>不是</strong>单一连续区间。图中字段偏移与大小均由源文帧格式表抽取（<code>{{VAR:c06_f_magic_off}}</code>
+  等），不手敲。
+</div>

@@ -1,0 +1,10 @@
+<div class="note blue">
+    <strong>本章要点</strong>：恢复有<strong>两条路径</strong>（断线重连 / 暂停后恢复），语义<strong>一致</strong>：
+    都返回接收方的<strong>权威续传位置与数据面端口</strong>，都使会话回到<strong>可传输状态</strong>；
+    区别只在于<strong>是否需要重建连接</strong>。
+    断线<strong>不解除</strong>显式暂停 —— <code>PAUSED</code> 会话在重连后<strong>必须</strong>仍处于 <code>PAUSED</code>，
+    由 <code>resume_session</code> / <code>resume_ack</code> 显式恢复；
+    恢复后<strong>各视角各自回到断线前的状态</strong>。
+    续传起点 <code>next_chunk_id</code> <strong>必须</strong>是接收方位图中<strong>第一个尚未收到的块</strong>，
+    位图中的空洞由周期下发的 <code>missing_chunks</code>（<code>mode=report</code>）负责指认。
+  </div>

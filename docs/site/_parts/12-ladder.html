@@ -1,0 +1,26 @@
+<h2>恢复阶梯：文件级失配后的三级恢复</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:3">
+    <div class="cell wide ruler-title">文件级失配 → 每一级至多一次，逐级下降</div>
+
+    <div class="cell f-digest">① 摘要对帐</div>
+    <div class="cell f-len">② 复核轮</div>
+    <div class="cell f-crc">③ 中止</div>
+
+    <div class="cell f-digest">逐区间比对摘要，<strong>零内容流量</strong>地定位差异区间 → 清零可疑块位图 → 复用既有缺失裁决定点补发<br><span class="mono">网络代价极小（每次比较只传摘要）</span></div>
+    <div class="cell f-len">重新读取源文件并<strong>全量重发</strong><br><span class="mono">对帐无法定位或超限时启用；代价为一个完整文件</span></div>
+    <div class="cell f-crc"><code>session_abort</code><br><span class="mono">reason = <code>FILE_HASH_MISMATCH</code></span></div>
+
+    <div class="cell wide f-muted">每一级结束后<strong>必须</strong>重新计算文件级 Blake3：通过即进入 COMMIT，否则进入下一级；
+      计数随位图持久化，重启后<strong>不得</strong>重新获得机会</div>
+
+    <div class="cell wide f-type">分支：对帐的<strong>根区间摘要一致</strong> → 判定请求的 <code>file_hash</code> 与源文件不符
+      → <code>SOURCE_FILE_MISMATCH</code>，<strong>不</strong>进入复核轮</div>
+  </div>
+</div>
+
+<div class="caption">
+  阶梯顺序是规范性要求：摘要对帐必须先于复核轮；复核轮是最后一级的有界手段（代价为一个完整文件），
+  复核轮后仍失配才中止会话。
+</div>

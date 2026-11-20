@@ -1,0 +1,8 @@
+<div class="note blue">
+    <strong>本章要点</strong>：可靠性由「<strong>裁决 + 完整性校验 + 重传 + 中断恢复 + 完成与提交</strong>」五层构成。
+    接收方<strong>必须</strong>至少每 {{VAR:c12_arbitration_ms}} ms 下发一次 <code>missing_chunks</code>
+    （<code>mode=report</code>），<strong>包括缺失列表为空的情况</strong>；
+    发送方每 {{VAR:c12_poll_ms}} ms 至少索要一次裁决 —— 看门狗与保底轮询使用<strong>同一个</strong>索要规则。
+    控制连接断开<strong>不得</strong>直接置为 <code>ABORTED</code>；文件级失配<strong>必须</strong>走恢复阶梯
+    <strong>① 摘要对帐 → ② 复核轮 → ③ 中止</strong>，<strong>每一级至多一次</strong>。
+  </div>

@@ -5,14 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>20 安全模型（Security Model） — LANWEFT</title>
 <link rel="stylesheet" href="style.css">
-<style>
-  .sec-tag{font-family:var(--mono);font-size:12.5px}
-</style>
 </head>
 <body>
 <div class="wrap">
 
-  <!-- ========== 顶部导航：目录 / 上一章 / 下一章 ========== -->
   <nav class="topnav">
     <a href="index.html">目录</a>
     <a href="19-error-codes.html">◀ 19 错误码</a>
@@ -20,101 +16,17 @@
     <a href="../spec/20-security-model.md">规范源文</a>
   </nav>
 
-  <!-- ========== 标题 ========== -->
   <h1>20 安全模型（Security Model）</h1>
 
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
     <strong>本章要点</strong>：安全模型建立在<strong>可信局域网</strong>、Server 与客户端受控、不穿透公网三项假设之上。
     控制通道<strong>必须</strong>支持 TLS、<strong>应当</strong>启用；认证在<strong>连接握手</strong>阶段完成并绑定唯一 <code>device_id</code>。
     数据面使用 CRC32 只提供<strong>完整性</strong>而非安全性；文件级 hash（Blake3）<strong>必须</strong>以 32 字节原始摘要承载。
   </div>
 
-  <!-- ========== 假设 ========== -->
-  <h2>假设</h2>
 
-  <div class="card">
-    <table>
-      <thead>
-        <tr><th>前提</th><th>说明</th></tr>
-      </thead>
-      <tbody>
-        <tr><td class="c-type">可信局域网</td><td>网络环境被视为可信局域网</td></tr>
-        <tr><td class="c-type">Server 与客户端受控</td><td>Server 与客户端均处于受控之下</td></tr>
-        <tr><td class="c-type">不穿透公网</td><td>协议<strong>不</strong>用于穿透公网</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- ========== 控制面 ========== -->
-  <h2>控制面</h2>
-
-  <ul class="spec">
-    <li>控制通道<strong>必须</strong>支持 TLS；<strong>应当</strong>启用（见 21 章）。</li>
-    <li>认证在<strong>连接握手</strong>阶段完成，绑定唯一 <code>device_id</code>
-      （共享令牌或客户端证书，见 21 章）。</li>
-    <li><strong>一条控制连接只承载一个 <code>device_id</code></strong>；
-      跨 <code>device_id</code> 的会话在协议层无法表达。</li>
-    <li>凭据<strong>不得</strong>由 <code>device_id</code> 直接推导（见 23 章「隐私」）。</li>
-  </ul>
-
-  <h3>表示形式（规范性）</h3>
-
-  <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>项目</th>
-          <th>承载方式</th>
-          <th>约束</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="c-session">认证凭据</td>
-          <td><code>login</code> 的 <code>token</code> 字段，类型为 <code>str</code>
-            （<code>u16</code> 长度 + UTF-8）</td>
-          <td>采用客户端证书时<strong>必须</strong>为空串（长度 0）</td>
-        </tr>
-        <tr>
-          <td class="c-chunk"><code>device_id</code></td>
-          <td>同样以 <code>str</code> 承载</td>
-          <td>一条控制连接<strong>只承载一个</strong> <code>device_id</code></td>
-        </tr>
-        <tr>
-          <td class="c-len">协议版本</td>
-          <td>三个 <code>u8</code>：<code>proto_major</code> / <code>proto_minor</code> / <code>proto_patch</code></td>
-          <td>载于 <code>login</code> 与 <code>login_ack</code>（见 06 章）</td>
-        </tr>
-        <tr>
-          <td class="c-flags">错误码</td>
-          <td>以<strong>符号名字符串</strong>承载（<code>code</code> / <code>reason</code> 字段，类型为 <code>str</code>）</td>
-          <td><strong>不得</strong>填写自由文本</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- ========== 数据面 ========== -->
-  <h2>数据面</h2>
-
-  <ul class="spec">
-    <li>UDP 使用 CRC32（<strong>完整性非安全性</strong>）：CRC32 无密钥，任何能发包的主机都能伪造合法包。</li>
-    <li><code>session_id</code>（u64）跨 Server 进程重启<strong>不复用</strong> —— 否则重启前仍在飞行中的数据包
-      会命中新建会话，把数据写入<strong>错误的文件</strong>（见 09 章）。</li>
-    <li>文件级内容 hash（Blake3）：<strong>32 字节原始摘要</strong>（<code>hash32</code>），
-      <strong>禁止</strong>以十六进制串承载；日志与 UI 展示时由实现自行转十六进制（见 06 章）。</li>
-  </ul>
-
-  <h3>数据加密</h3>
-
-  <ul class="spec">
-    <li>数据加密由实现层自选。</li>
-    <li><strong>约束</strong>：应用层加密<strong>不得</strong>改变 chunk 与文件偏移的映射关系。
-      若加密改变了 payload 长度或边界，则 <code>offset = chunk_id × chunk_size</code>
-      的随机写盘语义失效。</li>
-    <li>加密单元必须与 chunk 边界对齐，且密文长度<strong>必须</strong>恰好等于 <code>chunk_size</code>（末块除外）。</li>
-  </ul>
-
+  <!-- ============ 图示（导读片段；图内数值均为变量，不手敲） ============ -->
   <div class="diagram">
     <div class="fields" style="--cols:12">
       <div class="cell wide ruler-title">加密与写盘映射的约束（chunk 边界必须对齐）</div>
@@ -130,35 +42,10 @@
   </div>
 
   <div class="caption">
-    加密单元与 chunk 边界对齐、密文长度恰好等于 <code>chunk_size</code>（末块除外）时，
+    对应正文「数据面 · 数据加密」：加密单元与 chunk 边界对齐、密文长度恰好等于
+    <code>chunk_size</code>（末块除外）时，
     <code>offset = chunk_id × chunk_size</code> 的随机写盘语义才不被破坏。
   </div>
-
-  <h3>源地址校验</h3>
-
-  <ul class="spec">
-    <li>数据面地址必须做<strong>源地址校验</strong>：接收方<strong>必须</strong>校验 UDP 包的源地址:端口
-      与该会话经 PROBE 确认的对端地址一致，不一致即丢弃。</li>
-    <li>这不能替代认证（地址可伪造），但能挡住非定向的误发与扫描。</li>
-  </ul>
-
-  <h3>重放保护</h3>
-
-  <ul class="spec">
-    <li>接收方<strong>必须</strong>拒绝 <code>chunk_id</code> <strong>≥</strong> 该会话 <code>chunk_count</code> 的包
-      （越界，见 08 章）。</li>
-    <li>接收方<strong>必须</strong>校验 <code>session_id</code> 与本会话一致。</li>
-    <li>两者之外的重放由位图幂等性兜底（重复 chunk 静默丢弃）。</li>
-  </ul>
-
-  <div class="note">
-    <strong>完整性 ≠ 安全性</strong>：CRC32 与 Blake3 的作用是发现损坏 / 不一致，
-    并<strong>不</strong>提供防伪能力；任何能发包的主机都能伪造 CRC32 合法的包，
-    因此防伪依赖控制面的认证与 ACL（见 21 章）。
-  </div>
-
-  <!-- ========== 主动投递的边界 ========== -->
-  <h2>主动投递的边界（规范性）</h2>
 
   <div class="diagram">
     <div class="fields" style="--cols:2">
@@ -176,66 +63,102 @@
     </div>
   </div>
 
-  <ul class="spec">
-    <li>主动投递<strong>只</strong>发生在<strong>已认证且存续</strong>的控制连接上（见 09 章「主动投递」）；
-      Server <strong>不得</strong>向离线设备投递。</li>
-    <li>投递<strong>不携带</strong>任何认证凭据 —— 它复用控制连接已建立的身份边界。</li>
-    <li>Server 在收到 <code>delivery_response</code>（接受）后<strong>必须</strong>等到该会话的
-      <code>UDP_PROBE</code> 才可发送数据面数据包：<strong>不得</strong>向未经 PROBE 确认的地址发送
-      （见 07 章「端口与地址绑定」）。</li>
-    <li>接收方<strong>可以</strong>拒绝投递；拒绝是<strong>正常</strong>的协议结果，
-      <strong>不得</strong>被当作错误或触发重试风暴。</li>
-    <li>重复投递<strong>必须</strong>被幂等忽略：接收方<strong>不得</strong>因重复的
-      <code>delivery_offer</code> 而重复落盘同一内容。</li>
-  </ul>
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--b-type)"></i>控制面消息</span>
+    <span><i class="swatch" style="background:#f7f8fa"></i>对端动作 / 说明</span>
+  </div>
+  <div class="caption">
+    对应正文「主动投递的边界（规范性）」：消息名取自源文正文与 24 章「主动投递」时序；
+    投递方向恒为 <strong>download</strong>、完成消息恒由接收方发布（见 24 章）。
+  </div>
 
-  <!-- ========== 资源消耗 ========== -->
-  <h2>资源消耗（规范性）</h2>
 
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
+  <h2>假设</h2>
+<ul>
+<li>可信局域网</li>
+<li>Server 与客户端受控</li>
+<li>不穿透公网</li>
+</ul>
+<h2>控制面</h2>
+<ul>
+<li>控制通道<strong>必须</strong>支持 TLS；<strong>应当</strong>启用（见 21 章）</li>
+<li>认证在<strong>连接握手</strong>阶段完成，绑定唯一 <code>device_id</code>
+  （共享令牌或客户端证书，见 21 章）</li>
+<li><strong>一条控制连接只承载一个 <code>device_id</code></strong>；
+  跨 <code>device_id</code> 的会话在协议层无法表达</li>
+<li>凭据<strong>不得</strong>由 <code>device_id</code> 直接推导（见 23 章「隐私」）</li>
+<li><strong>表示形式（规范性）</strong>：</li>
+<li>认证凭据由 <code>login</code> 的 <code>token</code> 字段承载，类型为 <code>str</code>
+    （<code>u16</code> 长度 + UTF-8）；采用客户端证书时<strong>必须</strong>为空串（长度 0）</li>
+<li><code>device_id</code> 同样以 <code>str</code> 承载</li>
+<li>协议版本以三个 <code>u8</code> 承载（<code>proto_major</code> / <code>proto_minor</code> / <code>proto_patch</code>），
+    载于 <code>login</code> 与 <code>login_ack</code>（见 06 章）</li>
+<li>错误码以<strong>符号名字符串</strong>承载（<code>code</code> / <code>reason</code> 字段，类型为 <code>str</code>），
+    <strong>不得</strong>填写自由文本</li>
+</ul>
+<h2>数据面</h2>
+<ul>
+<li>UDP 使用 CRC32（<strong>完整性非安全性</strong>）：CRC32 无密钥，任何能发包的主机都能伪造合法包</li>
+<li>文件级内容 hash（Blake3）：<strong>32 字节原始摘要</strong>（<code>hash32</code>），
+  <strong>禁止</strong>以十六进制串承载；日志与 UI 展示时由实现自行转十六进制（见 06 章）</li>
+<li>数据加密由实现层自选</li>
+<li><strong>约束</strong>：应用层加密<strong>不得</strong>改变 chunk 与文件偏移的映射关系。
+    若加密改变了 payload 长度或边界，则 <code>offset = chunk_id × chunk_size</code>
+    的随机写盘语义失效。加密单元必须与 chunk 边界对齐，
+    且密文长度<strong>必须</strong>恰好等于 <code>chunk_size</code>（末块除外）。</li>
+<li>数据面地址必须做<strong>源地址校验</strong>：接收方<strong>必须</strong>校验 UDP 包的源地址:端口
+    与该会话经 PROBE 确认的对端地址一致，不一致即丢弃。
+    这不能替代认证（地址可伪造），但能挡住非定向的误发与扫描。</li>
+<li><strong>重放保护</strong>：接收方<strong>必须</strong>拒绝 <code>chunk_id</code> <strong>≥</strong> 该会话 <code>chunk_count</code> 的包（越界，见 08 章），
+  且<strong>必须</strong>校验 <code>session_id</code>（u64）与本会话一致；DATA 的修复代号也必须匹配。
+  同一代内的重复由位图幂等性兜底
+  （重复 chunk 静默丢弃）</li>
+<li><strong><code>session_id</code> 的唯一性是重放保护的前提（规范性）</strong>：
+  <code>session_id</code> <strong>必须</strong>跨 Server 进程重启<strong>不复用</strong>（见 09 章「创建规则」）——
+  否则重启前仍在网络中飞行的数据包会命中重启后新建的会话，
+  把数据写入<strong>错误的文件</strong>。为此 <code>session_id</code> <strong>必须</strong>为 u64 且采用时间有序的分配方式。</li>
+<li><strong>复核轮的边界</strong>：复核轮是接收方主动发起的<strong>全量重传</strong>，
+  由 <code>missing_chunks</code> 的复核轮标志显式表达（见 12 章）；
+  它<strong>不是</strong>重放，发送方<strong>必须</strong>重新读取源文件</li>
+</ul>
+<h2>主动投递的边界（规范性）</h2>
+<ul>
+<li>主动投递<strong>只</strong>发生在<strong>已认证且存续</strong>的控制连接上（见 09 章「主动投递」）；
+  Server <strong>不得</strong>向离线设备投递。</li>
+<li>投递<strong>不携带</strong>任何认证凭据 —— 它复用控制连接已建立的身份边界。</li>
+<li>Server 在收到 <code>delivery_response</code>（接受）后<strong>必须</strong>等到该会话的
+  <code>UDP_PROBE</code> 才可发送数据面数据包：<strong>不得</strong>向未经 PROBE 确认的地址发送
+  （见 07 章「端口与地址绑定」）。</li>
+<li>接收方<strong>可以</strong>拒绝投递；拒绝是<strong>正常</strong>的协议结果，
+  <strong>不得</strong>被当作错误或触发重试风暴。</li>
+<li>重复投递<strong>必须</strong>被幂等忽略：接收方<strong>不得</strong>因重复的 <code>delivery_offer</code>
+  而重复落盘同一内容。</li>
+</ul>
+<h2>资源消耗（规范性）</h2>
+<p>摘要对帐会诱导发送方反复读取源文件（见 12 章），因此<strong>必须</strong>设限：</p>
+<ul>
+<li>每会话的摘要对帐<strong>至多一次</strong>；</li>
+<li>单次请求的区间数 ≤ 64，单会话累计区间比较数 ≤ 8192，层级 ≤ 32；</li>
+<li>发送方<strong>必须</strong>拒绝超出上限的请求，<strong>不得</strong>无条件执行。</li>
+</ul>
+<p>接收方<strong>不得</strong>通过反复发起对帐来消耗对端的磁盘与 CPU。</p>
+<h2>状态与权限</h2>
+<ul>
+<li>UDP 会话<strong>必须</strong>绑定到发起它的控制连接（及其 <code>device_id</code>）</li>
+<li>Server 不向未知端口发送 UDP；目标地址必须来自 PROBE 报文（见 07 章）</li>
+<li>TCP 数据面降级需重校验权限</li>
+</ul>
+<h2>审计</h2>
+<ul>
+<li>认证失败尝试、跨 <code>device_id</code> 的会话操作与 <code>session_abort</code> 原因</li>
+</ul>
+
+  <!-- ============ 导读提示 ============ -->
   <div class="note">
-    摘要对帐会诱导发送方反复读取源文件（见 12 章），因此<strong>必须</strong>设限。
-  </div>
-
-  <div class="card">
-    <table>
-      <thead><tr><th>上限项</th><th>规范取值</th></tr></thead>
-      <tbody>
-        <tr><td class="c-type">每会话的摘要对帐次数</td><td><strong>至多一次</strong></td></tr>
-        <tr><td class="c-type">单次请求的区间数</td><td>≤ 64</td></tr>
-        <tr><td class="c-type">单会话累计区间比较数</td><td>≤ 8192</td></tr>
-        <tr><td class="c-type">层级</td><td>≤ 32</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <ul class="spec">
-    <li>发送方<strong>必须</strong>拒绝超出上限的请求，<strong>不得</strong>无条件执行。</li>
-    <li>接收方<strong>不得</strong>通过反复发起对帐来消耗对端的磁盘与 CPU。</li>
-  </ul>
-
-  <!-- ========== 状态与权限 ========== -->
-  <h2>状态与权限</h2>
-
-  <ul class="spec">
-    <li>UDP 会话<strong>必须</strong>绑定到发起它的控制连接（及其 <code>device_id</code>）。</li>
-    <li>Server 不向未知端口发送 UDP；目标地址必须来自 PROBE 报文（见 07 章）。</li>
-    <li>TCP 数据面降级需重校验权限。</li>
-  </ul>
-
-  <!-- ========== 审计 ========== -->
-  <h2>审计</h2>
-
-  <div class="card">
-    <table>
-      <thead>
-        <tr><th>审计对象</th><th>说明</th></tr>
-      </thead>
-      <tbody>
-        <tr><td class="c-crc">认证失败尝试</td><td>记录认证失败尝试</td></tr>
-        <tr><td class="c-crc">跨 <code>device_id</code> 的会话操作</td><td>记录跨 <code>device_id</code> 的会话操作</td></tr>
-        <tr><td class="c-crc"><code>session_abort</code> 原因</td><td>记录 <code>session_abort</code> 原因</td></tr>
-      </tbody>
-    </table>
+    <strong>完整性 ≠ 安全性</strong>：CRC32 与 Blake3 的作用是发现损坏 / 不一致，
+    并<strong>不</strong>提供防伪能力；任何能发包的主机都能伪造 CRC32 合法的包，
+    因此防伪依赖控制面的认证与 ACL（见 21 章）。
   </div>
 
   <div class="note warn">
@@ -243,6 +166,7 @@
     加密改变了 chunk 边界导致 <code>offset = chunk_id × chunk_size</code> 失效；
     跳过 UDP 源地址校验；由 <code>device_id</code> 直接推导凭据（<strong>不得</strong>）。
   </div>
+
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/20-security-model.md">docs/spec/20-security-model.md</a></footer>
 </div>

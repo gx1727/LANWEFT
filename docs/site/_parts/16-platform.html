@@ -1,0 +1,18 @@
+<h2>平台差异</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:2">
+    <div class="cell ruler-title">Android</div>
+    <div class="cell ruler-title">iOS</div>
+    <div class="cell f-chunk">Foreground Service（前台服务）</div>
+    <div class="cell f-len"><strong>仅前台</strong>可用</div>
+    <div class="cell f-chunk">展示同步状态</div>
+    <div class="cell f-len">进入后台<strong>视为中断</strong></div>
+  </div>
+</div>
+
+<div class="caption">
+  两栏均为源文「Android」/「iOS」小节条目的对照；
+  后台行为差异在协议侧的落点是同一条 —— <strong>后台视为中断</strong>，
+  中断<strong>不回滚</strong>已写入数据、<strong>保留</strong>位图与临时文件（见 13 章）。
+</div>

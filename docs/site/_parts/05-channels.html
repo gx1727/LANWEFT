@@ -1,0 +1,33 @@
+<div class="diagram">
+  <div class="fields" style="--cols:3">
+    <div class="cell wide ruler-title">通道</div>
+    <div class="cell f-frame">控制面 TCP</div>
+    <div class="cell f-type">数据面 UDP</div>
+    <div class="cell f-flags">数据面 TCP（兜底）</div>
+
+    <div class="cell wide bitnum">传输</div>
+    <div class="cell">TCP 长连接</div>
+    <div class="cell">UDP 无连接</div>
+    <div class="cell">TCP</div>
+
+    <div class="cell wide bitnum">承载内容</div>
+    <div class="cell">状态机 / 重传裁决 / 会话管理</div>
+    <div class="cell">chunk 传输</div>
+    <div class="cell">chunk 传输（兜底）</div>
+
+    <div class="cell wide bitnum">完整性</div>
+    <div class="cell">帧头 CRC32（见 06 章）</div>
+    <div class="cell">包级 CRC32（见 08 章）</div>
+    <div class="cell">帧头 CRC32，不重复载荷级 CRC32（见 07 章）</div>
+
+    <div class="cell wide bitnum">传输可靠性</div>
+    <div class="cell">由 TCP 保证</div>
+    <div class="cell">不设逐包 ACK（见 04 章）</div>
+    <div class="cell">由 TCP 保证</div>
+  </div>
+</div>
+<div class="caption">
+  三条通道的一览。各通道的<strong>方向</strong>与<strong>状态</strong>（含版本与章节出处）见本章源文
+  「通道与成熟度」表；文件级完整性（Blake3）由控制面的裁决流程承担，见
+  <a href="12-reliability-model.html">12 章</a>。
+</div>

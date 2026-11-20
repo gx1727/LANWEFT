@@ -1,0 +1,5 @@
+<div class="note warn">
+  <strong>常见实现陷阱</strong>：把 <code>device_id</code> 直接当作凭据（令牌<strong>不得</strong>由 <code>device_id</code> 直接推导）；
+  认证失败后仍然保持连接；用客户端证书时未把 <code>login.token</code> 置为空串；
+  在公共 WiFi 之类非受信网络上以明文凭据部署；把预置素材记录当作私有素材记录允许撤回。
+</div>

@@ -1,0 +1,20 @@
+<h2>发送节奏：批次与批间隔</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:3">
+    <div class="cell wide ruler-title">按批次发送：连续 burst_size 个 chunk，批间隔 batch_gap_us（示意）</div>
+
+    <div class="cell f-chunk">批次 1 · <code>burst_size</code> 个 chunk<br><span class="mono">批内不逐包停顿</span></div>
+    <div class="cell f-len">批间隔 <code>batch_gap_us</code><br><span class="mono">初值 {{VAR:batch_gap_us}} µs</span></div>
+    <div class="cell f-chunk">批次 2 · <code>burst_size</code> 个 chunk<br><span class="mono">持续推进，直到全部发出</span></div>
+
+    <div class="cell wide f-muted"><code>burst_size</code> 初值 = min({{VAR:c11_burst_size}}, <code>window</code>)（建议值）；
+      每批开始前必须在会话与连接两级预算中一次性预留新块额度</div>
+  </div>
+</div>
+
+<div class="caption">
+  <code>burst_size</code> 初值与 <code>window</code> 解耦，避免默认配置下单个突发过大；
+  本批新块数 ≤ <code>min(burst_size, 剩余新块数, 会话剩余额度, 连接剩余额度)</code>，
+  任一额度为零时不发新块。
+</div>

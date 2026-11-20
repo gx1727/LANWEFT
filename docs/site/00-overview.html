@@ -18,210 +18,183 @@
 
   <h1>00 概览（Overview）</h1>
 
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
-    <strong>本章要点</strong>：LANWEFT 是面向可信局域网的混合文件同步协议，通过「控制面 TCP + 数据面 UDP」双通道协作，
-    在保证高吞吐的同时实现<strong>可中断、可恢复、可裁决</strong>的文件同步能力。本章规定控制面载荷的
-    <strong>小端二进制定长布局</strong>与基础类型，给出发送侧 / 接收侧视角定义、文档约定与规范性用语的强度，
-    并声明协议版本为 <code>v0.3.0</code>（规范草案修订中，尚未冻结）。
-  </div>
+  <strong>本章要点</strong>：LANWEFT 是面向可信局域网的混合文件同步协议，通过「控制面 TCP + 数据面 UDP」
+  双通道协作，在保证高吞吐的同时实现<strong>可中断、可恢复、可裁决</strong>的文件同步能力。
+  本章给出核心特性，规定控制面载荷的<strong>小端二进制定长布局</strong>与基础类型，
+  给出<strong>发送侧 / 接收侧</strong>的视角定义、文档约定与规范性用语的强度，
+  并声明协议版本与状态（规范草案修订中、尚未冻结；版本策略见
+  <a href="26-roadmap.html">26 章</a>）。本章同时规定：<strong>规范源文是唯一真源</strong>，
+  站点页面只是<strong>可视化导读</strong>，两者不一致时以源文为准。
+</div>
 
-  <h2>核心特性</h2>
-  <ul class="spec">
-    <li>局域网内大文件（照片 / 视频）高效同步</li>
-    <li>不中断可恢复、乱序写盘、内存与文件大小解耦</li>
-    <li>控制与数据分离，可靠性由控制面裁决</li>
-    <li>控制面：TCP 长连接（二进制帧格式 + 权威快照重同步）；数据面：UDP；位图进度；会话恢复；NAT 探测</li>
-  </ul>
 
-  <h2>表示形式（规范性）</h2>
-
-  <p>控制面载荷为<strong>小端二进制定长布局</strong>。控制帧与消息体的结构如下（详见 06 章）：</p>
-
+  <!-- ============ 控制帧结构示意（字段顺序取自源文，数值见 06 章） ============ -->
   <div class="diagram">
-    <div class="fields" style="--cols:12">
-      <div class="cell ruler-title">控制帧 = magic + frame_len + header_crc32 + 16 字节定长帧头 + 消息体</div>
+  <div class="fields" style="--cols:12">
+    <div class="cell ruler-title">控制帧 = 定长帧头（magic / frame_len / header_crc32 / msg_type / flags / body_version / reserved）+ 消息体</div>
 
-      <div class="cell span4 f-len">u32 magic</div>
-      <div class="cell span4 f-frame">u32 frame_len</div>
-      <div class="cell span4 f-crc">u32 header_crc32</div>
+    <div class="cell span4 f-len">u32 magic</div>
+    <div class="cell span4 f-frame">u32 frame_len</div>
+    <div class="cell span4 f-crc">u32 header_crc32</div>
 
-      <div class="cell span3 f-flags">u8 msg_type</div>
-      <div class="cell span3 f-flags">u8 flags</div>
-      <div class="cell span3 f-type">u8 body_version</div>
-      <div class="cell span3 f-muted">u8 reserved</div>
+    <div class="cell span3 f-flags">u8 msg_type</div>
+    <div class="cell span3 f-flags">u8 flags</div>
+    <div class="cell span3 f-type">u8 body_version</div>
+    <div class="cell span3 f-muted">u8 reserved</div>
 
-      <div class="cell wide f-body">消息体 body</div>
+    <div class="cell wide f-body">消息体 body</div>
 
-      <div class="cell half f-body">定长区（表格式偏移 / 大小）</div>
-      <div class="cell half f-ext">变长区（顺序固定）</div>
-    </div>
+    <div class="cell half f-body">定长区（表格式偏移 / 大小）</div>
+    <div class="cell half f-ext">变长区（顺序固定）</div>
   </div>
+</div>
 
-  <div class="legend">
-    <span><i class="swatch" style="background:var(--b-len)"></i>魔数 <code>magic</code></span>
-    <span><i class="swatch" style="background:var(--b-frame)"></i>长度前缀 <code>frame_len</code></span>
-    <span><i class="swatch" style="background:var(--b-crc)"></i>帧头校验 <code>header_crc32</code></span>
-    <span><i class="swatch" style="background:var(--b-flags)"></i>定长帧头字段</span>
-    <span><i class="swatch" style="background:var(--b-type)"></i>版本字段</span>
-    <span><i class="swatch" style="background:var(--b-body)"></i>定长区</span>
-    <span><i class="swatch" style="background:var(--b-ext)"></i>变长区</span>
-  </div>
-  <div class="caption">消息体 = 定长区（表格式偏移 / 大小）+ 变长区（顺序固定）；本图仅示意结构，字段含义见 06 章。</div>
+<div class="legend">
+  <span><i class="swatch" style="background:var(--b-len)"></i>魔数 <code>magic</code></span>
+  <span><i class="swatch" style="background:var(--b-frame)"></i>长度前缀 <code>frame_len</code></span>
+  <span><i class="swatch" style="background:var(--b-crc)"></i>帧头校验 <code>header_crc32</code></span>
+  <span><i class="swatch" style="background:var(--b-flags)"></i>定长帧头字段</span>
+  <span><i class="swatch" style="background:var(--b-type)"></i>版本字段</span>
+  <span><i class="swatch" style="background:var(--b-body)"></i>定长区</span>
+  <span><i class="swatch" style="background:var(--b-ext)"></i>变长区</span>
+</div>
+<div class="caption">
+  消息体 = 定长区（表格式偏移 / 大小）+ 变长区（顺序固定）。本图仅示意<strong>结构</strong>：
+  字段名与顺序取自本章源文「表示形式（规范性）」，帧头的字节数、线上取值与消息类型编号见
+  <a href="06-control-plane-tcp.html">06 章</a>；数据面数据包的格式见
+  <a href="08-packet-format.html">08 章</a>。
+</div>
 
-  <h3>基础类型</h3>
-  <div class="card">
-    <table class="sym">
-      <thead>
-        <tr>
-          <th>类型</th>
-          <th>表示</th>
-          <th>说明</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><code>u8</code> / <code>u16</code> / <code>u32</code> / <code>u64</code></td>
-          <td class="mono">小端</td>
-          <td>无符号整数，一律使用小端序</td>
-        </tr>
-        <tr>
-          <td><code>bool</code></td>
-          <td class="mono">u8</td>
-          <td>取值 <code>0</code> / <code>1</code></td>
-        </tr>
-        <tr>
-          <td><code>str</code></td>
-          <td class="mono">u16 长度 + UTF-8</td>
-          <td>长度 <code>0</code> 表示无值</td>
-        </tr>
-        <tr>
-          <td><code>hash32</code></td>
-          <td class="mono">32 bytes</td>
-          <td>32 字节原始 Blake3 摘要</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
 
-  <div class="note">
-    数据面数据包的格式见 08 章，本规范<strong>不在此重复定义</strong>。
-  </div>
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
+  <p>LANWEFT 是面向可信局域网的混合文件同步协议。通过"控制面 TCP + 数据面 UDP"的双通道协作，在保证高吞吐的同时，实现可中断、可恢复、可裁决的文件同步能力。</p>
+<h2>核心特性</h2>
+<ul>
+<li>局域网内大文件（照片/视频）高效同步</li>
+<li>不中断可恢复、乱序写盘、内存与文件大小解耦</li>
+<li>控制与数据分离，可靠性由控制面裁决</li>
+<li>完整性分层：包级 CRC32 + 文件级 Blake3</li>
+<li>控制面：TCP 长连接（二进制帧格式 + 权威快照重同步）；数据面：UDP；位图进度；会话恢复；NAT 探测</li>
+</ul>
+<h2>表示形式（规范性）</h2>
+<ul>
+<li>控制面载荷为<strong>小端二进制定长布局</strong>：
+  控制帧 = <code>u32 magic</code> + <code>u32 frame_len</code> + <code>u32 header_crc32</code> + <code>u8 msg_type</code> + <code>u8 flags</code> + <code>u8 body_version</code> + <code>u8 reserved</code> + 消息体；
+  （<strong>16 字节定长帧头</strong>；<code>magic</code> = <code>0x574E414C</code>，<code>header_crc32</code> 用于帧同步与失步检测，见 06 章）；
+  消息体 = 定长区（表格式偏移/大小）+ 变长区（顺序固定）。详见 06 章。</li>
+<li>基础类型：<code>u8</code> / <code>u16</code> / <code>u32</code> / <code>u64</code> 小端；<code>bool</code> = <code>u8</code>（0/1）；
+  <code>str</code> = <code>u16</code> 长度 + UTF-8（长度 0 表示无值）；<code>hash32</code> = 32 字节原始 Blake3 摘要。</li>
+<li>数据面数据包的格式见 08 章，本规范不在此重复定义。</li>
+</ul>
+<h2>角色与视角</h2>
+<div class="card"><table>
+<thead>
+<tr>
+<th>视角</th>
+<th>定义</th>
+<th>上传方向</th>
+<th>下载方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>发送侧</td>
+<td>发送数据的一方</td>
+<td>Client</td>
+<td>Server</td>
+</tr>
+<tr>
+<td>接收侧</td>
+<td>持有位图与临时文件的一方</td>
+<td>Server</td>
+<td>Client</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>完成消息一律由<strong>接收方</strong>发布</li>
+<li>缺失报告一律由<strong>接收方</strong>发起</li>
+<li>Server 拥有一般会话终止权；非 Server 接收方的终止原因限于 10 章「终止权」。</li>
+</ul>
+<p>详见 10 章「视角定义」。</p>
+<h2>文档约定（规范性）</h2>
+<h3>文档性质</h3>
+<p>本文件是<strong>协议设计说明书</strong>。正文只包含协议本身：规范要求、推荐做法与设计理由。</p>
+<ul>
+<li><strong>不记录修订过程</strong>（哪一版改了什么）——
+  修订历史<strong>必须</strong>记入 <a href="26-roadmap.md">26 章「修订记录」</a>。</li>
+<li><strong>不描述具体实现</strong>（编程语言、库、私有 API、源码路径）——
+  实现细节<strong>不构成</strong>协议的一部分（见 25 章）。</li>
+<li><strong>不做版本对比</strong> —— 正文陈述的是<strong>当前</strong>协议，
+  <strong>不得</strong>使用「改由 / 取代 / 不再」等与前一版本对比的措辞，
+  <strong>不得</strong>引用协议中已不存在的概念（见 25 章）。</li>
+</ul>
+<h3>规范性用语的强度</h3>
+<div class="card"><table>
+<thead>
+<tr>
+<th>用语</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>必须 / 不得</strong></td>
+<td>强制要求，违反即为实现错误</td>
+</tr>
+<tr>
+<td><strong>应当</strong></td>
+<td>强制要求（允许有充分理由的例外，例外<strong>应当</strong>有记录）</td>
+</tr>
+<tr>
+<td><strong>建议 / 推荐</strong></td>
+<td>强烈建议，偏离时<strong>应当</strong>说明理由</td>
+</tr>
+<tr>
+<td><strong>可以</strong></td>
+<td>允许但不要求</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>规范性要求<strong>必须</strong>写在正文，<strong>不得</strong>藏在引用块中。</li>
+<li>非规范性内容（实现建议、背景说明）<strong>必须</strong>显式标注为
+  「非规范性（Non-Normative）」或「推荐性」，见 25 章。</li>
+<li>设计理由（为什么这样规定）<strong>应当</strong>以「说明」小节或正文段落呈现，
+  与规范性要求明确区分。</li>
+</ul>
+<h2>站点与源文（规范性）</h2>
+<ul>
+<li><strong>规范源文是唯一真源</strong>：本规范的正文（<code>docs/spec/*.md</code>）是协议事实的<strong>唯一</strong>来源。</li>
+<li><strong>站点页面是可视化导读</strong>：站点（<code>docs/site/</code>）呈现的是本规范的可视化版本，
+  并随站点一同发布<strong>源文副本</strong>，读者随时可读原文。</li>
+<li>站点页面的内容<strong>必须</strong>忠实于源文；<strong>不得</strong>成为规范事实的来源，
+  <strong>不得</strong>引入源文没有的结论、字段或数值。</li>
+<li>站点与源文不一致时，<strong>以源文为准</strong>。</li>
+<li>站点页面由 <code>scripts/render-site.py</code> 从源文渲染（规范正文自动渲染，
+  可视化片段中的数据亦取自源文），<strong>不得</strong>手工转抄规范正文 ——
+  转抄即漂移，漂移难以察觉（见 25 章）。</li>
+</ul>
+<h2>版本</h2>
+<ul>
+<li>协议版本：<strong>v0.3.0</strong></li>
+<li>状态：规范草案修订中（Draft），尚未冻结</li>
+<li><strong>版本号只在上游明确指示时变更</strong>；未获明确指示的修订<strong>不得</strong>变更版本号，
+  而<strong>必须</strong>记入 <a href="26-roadmap.md">26 章「修订记录」</a>（版本策略见该章）。</li>
+<li>本规范处于 <code>0.x</code> 阶段，<code>minor</code> 变更<strong>可能</strong>不兼容（见 26 章）</li>
+<li>变更摘要见 <a href="26-roadmap.md">26 章「下一阶段与路线图」</a></li>
+</ul>
 
-  <h2>角色与视角</h2>
-  <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>视角</th>
-          <th>定义</th>
-          <th>上传方向</th>
-          <th>下载方向</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>发送侧</td>
-          <td>发送数据的一方</td>
-          <td class="num">Client</td>
-          <td class="num">Server</td>
-        </tr>
-        <tr>
-          <td>接收侧</td>
-          <td>持有位图与临时文件的一方</td>
-          <td class="num">Server</td>
-          <td class="num">Client</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <ul class="spec">
-    <li>完成消息一律由<strong>接收方</strong>发布</li>
-    <li>缺失报告一律由<strong>接收方</strong>发起</li>
-    <li>Server 拥有一般会话终止权；接收方在<strong>复核轮</strong>后仍失配时可终止</li>
-  </ul>
-
-  <div class="caption">详见 10 章「视角定义」。</div>
-
-  <h2>文档约定（规范性）</h2>
-
-  <h3>文档性质</h3>
-  <p>本文件是<strong>协议设计说明书</strong>。正文只包含协议本身：规范要求、推荐做法与设计理由。</p>
-  <ul class="spec">
-    <li><strong>不记录修订过程</strong>（哪一版改了什么）——
-      修订历史<strong>必须</strong>记入 <a href="26-roadmap.html">26 章「修订记录」</a>。</li>
-    <li><strong>不描述具体实现</strong>（编程语言、库、私有 API、源码路径）——
-      实现细节<strong>不构成</strong>协议的一部分（见 25 章）。</li>
-    <li><strong>不做版本对比</strong> —— 正文陈述的是<strong>当前</strong>协议，
-      <strong>不得</strong>使用「改由 / 取代 / 不再」等与前一版本对比的措辞，
-      <strong>不得</strong>引用协议中已不存在的概念（见 25 章）。</li>
-  </ul>
-
-  <h3>规范性用语的强度</h3>
-  <div class="card">
-    <table class="sym">
-      <thead>
-        <tr>
-          <th>用语</th>
-          <th>含义</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td><strong>必须 / 不得</strong></td>
-          <td>强制要求，违反即为实现错误</td>
-        </tr>
-        <tr>
-          <td><strong>应当</strong></td>
-          <td>强制要求（允许有充分理由的例外，例外<strong>应当</strong>有记录）</td>
-        </tr>
-        <tr>
-          <td><strong>建议 / 推荐</strong></td>
-          <td>强烈建议，偏离时<strong>应当</strong>说明理由</td>
-        </tr>
-        <tr>
-          <td><strong>可以</strong></td>
-          <td>允许但不要求</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <ul class="spec">
-    <li>规范性要求<strong>必须</strong>写在正文，<strong>不得</strong>藏在引用块中。</li>
-    <li>非规范性内容（实现建议、背景说明）<strong>必须</strong>显式标注为
-      「非规范性（Non-Normative）」或「推荐性」，见 25 章。</li>
-    <li>设计理由（为什么这样规定）<strong>应当</strong>以「说明」小节或正文段落呈现，
-      与规范性要求明确区分。</li>
-  </ul>
-
-  <h2>版本</h2>
-  <div class="card">
-    <table class="sym">
-      <tbody>
-        <tr>
-          <td>协议版本</td>
-          <td class="mono">v0.3.0</td>
-        </tr>
-        <tr>
-          <td>状态</td>
-          <td>规范草案修订中（Draft），尚未冻结</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <ul class="spec">
-    <li><strong>版本号只在上游明确指示时变更</strong>；未获明确指示的修订<strong>不得</strong>变更版本号，
-      而<strong>必须</strong>记入 <a href="26-roadmap.html">26 章「修订记录」</a>（版本策略见该章）。</li>
-    <li>本规范处于 <code>0.x</code> 阶段，<code>minor</code> 变更<strong>可能</strong>不兼容（见 26 章）</li>
-    <li>变更摘要见 <a href="26-roadmap.html">26 章「下一阶段与路线图」</a></li>
-  </ul>
-
+  <!-- ============ 导读补充（本章范围与交叉引用） ============ -->
   <div class="note warn">
-    <strong>注意</strong>：本章只定义控制面载荷的表示形式与通用约定；
-    数据面数据包格式见 08 章，控制面帧与消息类型编号见 06 章，视角与状态机的完整定义见 10 章。
-  </div>
+  <strong>注意</strong>：本章只定义控制面载荷的表示形式与通用约定；
+  数据面数据包格式见 <a href="08-packet-format.html">08 章</a>，
+  控制面帧与消息类型编号见 <a href="06-control-plane-tcp.html">06 章</a>，
+  视角与状态机的完整定义见 <a href="10-state-machine.html">10 章</a>。
+</div>
+
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/00-overview.md">docs/spec/00-overview.md</a></footer>
 </div>

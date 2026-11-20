@@ -1,0 +1,30 @@
+<h2>乱序写盘：偏移映射</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:8">
+    <div class="cell wide ruler-title">乱序写盘：offset = chunk_id × chunk_size</div>
+    <div class="cell bitnum">chunk 0</div>
+    <div class="cell bitnum">chunk 1</div>
+    <div class="cell bitnum">chunk 2</div>
+    <div class="cell bitnum">chunk 3</div>
+    <div class="cell bitnum">chunk 4</div>
+    <div class="cell bitnum">chunk 5</div>
+    <div class="cell bitnum">…</div>
+    <div class="cell bitnum">chunk N</div>
+    <div class="cell f-chunk">0</div>
+    <div class="cell f-chunk">chunk_size</div>
+    <div class="cell f-chunk">2×</div>
+    <div class="cell f-chunk">3×</div>
+    <div class="cell f-chunk">4×</div>
+    <div class="cell f-chunk">5×</div>
+    <div class="cell f-muted">…</div>
+    <div class="cell f-len">N×</div>
+    <div class="cell wide f-muted">接收方随机写盘 —— 到达顺序与落盘顺序无关；重复写同一 chunk_id 幂等</div>
+  </div>
+</div>
+
+<div class="caption">
+  第 <code>chunk_id</code> 块的数据<strong>必须</strong>写在文件偏移 <code>chunk_id × chunk_size</code> 处；
+  最后一个 chunk 的实际长度<strong>可以</strong>小于 <code>chunk_size</code>。
+  图中刻度为<strong>示意</strong>（<code>chunk_size</code> 的倍数），不含任何手敲的规范数值。
+</div>

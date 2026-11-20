@@ -16,6 +16,10 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 OUT="${1:-$ROOT/_site}"
 
 echo "==> 输出目录: $OUT"
+
+# 先渲染：由规范源文生成站点页面（正文自动渲染 + 可视化片段注入）
+python3 "$ROOT/scripts/render-site.py"
+
 rm -rf "$OUT"
 mkdir -p "$OUT/spec"
 

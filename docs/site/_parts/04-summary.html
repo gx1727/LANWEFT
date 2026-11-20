@@ -1,0 +1,9 @@
+<div class="note blue">
+  <strong>本章要点</strong>：本章列出本协议<strong>不做</strong>的事情（范围边界），与
+  <a href="03-design-goals.html">03 章「设计目标」</a>互补。
+  两条最容易被误解的边界：<strong>拥塞调节仅以发送端本地策略（AIMD）作用于发送节奏，不进入协议层</strong>；
+  连接级在途上限 <code>connection_window</code> <strong>不是</strong>拥塞控制 ——
+  它只是<strong>资源上界</strong>，与丢包率、带宽探测无关。
+  端到端加密<strong>不由协议内建</strong>，由实现层提供，且<strong>不得改变 chunk 与偏移的映射</strong>。
+  实现超出本章范围的能力前，应先确认它<strong>不会与规范中的规范性约束冲突</strong>。
+</div>

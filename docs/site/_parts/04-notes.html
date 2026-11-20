@@ -1,0 +1,15 @@
+<div class="note">
+  <strong>导读（本章未展开的交叉引用）</strong>：本章只列边界，以下展开见其他章节 ——
+  协议面向<strong>可信局域网</strong>，<strong>不提供</strong> NAT 打洞、relay 或公网可达性方案
+  （见 <a href="15-nat-and-network-limits.html">15 章</a>、<a href="20-security-model.html">20 章</a>）；
+  安全模型面向局域网内的<strong>可信设备</strong>（见
+  <a href="20-security-model.html">20 章</a>、<a href="21-acl-and-auth.html">21 章</a>）；
+  移动端<strong>长期后台无 UI 传输</strong>不在本章范围内，后台限制见
+  <a href="16-mobile-background-limits.html">16 章</a>。
+</div>
+
+<div class="note blue">
+  <strong>为什么 AIMD 不进入协议层</strong>：拥塞调节只作用于<strong>发送节奏</strong>，
+  不改变协议语义 —— 两端实现<strong>可以</strong>采用完全不同的策略，协议行为<strong>必须</strong>保持一致
+  （见 <a href="11-flow-control.html">11 章「动态流控：AIMD（推荐性）」</a>）。
+</div>

@@ -1,0 +1,35 @@
+<div class="diagram">
+  <div class="fields" style="--cols:12">
+    <div class="cell ruler-title">控制帧 = 定长帧头（magic / frame_len / header_crc32 / msg_type / flags / body_version / reserved）+ 消息体</div>
+
+    <div class="cell span4 f-len">u32 magic</div>
+    <div class="cell span4 f-frame">u32 frame_len</div>
+    <div class="cell span4 f-crc">u32 header_crc32</div>
+
+    <div class="cell span3 f-flags">u8 msg_type</div>
+    <div class="cell span3 f-flags">u8 flags</div>
+    <div class="cell span3 f-type">u8 body_version</div>
+    <div class="cell span3 f-muted">u8 reserved</div>
+
+    <div class="cell wide f-body">消息体 body</div>
+
+    <div class="cell half f-body">定长区（表格式偏移 / 大小）</div>
+    <div class="cell half f-ext">变长区（顺序固定）</div>
+  </div>
+</div>
+
+<div class="legend">
+  <span><i class="swatch" style="background:var(--b-len)"></i>魔数 <code>magic</code></span>
+  <span><i class="swatch" style="background:var(--b-frame)"></i>长度前缀 <code>frame_len</code></span>
+  <span><i class="swatch" style="background:var(--b-crc)"></i>帧头校验 <code>header_crc32</code></span>
+  <span><i class="swatch" style="background:var(--b-flags)"></i>定长帧头字段</span>
+  <span><i class="swatch" style="background:var(--b-type)"></i>版本字段</span>
+  <span><i class="swatch" style="background:var(--b-body)"></i>定长区</span>
+  <span><i class="swatch" style="background:var(--b-ext)"></i>变长区</span>
+</div>
+<div class="caption">
+  消息体 = 定长区（表格式偏移 / 大小）+ 变长区（顺序固定）。本图仅示意<strong>结构</strong>：
+  字段名与顺序取自本章源文「表示形式（规范性）」，帧头的字节数、线上取值与消息类型编号见
+  <a href="06-control-plane-tcp.html">06 章</a>；数据面数据包的格式见
+  <a href="08-packet-format.html">08 章</a>。
+</div>

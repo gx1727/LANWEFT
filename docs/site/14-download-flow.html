@@ -14,7 +14,6 @@
 <body>
 <div class="wrap">
 
-  <!-- ========== 顶部导航：目录 / 上一章 / 下一章 ========== -->
   <nav class="topnav">
     <a href="index.html">目录</a>
     <a href="13-resume-and-recovery.html">◀ 13 恢复</a>
@@ -22,239 +21,229 @@
     <a href="../spec/14-download-flow.md">规范源文</a>
   </nav>
 
-  <!-- ========== 标题 ========== -->
   <h1>14 下载流程（Server → Client）</h1>
 
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
     <strong>本章要点</strong>：下载方向由 <strong>Client 主动发起</strong>，Server
     <strong>不得</strong>向未知端口推送 UDP；客户端端口由 <code>download_accept.udp_port</code>
-    与 UDP 探测共同确定。数据面端口的取用顺序是<strong>规范性</strong>的：Client
-    <strong>必须</strong>按 <code>login_ack</code> 快照 &gt; <code>resume_ack</code> &gt;
-    <code>udp_ready</code> &gt; <code>download_accept</code> 的优先级取用<strong>最新</strong>端口值，
-    且 <strong>不得</strong>自行推断。控制面与可靠性机制与上传一致，
-    <strong>完成消息一律由接收方发布</strong>。
+    与 UDP 探测共同确定。
+    控制面与可靠性机制与上传一致；<strong>完成消息一律由接收方发布</strong>（规范性）——
+    接收方持有位图与临时文件，只有它能完成「校验 hash → 原子重命名」并判定成败。
+    裁决与进度节奏与上传对称：缺失报告由<strong>接收方</strong>每 50ms 下发，
+    进度由<strong>接收方</strong>每 500ms 发布。
   </div>
 
-  <!-- ========== 原则 ========== -->
-  <h2>原则</h2>
-  <ul class="spec">
-    <li>Client <strong>主动发起</strong></li>
-    <li>Server <strong>不</strong>向未知端口推送 UDP（客户端端口由 <code>download_accept.udp_port</code> 与 UDP 探测确定）</li>
-    <li>控制面与可靠性机制与上传一致</li>
-    <li>会话类型：Upload（C→S）、Download（S→C）</li>
-  </ul>
 
-  <!-- ========== 下载控制消息 ========== -->
-  <h2>下载控制消息</h2>
-  <div class="card">
-    <table>
-      <thead>
-        <tr><th>消息</th><th>方向</th><th>用途</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="c-frame"><code>download_start</code></td>
-          <td>Client→Server</td>
-          <td>请求下载文件</td>
-        </tr>
-        <tr>
-          <td class="c-frame"><code>download_accept</code></td>
-          <td>Server→Client</td>
-          <td>接受下载请求，下发会话参数与数据面端口</td>
-        </tr>
-        <tr>
-          <td class="c-frame"><code>missing_chunks</code></td>
-          <td>双向</td>
-          <td>缺失 chunk 列表报告 / 索要（<code>mode=report</code> / <code>mode=request</code>）</td>
-        </tr>
-        <tr>
-          <td class="c-frame"><code>download_complete</code></td>
-          <td>Client→Server</td>
-          <td>下载完成（由接收方 Client 发布）</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- ========== 下载流程时序 ========== -->
+  <!-- ============ 下载流程时序图（搬自原页面） ============ -->
   <h2>下载流程时序</h2>
 
-  <div class="diagram">
-    <div class="fields" style="--cols:6">
-      <div class="cell wide ruler-title">下载流程时序：Server → Client，6 个阶段</div>
+<div class="diagram">
+  <div class="fields" style="--cols:6">
+    <div class="cell wide ruler-title">下载流程时序：Server → Client，6 个阶段</div>
 
-      <div class="cell f-session dl-step"><b>1 会话建立</b>Client → Server → Client</div>
-      <div class="cell f-type dl-step"><b>2 UDP 探测</b>Client → Server → Client</div>
-      <div class="cell f-chunk dl-step"><b>3 数据传输</b>Server → Client</div>
-      <div class="cell f-len dl-step"><b>4 缺失重传</b>Server ⇄ Client</div>
-      <div class="cell f-flags dl-step"><b>5 进度上报</b>Client → Server</div>
-      <div class="cell f-crc dl-step"><b>6 完成与终止</b>Client → Server</div>
+    <div class="cell f-session dl-step"><b>1 会话建立</b>download_start → download_accept</div>
+    <div class="cell f-type dl-step"><b>2 UDP 探测</b>UDP_PROBE → UDP_PROBE_ACK → udp_ready</div>
+    <div class="cell f-chunk dl-step"><b>3 数据传输</b>Server → Client</div>
+    <div class="cell f-len dl-step"><b>4 缺失重传</b>Client ⇄ Server</div>
+    <div class="cell f-flags dl-step"><b>5 进度上报</b>Client → Server</div>
+    <div class="cell f-crc dl-step"><b>6 完成与终止</b>Client → Server</div>
 
-      <div class="cell wide f-muted dl-msg">
-        <b>1 会话建立</b>：Client 发送 <code>download_start</code> → Server 返回
-        <code>download_accept</code>（含 <code>session_id</code>（<code>u64</code>）/
-        <code>chunk_count</code>（<code>u32</code>）/ <code>window</code>（<code>u32</code>）/
-        <code>connection_window</code>（<code>u32</code>）/
-        <code>udp_port</code>（<code>u16</code>）/ <code>tcp_port</code>（<code>u16</code>））
-      </div>
-      <div class="cell wide f-muted dl-msg">
-        <b>2 UDP 探测</b>：Client 发送 <code>UDP_PROBE</code> → Server 返回
-        <code>UDP_PROBE_ACK</code> → Server 发送 <code>udp_ready</code>；
-        Server 以 PROBE 报文的<strong>源地址:端口</strong>作为该会话的对端数据面地址
-      </div>
-      <div class="cell wide f-muted dl-msg">
-        <b>3 数据传输</b>：Server 按 <code>window</code> 连续发送 UDP chunk（批量发送，节奏见 11 章）
-      </div>
-      <div class="cell wide f-muted dl-msg">
-        <b>4 缺失重传</b>：Server 每 50ms 下发 <code>missing_chunks</code>（<code>mode=report</code>）裁决；
-        Client 收到后按 11 章补发缺失块。收到 Client 的 <code>missing_chunks</code>（<code>mode=request</code>）时，
-        Server <strong>必须</strong>在 50ms 内应答
-      </div>
-      <div class="cell wide f-muted dl-msg">
-        <b>5 进度上报</b>：Client 每 500ms 发布 <code>progress_update</code>（<code>received</code> /
-        <code>total</code> 为 chunk 数，均为 <code>u64</code>），Server 据此估算链路丢包率并驱动 AIMD（见 11 章）
-      </div>
-      <div class="cell wide f-muted dl-msg">
-        <b>6 完成与终止</b>：Client 检测位图全真 → 校验 hash → 原子重命名 → 发送
-        <code>download_complete</code>（<strong>接收方发布完成消息</strong>，见 06 章）
-      </div>
+    <div class="cell wide f-muted dl-msg">
+      <b>1 会话建立</b>：Client 发送 <code>download_start</code> → Server 返回
+      <code>download_accept</code>（含 <code>session_id</code>（<code>u64</code>）/
+      <code>chunk_count</code>（<code>u32</code>）/ <code>window</code>（<code>u32</code>）/
+      <code>connection_window</code>（<code>u32</code>）/
+      <code>udp_port</code>（<code>u16</code>）/ <code>tcp_port</code>（<code>u16</code>））
+    </div>
+    <div class="cell wide f-muted dl-msg">
+      <b>2 UDP 探测</b>：Client <strong>必须</strong>先打开数据面 socket，再从该 socket 发出
+      <code>UDP_PROBE</code> → Server 返回 <code>UDP_PROBE_ACK</code> → Server 发送
+      <code>udp_ready</code>；Server 以 PROBE 报文的<strong>源地址:端口</strong>作为该会话的对端数据面地址
+    </div>
+    <div class="cell wide f-muted dl-msg">
+      <b>3 数据传输</b>：Server 按 <code>window</code> 连续发送 UDP chunk（批量发送，节奏见 11 章），
+      并<strong>必须</strong>同时遵守连接级的 <code>connection_window</code>
+    </div>
+    <div class="cell wide f-muted dl-msg">
+      <b>4 缺失重传</b>：Client 每 50ms 发送 <code>missing_chunks</code>
+      （<code>mode=report</code>）→ Server 按 11 章补发缺失块；
+      收到 Server 的 <code>missing_chunks</code>（<code>mode=request</code>）时，
+      Client <strong>必须</strong>在 50ms 内应答
+    </div>
+    <div class="cell wide f-muted dl-msg">
+      <b>5 进度上报</b>：Client 每 500ms 发布 <code>progress_update</code>
+      （<code>received</code> / <code>total</code> 为 chunk 数，均为 <code>u64</code>），
+      Server 据此估算链路丢包率并驱动 AIMD（见 11 章）
+    </div>
+    <div class="cell wide f-muted dl-msg">
+      <b>6 完成与终止</b>：Client 检测位图全真 → 校验 hash → 原子重命名 → 发送
+      <code>download_complete</code>（<strong>接收方发布完成消息</strong>，见 06 章）；
+      Server 持久化完成回执后回复 <code>complete_ack</code>
     </div>
   </div>
+</div>
 
-  <div class="legend">
-    <span><i class="swatch" style="background:var(--b-session)"></i>阶段 1 会话建立</span>
-    <span><i class="swatch" style="background:var(--b-type)"></i>阶段 2 UDP 探测</span>
-    <span><i class="swatch" style="background:var(--b-chunk)"></i>阶段 3 数据传输</span>
-    <span><i class="swatch" style="background:var(--b-len)"></i>阶段 4 缺失重传</span>
-    <span><i class="swatch" style="background:var(--b-flags)"></i>阶段 5 进度上报</span>
-    <span><i class="swatch" style="background:var(--b-crc)"></i>阶段 6 完成与终止</span>
-  </div>
+<div class="legend">
+  <span><i class="swatch" style="background:var(--b-session)"></i>阶段 1 会话建立</span>
+  <span><i class="swatch" style="background:var(--b-type)"></i>阶段 2 UDP 探测</span>
+  <span><i class="swatch" style="background:var(--b-chunk)"></i>阶段 3 数据传输</span>
+  <span><i class="swatch" style="background:var(--b-len)"></i>阶段 4 缺失重传</span>
+  <span><i class="swatch" style="background:var(--b-flags)"></i>阶段 5 进度上报</span>
+  <span><i class="swatch" style="background:var(--b-crc)"></i>阶段 6 完成与终止</span>
+</div>
 
-  <h3>阶段 2 细节：UDP 探测</h3>
-  <ul class="spec">
-    <li>Client 发送 <code>UDP_PROBE</code> → Server 返回 <code>UDP_PROBE_ACK</code> → Server 发送 <code>udp_ready</code></li>
-    <li>Server 以 PROBE 报文的<strong>源地址:端口</strong>作为该会话的对端数据面地址</li>
-  </ul>
 
-  <h3>阶段 4 细节：<code>missing_chunks</code> 载荷</h3>
-  <ul class="spec">
-    <li><code>mode</code> 为 <code>enum8</code>（<code>0</code> = report、<code>1</code> = request）</li>
-    <li><code>chunks</code> 为 <code>chunk_list</code>（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>）</li>
-    <li>恒为「发布方自己尚未收到的块」（见 06 章「<code>missing_chunks</code>」）</li>
-  </ul>
-
-  <h3>阶段 5 细节：进度消息由接收方发布</h3>
-  <ul class="spec">
-    <li>下载方向的接收方是 Client，<strong>只有它</strong>知道本端已接收的 chunk 数</li>
-  </ul>
-
-  <!-- ========== 数据面端口优先级 ========== -->
-  <h2>数据面端口的优先级（规范性）</h2>
-  <p>Client <strong>必须</strong>按以下顺序取用<strong>最新</strong>的端口值：</p>
-
-  <div class="card">
-    <table class="sym">
-      <thead>
-        <tr><th>优先级</th><th>来源</th><th>生效时机</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="num">1（最高）</td>
-          <td><code>login_ack</code> 的 <code>sessions[]</code> 快照记录中的 <code>udp_port</code></td>
-          <td><strong>断线重连</strong>后的权威快照</td>
-        </tr>
-        <tr>
-          <td class="num">2</td>
-          <td><code>resume_ack.udp_port</code></td>
-          <td><strong>暂停后恢复</strong>的应答</td>
-        </tr>
-        <tr>
-          <td class="num">3</td>
-          <td><code>udp_ready.udp_port</code></td>
-          <td>探测完成时（最新的探测结果）</td>
-        </tr>
-        <tr>
-          <td class="num">4</td>
-          <td><code>download_accept.udp_port</code></td>
-          <td>参数协商时（初始值）</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <ul class="spec">
-    <li>四者的 <code>udp_port</code> 均为 <code>u16</code>（见 06 章各消息的定长区布局）</li>
-    <li>四者不一致时<strong>必须</strong>取优先级最高者</li>
-    <li>端口变更<strong>必须</strong>通过上述消息显式下发，Client <strong>不得</strong>自行推断</li>
-  </ul>
-
+  <!-- ============ 端口的权威 / 增量（导读说明） ============ -->
   <div class="note">
-    <strong>权威 vs 增量</strong>：优先级 1、2 是<strong>权威快照</strong>（整体替换本地会话状态，见 13 章），
-    优先级 3、4 是同一连接内的<strong>增量通知</strong>。快照到达时<strong>必须</strong>以其覆盖本地保存的端口，
-    <strong>不得</strong>与旧值并存。
+    <strong>权威 vs 增量（导读说明）</strong>：<code>login_ack</code> 快照与 <code>resume_ack</code> 携带的
+    <code>udp_port</code> 是<strong>权威快照</strong>，到达时<strong>必须</strong>以其覆盖本地保存的端口，
+    <strong>不得</strong>与旧值并存；<code>udp_ready</code> 与 <code>download_accept</code> 携带的端口
+    是同一连接内的<strong>增量通知</strong> —— 其中 <code>udp_ready</code> 只确认当前探测，
+    <strong>不</strong>改变端口。
+    端口变更<strong>必须</strong>通过上述消息显式下发，Client <strong>不得</strong>自行推断；
+    失败应答<strong>不</strong>建立绑定，无待决探测或端口不匹配的就绪通知<strong>必须</strong>忽略。
+    端口的生效时序详见源文「2. UDP 探测」。
   </div>
 
-  <!-- ========== 与上传对称性 ========== -->
-  <h2>与上传对称性</h2>
-  <div class="card">
-    <table>
-      <thead>
-        <tr><th>阶段</th><th>上传（C→S）</th><th>下载（S→C）</th></tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td>会话建立</td>
-          <td><code>upload_start</code></td>
-          <td><code>download_start</code></td>
-        </tr>
-        <tr>
-          <td>参数下发</td>
-          <td><code>upload_accept</code></td>
-          <td><code>download_accept</code></td>
-        </tr>
-        <tr>
-          <td>数据方向</td>
-          <td>Client→Server</td>
-          <td>Server→Client</td>
-        </tr>
-        <tr>
-          <td>完成通知</td>
-          <td><code>upload_complete</code>（<strong>Server</strong> 发布）</td>
-          <td><code>download_complete</code>（<strong>Client</strong> 发布）</td>
-        </tr>
-        <tr>
-          <td>缺失报告</td>
-          <td>Server→Client（Server 报告自己缺的块）</td>
-          <td>Client→Server（Client 报告自己缺的块）</td>
-        </tr>
-        <tr>
-          <td>缺失索要</td>
-          <td>Client→Server（<code>mode=request</code>）</td>
-          <td>Server→Client（<code>mode=request</code>）</td>
-        </tr>
-        <tr>
-          <td>裁决节奏</td>
-          <td>接收方（Server）每 50ms 下发</td>
-          <td>接收方（Client）每 50ms 下发</td>
-        </tr>
-        <tr>
-          <td>进度上报</td>
-          <td>Server→Client（<strong>Server</strong> 发布 <code>received</code>）</td>
-          <td>Client→Server（<strong>Client</strong> 发布 <code>received</code>）</td>
-        </tr>
-        <tr>
-          <td>恢复提示来源</td>
-          <td>Server 自有位图（Client 不携带）</td>
-          <td>Client 自有位图（Client <strong>必须</strong>携带）</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
 
-  <div class="note warn">
-    <strong>完成消息一律由接收方发布（规范性）</strong>：接收方持有位图与临时文件，
-    <strong>只有它</strong>能完成「校验 hash → 原子重命名」并判定成败。
-  </div>
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
+  <h2>原则</h2>
+<ul>
+<li>Client 主动发起</li>
+<li>Server 不向未知端口推送 UDP（客户端端口由 <code>download_accept.udp_port</code> 与 UDP 探测确定）</li>
+<li>控制面与可靠性机制与上传一致</li>
+<li>会话类型：Upload（C→S）、Download（S→C）</li>
+</ul>
+<h2>下载控制消息</h2>
+<div class="card"><table>
+<thead>
+<tr>
+<th>消息</th>
+<th>方向</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>download_start</td>
+<td>Client→Server</td>
+<td>请求下载文件</td>
+</tr>
+<tr>
+<td>download_accept</td>
+<td>Server→Client</td>
+<td>接受下载请求，下发会话参数与数据面端口</td>
+</tr>
+<tr>
+<td>missing_chunks</td>
+<td>双向</td>
+<td>缺失 chunk 列表报告 / 索要（<code>mode=report</code> / <code>mode=request</code>）</td>
+</tr>
+<tr>
+<td>download_complete</td>
+<td>Client→Server</td>
+<td>下载完成（由接收方 Client 发布）</td>
+</tr>
+</tbody>
+</table></div>
+<h2>下载流程时序</h2>
+<h3>1. 会话建立</h3>
+<p>Client 发送 download_start → Server 返回 download_accept（含 <code>session_id</code>（<code>u64</code>）/
+<code>chunk_count</code>（<code>u32</code>）/ <code>window</code>（<code>u32</code>）/ <code>connection_window</code>（<code>u32</code>）/
+<code>udp_port</code>（<code>u16</code>）/ <code>tcp_port</code>（<code>u16</code>））</p>
+<h3>2. UDP 探测</h3>
+<p>Client <strong>必须</strong>先打开数据面 socket，再从该 socket 发出 UDP_PROBE
+→ Server 返回 UDP_PROBE_ACK → Server 发送 udp_ready</p>
+<p>Server 以 PROBE 报文的<strong>源地址:端口</strong>作为该会话的对端数据面地址。
+下载方向的<strong>接收方是 Client</strong>，因此 Client 的数据面 socket 是<strong>强制</strong>的：
+Server 不得向未经 PROBE 确认的地址发送数据（见 20 章）。
+Client 的端口通常为<strong>临时端口</strong>，由 Server 从 PROBE 的源地址学到；
+socket 的生命周期见 07 章「接收方 socket 生命周期」。</p>
+<p><strong>数据面端口按生效时序更新（规范性，上传与下载相同）</strong>：accept 或 offer 给出初始端口。
+重连立即作废旧连接的地址绑定；以成功快照为新起点，同一连接随后成功的
+<code>resume_ack</code> 替换此前端口。失败应答不建立绑定。Client 从可传输状态在当前端口
+重新 PROBE，Server 不得向旧绑定发数据；暂停或仅等待完成回执时不探测。
+<code>udp_ready</code> 只确认当前探测，不改变端口；无待决探测或端口不匹配的就绪通知必须忽略。</p>
+<h3>3. 数据传输</h3>
+<p>Server 按 <code>window</code> 连续发送 UDP chunk（批量发送，节奏见 11 章），
+Server <strong>必须</strong>同时遵守连接级的 <code>connection_window</code>
+（该连接上所有会话的在途量之和，见 11 章）。</p>
+<h3>4. 缺失重传</h3>
+<p>Client 每 50ms 发送 <code>missing_chunks</code>（<code>mode=report</code>）；Server 按 11 章补发缺失块。
+收到 Server 的 <code>missing_chunks</code>（<code>mode=request</code>）时，Client <strong>必须</strong>在 50ms 内应答。</p>
+<p><code>mode</code> 为 <code>enum8</code>（<code>0</code> = report、<code>1</code> = request）；
+<code>chunks</code> 为 <code>chunk_list</code>（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>），
+恒为「发布方自己尚未收到的块」（见 06 章「missing_chunks」）。</p>
+<h3>5. 进度上报</h3>
+<p>Client 每 500ms 发布 <code>progress_update</code>（<code>received</code> / <code>total</code> 为 chunk 数，
+均为 <code>u64</code>），Server 据此估算链路丢包率并驱动 AIMD（见 11 章）。</p>
+<p><strong>进度消息由接收方发布</strong>：下载方向的接收方是 Client，
+只有它知道本端已接收的 chunk 数。</p>
+<h3>6. 完成与终止</h3>
+<p>Client 检测位图全真 → 校验 hash → 原子重命名 → 发送 download_complete
+（<strong>接收方发布完成消息</strong>，见 06 章）</p>
+<p>Server 持久化完成回执后回复 <code>complete_ack</code>；断线交付见 13 章。
+Client 校验 hash 失配时先执行 12 章的摘要对帐，再按该章条件进入复核轮或终止。</p>
+<h2>与上传对称性</h2>
+<div class="card"><table>
+<thead>
+<tr>
+<th>阶段</th>
+<th>上传（C→S）</th>
+<th>下载（S→C）</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>会话建立</td>
+<td>upload_start</td>
+<td>download_start</td>
+</tr>
+<tr>
+<td>参数下发</td>
+<td>upload_accept</td>
+<td>download_accept</td>
+</tr>
+<tr>
+<td>数据方向</td>
+<td>Client→Server</td>
+<td>Server→Client</td>
+</tr>
+<tr>
+<td>完成通知</td>
+<td>upload_complete（<strong>Server</strong> 发布）</td>
+<td>download_complete（<strong>Client</strong> 发布）</td>
+</tr>
+<tr>
+<td>缺失报告</td>
+<td>Server→Client（Server 报告自己缺的块）</td>
+<td>Client→Server（Client 报告自己缺的块）</td>
+</tr>
+<tr>
+<td>缺失索要</td>
+<td>Client→Server（<code>mode=request</code>）</td>
+<td>Server→Client（<code>mode=request</code>）</td>
+</tr>
+<tr>
+<td>裁决节奏</td>
+<td>接收方（Server）每 50ms 下发</td>
+<td>接收方（Client）每 50ms 下发</td>
+</tr>
+<tr>
+<td>进度上报</td>
+<td>Server→Client（<strong>Server</strong> 发布 <code>received</code>）</td>
+<td>Client→Server（<strong>Client</strong> 发布 <code>received</code>）</td>
+</tr>
+<tr>
+<td>恢复提示来源</td>
+<td>Server 自有位图（Client 不携带）</td>
+<td>Client 自有位图（Client <strong>必须</strong>携带）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>完成消息一律由接收方发布（规范性）</strong>：接收方持有位图与临时文件，只有它能完成
+「校验 hash → 原子重命名」并判定成败。</p>
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/14-download-flow.md">docs/spec/14-download-flow.md</a></footer>
 </div>

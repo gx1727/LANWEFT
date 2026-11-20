@@ -1,0 +1,40 @@
+  <h2>设备 / 身份 / 连接 / 会话关系（图）</h2>
+
+  <!-- ============ 身份的生成与持久化（搬自原页面） ============ -->
+  <div class="diagram">
+    <div class="fields" style="--cols:12">
+      <div class="cell wide ruler-title">client_id 的生成与持久化</div>
+
+      <div class="cell span4 f-session">device_uuid + salt<br><span class="caption">（或 UUIDv4）</span></div>
+      <div class="cell span4 f-chunk">hash / base32</div>
+      <div class="cell span4 f-len">client_id<br><span class="caption">持久化安全存储</span></div>
+
+      <div class="cell span4 f-muted">重启<br><span class="caption">不得重生成</span></div>
+      <div class="cell span4 f-muted">重装 / 换网 / 升级<br><span class="caption">不得改变</span></div>
+      <div class="cell span4 f-muted">与文件哈希无关<br><span class="caption">不可互相推导</span></div>
+    </div>
+  </div>
+  <div class="caption">
+    生成方式与持久化要求取自源文「生成」「生命周期与存储」两节；图中不写具体存储介质以外的实现细节。
+  </div>
+
+  <!-- ============ 账号 / 设备 / 身份 / 会话 / 连接的对应关系 ============ -->
+  <div class="diagram">
+    <div class="fields" style="--cols:5">
+      <div class="cell wide ruler-title">账号 · 设备 · 身份 · 连接 · 会话的对应关系</div>
+
+      <div class="cell f-muted">Account<br><span class="caption">1</span></div>
+      <div class="cell f-muted">⇔ N<br><span class="caption">协议不感知账号</span></div>
+      <div class="cell f-session">client_id<br><span class="caption">全局唯一 · 设备级粒度</span></div>
+      <div class="cell f-muted">⇔ 1<br><span class="caption">1 Device ⇔ 1 client_id</span></div>
+      <div class="cell f-chunk">Device<br><span class="caption">设备</span></div>
+
+      <div class="cell wide f-type">1 client_id ⇔ N Session（可并发；<strong>不得</strong>跨 client_id 使用，Server 校验一致性）</div>
+
+      <div class="cell wide f-len">1 控制连接 ⇔ 1 client_id（握手认证时一一绑定，存续期间<strong>不得</strong>变更）</div>
+      <div class="cell wide f-flags">同一 client_id 的多个会话<strong>可以</strong>承载在同一条控制连接上（见 09 章）</div>
+    </div>
+  </div>
+  <div class="caption">
+    对应关系取自源文「多设备」「与 Session」「与控制通道」三节；「N」表示数量不设上限，不是具体常量。
+  </div>

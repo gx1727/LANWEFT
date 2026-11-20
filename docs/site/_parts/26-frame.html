@@ -1,0 +1,29 @@
+  <h2>控制帧落地形态（图）</h2>
+
+  <div class="diagram">
+    <div class="fields" style="--cols:8">
+      <div class="cell ruler-title">控制帧落地形态（全部小端序）</div>
+
+      <div class="cell f-len">{{VAR:cf_magic}}<br><code>u32</code></div>
+      <div class="cell f-frame">{{VAR:cf_frame_len}}<br><code>u32</code></div>
+      <div class="cell f-crc">{{VAR:cf_header_crc32}}<br><code>u32</code></div>
+      <div class="cell f-type">{{VAR:cf_msg_type}}<br><code>u8</code></div>
+      <div class="cell f-flags">{{VAR:cf_flags}}<br><code>u8</code></div>
+      <div class="cell f-flags">{{VAR:cf_body_version}}<br><code>u8</code></div>
+      <div class="cell f-muted">{{VAR:cf_reserved}}<br><code>u8</code></div>
+      <div class="cell f-body">{{VAR:cf_body}}<br><span class="caption">定长区 + 变长区</span></div>
+
+      <div class="cell wide f-body">body：定长区（表格式偏移 / 大小） + 变长区（顺序固定） + 扩展区（尾部字节，接收方<strong>必须</strong>忽略）</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--b-frame)"></i>帧头</span>
+    <span><i class="swatch" style="background:var(--b-type)"></i>msg_type</span>
+    <span><i class="swatch" style="background:var(--b-flags)"></i>标志 / 版本</span>
+    <span><i class="swatch" style="background:var(--b-body)"></i>消息体</span>
+    <span><i class="swatch" style="background:#f7f8fa"></i>保留</span>
+  </div>
+  <div class="caption">
+    字段名取自源文；帧头长度与 CRC 覆盖范围见 06 章正文。
+  </div>

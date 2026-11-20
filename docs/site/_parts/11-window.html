@@ -1,0 +1,32 @@
+<h2>在途量估算：S − R</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:8">
+    <div class="cell wide ruler-title">在途量 = max(0, S − R) ≤ window</div>
+    <div class="cell bitnum">chunk 0</div>
+    <div class="cell bitnum">1</div>
+    <div class="cell bitnum">2</div>
+    <div class="cell bitnum">3</div>
+    <div class="cell bitnum">4</div>
+    <div class="cell bitnum">5</div>
+    <div class="cell bitnum">…</div>
+    <div class="cell bitnum">N</div>
+
+    <div class="cell wide bitnum">发送进度 S：已发出的<strong>不同</strong> chunk_id 数（重传不重复计数）</div>
+
+    <div class="cell span3 f-chunk">已确认收到 R</div>
+    <div class="cell span5 f-len">在途（未确认）</div>
+
+    <div class="cell wide bitnum">接收方位图：R = chunk_count − missing_count（由最近一次裁决推出）</div>
+
+    <div class="cell span4 f-crc">空洞（低于 max_received_id 的缺失块）</div>
+    <div class="cell span4 f-crc">在途（未确认）</div>
+
+    <div class="cell wide f-muted">空洞由 missing_chunks（mode=report）指认并补发；next_chunk_id 只决定顺序流的续点</div>
+  </div>
+</div>
+
+<div class="caption">
+  <code>S</code> = 已发不同 chunk 数，<code>R</code> = 对端已接收数 = <code>chunk_count − missing_count</code>，
+  在途量 = <code>max(0, S − R)</code>；该估计是真实在途量的<strong>保守上界</strong>，按它执行上限<strong>不会</strong>突破 <code>window</code>。
+</div>

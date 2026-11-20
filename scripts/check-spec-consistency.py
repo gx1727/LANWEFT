@@ -483,6 +483,107 @@ def check_site_content(spec: dict[str, str], res: Result) -> None:
     else:
         res.ok("SITE-CONTENT", "站点页面保留规范常量")
 
+    # 5) 26 章的修订记录必须镜像到站点页面 —— 修订历史也要跟着站点走
+    spec26 = spec.get("26", "")
+    site26 = next((f for f in os.listdir(SITE)
+                   if f.startswith("26-") and f.endswith(".html")), None)
+    missing_log: list[str] = []
+    if site26:
+        tbl = spec26.split("## 修订记录", 1)[-1]
+        # 「已从正文移除的历史条目」是存档表，不属于修订记录
+        tbl = tbl.split("### 已从正文移除的历史条目", 1)[0]
+        st26 = site_page_text(os.path.join(SITE, site26))
+        for line in tbl.split("\n"):
+            if not line.startswith("|") or line.startswith("|---") or "日期" in line:
+                continue
+            idents = re.findall(r"`([^`]+)`", line)
+            dates = re.findall(r"\d{4}-\d{2}-\d{2}", line)
+            for tok in (idents[:2] or dates[:1]):
+                if tok and tok not in st26:
+                    missing_log.append(
+                        f"26 章修订记录条目「{tok}」未镜像到站点页面 {site26}")
+    if missing_log:
+        res.fail("SITE-CONTENT", "站点页面镜像 26 章修订记录", missing_log)
+    else:
+        res.ok("SITE-CONTENT", "站点页面镜像 26 章修订记录")
+
+
+def check_site_layered(spec: dict[str, str], res: Result) -> None:
+    """站点必须处于「分层渲染」状态 —— 这是站点不再落后于源文的**结构保证**。
+
+    只要某章还在「手写镜像」，它就会随源文修订而漂移，且内容级校验只能事后发现。
+    因此把分层渲染本身固化为检查：
+
+      1. 每章都要有 `docs/site/_pages/NN.tpl` 模板（豁免须显式登记）；
+      2. 模板必须包含 `{{RENDER:body}}` 或 `{{RENDER:section:...}}` ——
+         正文必须来自源文渲染，而不是手抄；
+      3. 渲染产物必须与源文同步（等价于 `render-site.py --check`；
+         模板或源文改动后忘记重渲染即失败）；
+      4. 渲染产物不得残留 markdown 标记（`**` / 裸 `|` 表格）。
+    """
+    pages_dir = os.path.join(SITE, "_pages")
+    renderer = os.path.join(ROOT, "scripts", "render-site.py")
+
+    # 0) 渲染器必须存在
+    if not os.path.exists(renderer):
+        res.fail("RENDER", "站点渲染器存在",
+                 ["缺少 scripts/render-site.py —— 站点未处于分层渲染模式"])
+        return
+
+    # 1) / 2) 模板齐备且正文由源文渲染
+    no_tpl: list[str] = []
+    no_render: list[str] = []
+    for chap in sorted(spec):
+        if chap in SITE_PAGE_EXEMPT:
+            continue
+        tpl = os.path.join(pages_dir, f"{chap}.tpl")
+        if not os.path.exists(tpl):
+            no_tpl.append(f"{chap} 章缺少 _pages/{chap}.tpl（仍为手写镜像）")
+            continue
+        body = read(tpl)
+        if "{{RENDER:body}}" not in body and "{{RENDER:section:" not in body:
+            no_render.append(f"{chap}.tpl 未使用 {{{{RENDER:...}}}}，正文仍是手抄")
+    if no_tpl:
+        res.fail("RENDER", "每章都有渲染模板", no_tpl)
+    else:
+        res.ok("RENDER", "每章都有渲染模板")
+    if no_render:
+        res.fail("RENDER", "正文由源文渲染", no_render)
+    else:
+        res.ok("RENDER", "正文由源文渲染")
+
+    # 3) 产物与源文同步
+    import subprocess
+    proc = subprocess.run([sys.executable, renderer, "--check"],
+                          capture_output=True, text=True, cwd=ROOT)
+    if proc.returncode != 0:
+        detail = [l.strip() for l in
+                  (proc.stdout + proc.stderr).split("\n")
+                  if l.strip() and not l.startswith("[render-site]")]
+        res.fail("RENDER", "渲染产物与源文同步",
+                 detail or ["render-site.py --check 失败"])
+    else:
+        res.ok("RENDER", "渲染产物与源文同步")
+
+    # 4) 产物无 markdown 残留
+    residue: list[str] = []
+    for fname in sorted(os.listdir(SITE)):
+        if not fname.endswith(".html"):
+            continue
+        path = os.path.join(SITE, fname)
+        raw = read(path)
+        # 只检查「正文文本」：代码块、脚本与样式里的 ** 是合法内容
+        # （源文的围栏代码块本就保留字面量；页面脚本可能把 ** 当作自身的标记语法）。
+        raw = re.sub(r"(?is)<(script|style|pre|code)\b.*?</\1>", " ", raw)
+        raw = re.sub(r"(?s)<!--.*?-->", " ", raw)
+        plain = re.sub(r"<[^>]+>", "", raw)
+        if "**" in plain:
+            residue.append(f"{fname} 残留 markdown 粗体标记 **（行内标记未转 HTML）")
+    if residue:
+        res.fail("RENDER", "渲染产物无 markdown 残留", residue)
+    else:
+        res.ok("RENDER", "渲染产物无 markdown 残留")
+
 
 def check_links(spec: dict[str, str], res: Result) -> None:
     """README 与规范正文中的本地链接必须可达。"""
@@ -986,6 +1087,7 @@ def main() -> int:
     check_session_cap(spec, res)
     check_site_sync(spec, res)
     check_site_content(spec, res)
+    check_site_layered(spec, res)
     check_links(spec, res)
 
     p, f, w = res.counts()

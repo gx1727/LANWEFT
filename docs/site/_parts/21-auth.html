@@ -1,0 +1,28 @@
+<h2>握手阶段的认证流程</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:12">
+    <div class="cell wide ruler-title">认证在连接握手阶段完成（见 06 章「连接生命周期」）</div>
+
+    <div class="cell span4 f-session">连接建立<br><span class="acl-sub">控制通道握手</span></div>
+    <div class="cell span4 f-flags">login<br><span class="acl-sub">token / device_id / proto 版本</span></div>
+    <div class="cell span4 f-len">login_ack<br><span class="acl-sub">result + code</span></div>
+
+    <div class="cell span4 f-muted">校验失败<br><span class="acl-sub">result = 0 并关闭连接</span></div>
+    <div class="cell span4 f-chunk">绑定 device_id<br><span class="acl-sub">连接与身份一一绑定</span></div>
+    <div class="cell span4 f-muted">—</div>
+  </div>
+</div>
+
+<div class="legend">
+  <span><i class="swatch" style="background:var(--b-session)"></i>连接</span>
+  <span><i class="swatch" style="background:var(--b-flags)"></i>login</span>
+  <span><i class="swatch" style="background:var(--b-len)"></i>login_ack</span>
+  <span><i class="swatch" style="background:var(--b-chunk)"></i>绑定成功</span>
+  <span><i class="swatch" style="background:#f7f8fa"></i>拒绝 / 终止</span>
+</div>
+
+<div class="caption">
+  认证通过后连接与该 <code>device_id</code> 绑定，该连接上的一切会话<strong>必须</strong>属于该 <code>device_id</code>；
+  失败<strong>必须</strong>以 <code>login_ack</code>（<code>result</code> = <code>0</code>）回应并关闭连接。
+</div>

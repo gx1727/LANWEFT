@@ -1,0 +1,23 @@
+<h2>回到前台后的恢复路径</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:2">
+    <div class="cell ruler-title">移动端 Client</div>
+    <div class="cell ruler-title">Server</div>
+    <div class="cell f-type">前台传输中</div>
+    <div class="cell f-chunk">TRANSFERRING</div>
+    <div class="cell f-len">进入后台 → 视为中断</div>
+    <div class="cell f-muted">保留位图与临时文件（见 13 章、17 章）</div>
+    <div class="cell wide f-type">回到前台：按「连接是否存活」分两条路径（见 13 章）</div>
+    <div class="cell f-session">连接<strong>已断</strong> → <code>login</code>（恢复列表）→ <code>login_ack</code> 权威快照</div>
+    <div class="cell f-chunk">连接<strong>仍存活</strong>且会话已显式暂停 → <code>resume_session</code> → <code>resume_ack</code></div>
+    <div class="cell wide f-chunk">各视角各自回到断线前状态（PAUSED 保持 PAUSED）</div>
+  </div>
+</div>
+
+<div class="note">
+    <strong>实现提示</strong>：iOS 的「后台视为中断」与 13 章「暂停后恢复（连接存活）」语义一致；
+    若连接已断开，则走 13 章「断线重连（连接重建）」路径，由 <code>login</code> 的恢复列表与
+    <code>login_ack</code> 的权威快照重建状态。
+    协议<strong>不</strong>提供「移动端长期后台无 UI 传输」的能力（见 04 章非目标）。
+  </div>

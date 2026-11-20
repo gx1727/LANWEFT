@@ -30,3 +30,6 @@ _site/
 .tmp-shot/
 
 .trae-html-share-packages/
+
+# Python 缓存
+__pycache__/

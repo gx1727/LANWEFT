@@ -1,0 +1,5 @@
+  <div class="note">
+    <strong>两个视角的状态序列不同</strong>：接收侧经过 <code>VERIFY</code> / <code>COMMIT</code>，发送侧不经过；
+    发送侧的 <code>TRANSFERRING → COMPLETED</code> 与接收侧的 <code>TRANSFERRING → VERIFY → COMMIT → COMPLETED</code> 对应<strong>同一次完成</strong>。
+    状态机与合法转移以 10 章为准。
+  </div>

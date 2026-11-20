@@ -1,0 +1,133 @@
+  <h2>补充时序：摘要对帐 · 复核轮 · 主动投递 · 共享清单与拉取</h2>
+
+  <div class="legend">
+    <span><span class="swatch" style="background:var(--b-type)"></span>控制面消息（发布方所在列）</span>
+    <span><span class="swatch" style="background:#f7f8fa"></span>对端动作 / 说明</span>
+  </div>
+  <div class="caption">
+    下列时序按规范 24 章的箭头顺序渲染；箭头「→」表示消息由左列流向右列，「←」表示由右列流向左列。
+  </div>
+
+  <!-- ============ 摘要对帐时序 ============ -->
+  <h3>摘要对帐时序（文件级失配时，恢复阶梯第 ① 级）</h3>
+  <div class="diagram">
+    <div class="fields" style="--cols:2">
+      <div class="cell ruler-title">接收方（恒为请求方）</div>
+      <div class="cell ruler-title">发送方（恒为应答方）</div>
+
+      <div class="cell f-muted">VERIFY 检测到文件级失配 → 状态退回 TRANSFERRING</div>
+      <div class="cell f-muted">保持源文件（size 必须与会话记录一致）</div>
+
+      <div class="cell f-type">→ reconcile_request {ranges=[根区间]}（置 flags.bit0 根轮标志）</div>
+      <div class="cell f-muted">校验源文件 size 一致后，为每个区间计算 BLAKE3 摘要</div>
+
+      <div class="cell f-digest">用临时文件独立计算同区间摘要 → 逐区间比对</div>
+      <div class="cell f-digest">← reconcile_response {digests[]}（发送方侧的区间摘要）</div>
+
+      <div class="cell f-type">→ reconcile_request {ranges=[左半, 右半]}（逐层二分，同轮同层）</div>
+      <div class="cell f-type">← reconcile_response {digests[]}（每个子区间的摘要）</div>
+
+      <div class="cell f-chunk">逐层下降直到 chunk_count = 1 → 定位可疑块 → 位图清零</div>
+      <div class="cell f-muted">（二等分规则由 (first_chunk, chunk_count) 唯一确定，双方无须协商）</div>
+
+      <div class="cell f-type">→ missing_chunks {mode=report, chunks=可疑块}</div>
+      <div class="cell f-muted">按缺失列表定点补发（重传优先级高于新数据）</div>
+    </div>
+  </div>
+  <div class="caption">
+    根区间摘要<strong>一致</strong> → 双方内容相同 → 请求的 <code>file_hash</code> 有误 →
+    <code>session_abort(SOURCE_FILE_MISMATCH)</code>，<strong>不再进入复核轮</strong>；
+    对帐后仍失配 → 进入复核轮（恢复阶梯第 ② 级）。
+  </div>
+
+  <!-- ============ 复核轮时序 ============ -->
+  <h3>复核轮时序（文件级失配时，恢复阶梯第 ② 级）</h3>
+  <div class="diagram">
+    <div class="fields" style="--cols:2">
+      <div class="cell ruler-title">接收方（发布方）</div>
+      <div class="cell ruler-title">发送方</div>
+
+      <div class="cell f-type">→ missing_chunks {mode=report, flags.bit1=复核轮, chunks=[]}</div>
+      <div class="cell f-muted">识别复核轮标志，准备全量重发</div>
+
+      <div class="cell f-muted">清空位图（临时文件保留）→ 重置顺序流与在途量基线</div>
+      <div class="cell f-muted">重新读取源文件，从 chunk_id = 0 起全量重发</div>
+
+      <div class="cell f-muted">乱序写盘并标记位图</div>
+      <div class="cell f-type">← 全量数据流（UDP / TCP 数据面）</div>
+
+      <div class="cell f-digest">重新校验文件级 Blake3</div>
+      <div class="cell f-muted">对同一会话最多响应一次复核轮</div>
+    </div>
+  </div>
+  <div class="caption">
+    复核轮<strong>至多一次</strong>；复核轮后仍失配才 <code>session_abort(FILE_HASH_MISMATCH)</code>（见 12 章）。
+  </div>
+
+  <!-- ============ 主动投递时序 ============ -->
+  <h3>主动投递时序（Server → Client，无客户端请求）</h3>
+  <div class="diagram">
+    <div class="fields" style="--cols:2">
+      <div class="cell ruler-title">Client（接收方）</div>
+      <div class="cell ruler-title">Server（投递方）</div>
+
+      <div class="cell f-muted">（Client 未发起请求）</div>
+      <div class="cell f-muted">生成 session_id 与全套会话参数，创建会话（NEGOTIATING）</div>
+
+      <div class="cell f-type">← delivery_offer {session_id, 全套会话参数, file_hash, file_name}</div>
+      <div class="cell f-muted">创建会话后等待接收方决策</div>
+
+      <div class="cell f-muted">接收方决策（策略 / 配额 / 用户）—— 可以拒绝</div>
+      <div class="cell f-muted">收到接受后，仍须等待该会话的 UDP_PROBE</div>
+
+      <div class="cell f-type">→ delivery_response {result=success}（result=fail + code 即拒绝）</div>
+      <div class="cell f-muted">拒绝是正常协议结果；重复投递必须被幂等忽略</div>
+
+      <div class="cell f-type">→ UDP PROBE（从接收方数据面 socket 发出）</div>
+      <div class="cell f-type">← UDP PROBE_ACK（从 Server 数据面端口返回，打通 NAT 映射）</div>
+
+      <div class="cell f-muted">接收、落盘、提交</div>
+      <div class="cell f-type">← UDP 数据面推送（等到 PROBE 之后才可发送）</div>
+
+      <div class="cell f-type">→ download_complete</div>
+      <div class="cell f-muted">完成消息恒由接收方发布</div>
+    </div>
+  </div>
+  <div class="caption">
+    Server <strong>必须</strong>等到 PROBE 才可推送（20 章）；方向恒为 <strong>download</strong>，
+    完成消息恒由接收方发布；传输过程与普通下载<strong>完全一致</strong>。
+  </div>
+
+  <!-- ============ 共享清单与拉取时序 ============ -->
+  <h3>共享清单与拉取时序（预置素材）</h3>
+  <div class="diagram">
+    <div class="fields" style="--cols:2">
+      <div class="cell ruler-title">Client（拉取方）</div>
+      <div class="cell ruler-title">Server（清单持有方）</div>
+
+      <div class="cell f-type">→ material_list {since_seq=0}（全量）或带水位增量</div>
+      <div class="cell f-muted">读取共享清单</div>
+
+      <div class="cell f-muted">合并条目（分批返回，seq 单调递增，末批标志）</div>
+      <div class="cell f-type">← material_list_ack {entries[], 末批}</div>
+
+      <div class="cell f-muted">（可丢失的变更通知）</div>
+      <div class="cell f-type">← material_available {entries[]}（至少一次，可能丢失）</div>
+
+      <div class="cell f-type">→ download_start {file_hash, …}</div>
+      <div class="cell f-muted">创建会话并下发全套会话参数</div>
+
+      <div class="cell f-muted">NEGOTIATING → TRANSFERRING</div>
+      <div class="cell f-type">← download_accept {session_id, …}</div>
+
+      <div class="cell f-muted">位图 / 裁决 / 恢复 / 提交全部复用</div>
+      <div class="cell f-type">← UDP 数据面传输</div>
+
+      <div class="cell f-type">→ download_complete</div>
+      <div class="cell f-muted">完成消息恒由接收方发布</div>
+    </div>
+  </div>
+  <div class="caption">
+    通知<strong>不保证送达</strong>：Client <strong>必须</strong>另行查询 <code>material_list</code>；
+    拉取路径<strong>不引入任何新机制</strong> —— 与普通下载完全一致。
+  </div>

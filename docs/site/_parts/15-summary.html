@@ -1,0 +1,9 @@
+<div class="note blue">
+    <strong>本章要点</strong>：协议面向<strong>同一局域网</strong>，
+    <strong>不提供任何穿透能力</strong>；跨公网 NAT / 蜂窝网络<strong>不支持</strong>，
+    二级路由<strong>条件支持</strong>。
+    协议假设 Client <strong>可主动</strong>向 Server 发起 TCP / UDP，
+    因此建连与数据面探测都<strong>由 Client 发起</strong>；
+    实现上建议 Client <strong>先发 UDP</strong> 以建立 NAT 映射，
+    mDNS 可能失效，需支持<strong>手动配置</strong>地址。
+  </div>

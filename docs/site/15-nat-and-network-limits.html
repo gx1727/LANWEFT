@@ -18,58 +18,67 @@
 
   <h1>15 NAT 与网络限制</h1>
 
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
-    <strong>本章要点</strong>：协议面向<strong>可信局域网</strong>，
-    <strong>不提供任何穿透能力</strong>；公网 NAT / 蜂窝网络<strong>不支持</strong>。
-    Client <strong>必须</strong>能够主动向 Server 发起 TCP / UDP。
+    <strong>本章要点</strong>：协议面向<strong>同一局域网</strong>，
+    <strong>不提供任何穿透能力</strong>；跨公网 NAT / 蜂窝网络<strong>不支持</strong>，
+    二级路由<strong>条件支持</strong>。
+    协议假设 Client <strong>可主动</strong>向 Server 发起 TCP / UDP，
+    因此建连与数据面探测都<strong>由 Client 发起</strong>；
+    实现上建议 Client <strong>先发 UDP</strong> 以建立 NAT 映射，
+    mDNS 可能失效，需支持<strong>手动配置</strong>地址。
   </div>
 
-  <h2>支持范围</h2>
-  <div class="card">
-    <table>
-      <thead><tr><th>网络形态</th><th>支持</th></tr></thead>
-      <tbody>
-        <tr><td>单一局域网</td><td><strong class="c-chunk">支持</strong></td></tr>
-        <tr><td>二级路由</td><td><strong class="c-len">条件支持</strong></td></tr>
-        <tr><td>跨公网 NAT / 蜂窝网络</td><td><strong class="c-crc">不支持</strong></td></tr>
-      </tbody>
-    </table>
+
+  <!-- ============ 可达性图（搬自原页面） ============ -->
+  <h2>可达性示意</h2>
+
+<div class="diagram">
+  <div class="fields" style="--cols:2">
+    <div class="cell ruler-title">Client（同一局域网）</div>
+    <div class="cell ruler-title">Server</div>
+    <div class="cell f-type">TCP connect（控制面）</div>
+    <div class="cell f-type">监听控制端口</div>
+    <div class="cell f-type">UDP PROBE（数据面）</div>
+    <div class="cell f-type">PROBE_ACK（从会话数据面端口发出）</div>
+    <div class="cell wide f-muted">Server 以 PROBE 报文的源地址:端口作为该会话的对端数据面地址（见 07 章）</div>
   </div>
+</div>
 
-  <h2>协议假设</h2>
-  <div class="card">
-    <table>
-      <thead><tr><th>假设</th><th>说明</th></tr></thead>
-      <tbody>
-        <tr><td><strong>同一局域网</strong></td><td>双方在同一局域网内可达</td></tr>
-        <tr><td><strong>Client 可主动向 Server 发起 TCP / UDP</strong></td><td>控制面由 Client 主动连接；数据面探测同样由 Client 发起</td></tr>
-        <tr><td><strong>不提供穿透</strong></td><td>不做 NAT 打洞、端口预测或 relay</td></tr>
-      </tbody>
-    </table>
-  </div>
+<div class="caption">
+  图示仅表达本章「协议假设」：双方处于<strong>同一局域网</strong>，
+  <strong>Client 可主动</strong>向 Server 发起 TCP / UDP；
+  Server <strong>不</strong>主动向 Client 发起连接，也<strong>不</strong>做 NAT 穿透。
+  控制面与数据面的具体消息语义见 06、07 章。
+</div>
 
-  <div class="diagram">
-    <div class="fields" style="--cols:2">
-      <div class="cell ruler-title">Client（同一局域网）</div>
-      <div class="cell ruler-title">Server</div>
-      <div class="cell f-type">TCP connect（控制面）</div>
-      <div class="cell f-type">监听控制端口</div>
-      <div class="cell f-type">UDP PROBE（数据面）</div>
-      <div class="cell f-type">PROBE_ACK（从会话数据面端口发出）</div>
-      <div class="cell wide f-muted">Server 以 PROBE 报文的源地址:端口作为该会话的对端数据面地址（见 07 章）</div>
-    </div>
-  </div>
 
-  <h2>实现建议</h2>
-  <ul class="spec">
-    <li>Client <strong>先发 UDP</strong> 建 NAT 映射</li>
-    <li>mDNS 可能失效，需支持<strong>手动配置</strong>地址</li>
-  </ul>
-
+  <!-- ============ 与非目标的关系（导读说明） ============ -->
   <div class="note warn">
-    <strong>与 04 章非目标一致</strong>：公网穿透与互联网规模传输不在本协议范围内；
+    <strong>与 04 章非目标一致</strong>：公网穿透与互联网规模传输<strong>不在</strong>本协议范围内（见 04 章）；
     跨公网场景需要由实现层（而非协议层）另行解决。
+    本章<strong>不提供</strong> NAT 打洞、端口预测或 relay 之类的穿透能力。
   </div>
+
+
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
+  <h2>支持</h2>
+<ul>
+<li>单一局域网</li>
+<li>二级路由（条件支持）</li>
+<li>跨公网 NAT/蜂窝网络不支持</li>
+</ul>
+<h2>假设</h2>
+<ul>
+<li>同一局域网</li>
+<li>Client 可主动向 Server 发起 TCP/UDP</li>
+<li>不提供穿透</li>
+</ul>
+<h2>建议</h2>
+<ul>
+<li>Client 先发 UDP 建 NAT 映射</li>
+<li>mDNS 可能失效需手动配置</li>
+</ul>
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/15-nat-and-network-limits.md">docs/spec/15-nat-and-network-limits.md</a></footer>
 </div>

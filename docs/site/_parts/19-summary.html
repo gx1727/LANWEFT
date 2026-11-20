@@ -1,0 +1,6 @@
+<div class="note blue">
+    <strong>本章要点</strong>：本章的错误码<strong>必须</strong>通过控制面消息上线路，
+    字段映射见下表；发送方与接收方<strong>必须</strong>按错误码做分支判断，<strong>不得</strong>解析 <code>detail</code> 自由文本。
+    <code>result</code> 字段只表达「成功 / 失败」，<strong>不承载</strong>错误码；
+    <strong>未列在本章的错误码</strong>一律视为 <code>UNKNOWN_ERROR</code>。
+  </div>

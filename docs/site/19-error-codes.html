@@ -5,15 +5,10 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>19 错误码（Error Codes） — LANWEFT</title>
 <link rel="stylesheet" href="style.css">
-<style>
-  .ec-code{font-family:var(--mono);font-weight:700;white-space:nowrap;font-size:13px}
-  .ec-cat td:first-child{font-family:var(--mono)}
-</style>
 </head>
 <body>
 <div class="wrap">
 
-  <!-- ========== 顶部导航：目录 / 上一章 / 下一章 ========== -->
   <nav class="topnav">
     <a href="index.html">目录</a>
     <a href="18-bitmap-and-chunk-map.html">◀ 18 位图与块图</a>
@@ -21,9 +16,9 @@
     <a href="../spec/19-error-codes.md">规范源文</a>
   </nav>
 
-  <!-- ========== 标题 ========== -->
   <h1>19 错误码（Error Codes）</h1>
 
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
     <strong>本章要点</strong>：本章的错误码<strong>必须</strong>通过控制面消息上线路，
     字段映射见下表；发送方与接收方<strong>必须</strong>按错误码做分支判断，<strong>不得</strong>解析 <code>detail</code> 自由文本。
@@ -31,429 +26,242 @@
     <strong>未列在本章的错误码</strong>一律视为 <code>UNKNOWN_ERROR</code>。
   </div>
 
-  <!-- ========== 分类 ========== -->
+
+  <!-- ============ 错误码总表（由源文清单生成，不手抄） ============ -->
+  <div class="card">
+<table>
+<thead><tr><th>错误码</th><th>分类</th><th>说明</th><th>可作终止原因</th></tr></thead>
+<tbody>
+<tr><td class="mono">SESSION_NOT_FOUND</td><td>SESSION</td><td>会话不存在或已终止</td><td>是</td></tr><tr><td class="mono">SESSION_ABORTED</td><td>SESSION</td><td>会话被服务端终止</td><td>是</td></tr><tr><td class="mono">FILE_NOT_FOUND</td><td>SESSION</td><td>请求的文件在 Server 上不存在或不可拉取</td><td>是</td></tr><tr><td class="mono">DELIVERY_DECLINED</td><td>SESSION</td><td>接收方拒绝该次主动投递</td><td>是</td></tr><tr><td class="mono">INVALID_STATE</td><td>SESSION</td><td>当前状态不允许该操作</td><td>是</td></tr><tr><td class="mono">TOO_MANY_SESSIONS</td><td>SESSION</td><td>单条控制连接上的并发会话数已达上限</td><td>是</td></tr><tr><td class="mono">UDP_UNAVAILABLE</td><td>TRANSPORT</td><td>UDP 探测失败</td><td>否</td></tr><tr><td class="mono">TCP_ERROR</td><td>TRANSPORT</td><td>TCP 数据面降级通道错误</td><td>否</td></tr><tr><td class="mono">BIND_FAILED</td><td>TRANSPORT</td><td>数据面端口绑定失败</td><td>否</td></tr><tr><td class="mono">CONNECTION_FAILED</td><td>TRANSPORT</td><td>控制通道连接失败</td><td>否</td></tr><tr><td class="mono">CONNECTION_CLOSED</td><td>TRANSPORT</td><td>控制连接已关闭（对端断开或超时）</td><td>否</td></tr><tr><td class="mono">NETWORK_ERROR</td><td>TRANSPORT</td><td>网络错误</td><td>否</td></tr><tr><td class="mono">CRC32_INVALID</td><td>INTEGRITY</td><td>包级校验失败（丢弃该包，不标记位图）</td><td>否</td></tr><tr><td class="mono">FILE_HASH_MISMATCH</td><td>INTEGRITY</td><td>文件级内容哈希不一致（<strong>必须</strong>按恢复阶梯处理：</td><td>是</td></tr><tr><td class="mono">SOURCE_FILE_MISMATCH</td><td>INTEGRITY</td><td>发送方的源文件与请求的 <code>file_hash</code> 不符</td><td>是</td></tr><tr><td class="mono">INVALID_CHUNK</td><td>INTEGRITY</td><td>chunk_id 越界或非法</td><td>否</td></tr><tr><td class="mono">CHUNK_ALREADY_RECEIVED</td><td>INTEGRITY</td><td>重复 chunk（幂等丢弃）</td><td>否</td></tr><tr><td class="mono">ACL_DENY</td><td>AUTH</td><td>ACL 拒绝访问</td><td>是</td></tr><tr><td class="mono">CLIENT_ID_INVALID</td><td>AUTH</td><td>client_id 非法</td><td>是</td></tr><tr><td class="mono">LOGIN_FAILED</td><td>AUTH</td><td>登录认证失败</td><td>是</td></tr><tr><td class="mono">PROTO_VERSION_UNSUPPORTED</td><td>AUTH</td><td>协议版本不受支持（见 06 章 <code>login</code> / <code>login_ack</code>）</td><td>是</td></tr><tr><td class="mono">FILE_TOO_LARGE</td><td>AUTH</td><td>声明的文件大小超出该会话 <code>chunk_size</code> 可表示的上限</td><td>是</td></tr><tr><td class="mono">TIMEOUT_NO_ACTIVITY</td><td>TIMEOUT</td><td>长时间无活动导致超时（会话级，60 秒）</td><td>是</td></tr><tr><td class="mono">TIMEOUT_PROBE</td><td>TIMEOUT</td><td>UDP 探测超时</td><td>否</td></tr><tr><td class="mono">TIMEOUT_HEARTBEAT</td><td>TIMEOUT</td><td>控制连接心跳超时（30 秒无任何消息，见 06 章）</td><td>否</td></tr><tr><td class="mono">DATABASE_ERROR</td><td>STORAGE</td><td>持久化失败（位图 / 会话元数据落盘）</td><td>是</td></tr><tr><td class="mono">STORAGE_FULL</td><td>STORAGE</td><td>接收方存储空间不足，无法容纳投递的文件；</td><td>是</td></tr><tr><td class="mono">FILESYSTEM_ERROR</td><td>STORAGE</td><td>文件系统操作失败</td><td>是</td></tr><tr><td class="mono">MAGIC_MISMATCH</td><td>PROTOCOL</td><td>帧头魔数不匹配，判定<strong>失步</strong></td><td>否</td></tr><tr><td class="mono">HEADER_CRC_INVALID</td><td>PROTOCOL</td><td>帧头 CRC32（CRC-32/ISO-HDLC）校验失败，判定<strong>失步</strong></td><td>否</td></tr><tr><td class="mono">FRAME_LEN_INVALID</td><td>PROTOCOL</td><td>帧长越界（<code>frame_len</code> < 帧头长度或 > <code>max_frame_len</code>），</td><td>否</td></tr><tr><td class="mono">INVALID_PACKET</td><td>PROTOCOL</td><td>数据包格式非法（长度不足、越界等）</td><td>否</td></tr><tr><td class="mono">SESSION_ID_MISMATCH</td><td>PROTOCOL</td><td>session_id 不匹配</td><td>否</td></tr><tr><td class="mono">SERIALIZATION_ERROR</td><td>PROTOCOL</td><td>控制帧解码失败（定长区长度不足、变长区越界、取值违反约束等）</td><td>否</td></tr><tr><td class="mono">CONTROL_ERROR</td><td>PROTOCOL</td><td>控制面错误</td><td>否</td></tr><tr><td class="mono">UNKNOWN_ERROR</td><td>PROTOCOL</td><td>未分类错误</td><td>否</td></tr>
+</tbody>
+</table>
+</div>
+<div class="caption">错误码、分类、说明与终止性均由源文清单抽取；「可作终止原因」按源文「终止类 / 过程类」两分得出。</div>
+
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
   <h2>分类</h2>
-
-  <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>分类</th>
-          <th>说明</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr><td class="c-type">SESSION</td><td>会话级错误</td></tr>
-        <tr><td class="c-type">TRANSPORT</td><td>传输层错误（UDP/TCP）</td></tr>
-        <tr><td class="c-type">INTEGRITY</td><td>完整性校验错误</td></tr>
-        <tr><td class="c-type">AUTH</td><td>认证与 ACL 错误</td></tr>
-        <tr><td class="c-type">TIMEOUT</td><td>超时错误</td></tr>
-        <tr><td class="c-type">STORAGE</td><td>持久化与文件系统错误</td></tr>
-        <tr><td class="c-type">PROTOCOL</td><td>协议格式与状态错误</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- ========== 上线路 ========== -->
-  <h2>错误码上线路（规范性）</h2>
-
-  <p>本章的错误码<strong>必须</strong>通过控制面消息上线路，字段映射如下：</p>
-
-  <div class="card">
-    <table>
-      <thead>
-        <tr>
-          <th>消息</th>
-          <th>字段</th>
-          <th>语义</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="c-frame"><code>session_abort</code></td>
-          <td class="c-len"><code>reason</code></td>
-          <td>终止原因，<strong>必填</strong>（<code>str</code>），取值来自本章</td>
-        </tr>
-        <tr>
-          <td class="c-frame"><code>session_abort</code></td>
-          <td class="c-muted"><code>detail</code></td>
-          <td>可读补充说明（<code>str</code>），仅用于日志与 UI，<strong>不得</strong>用于逻辑判断</td>
-        </tr>
-        <tr>
-          <td class="c-frame"><code>upload_complete</code></td>
-          <td class="c-len"><code>code</code></td>
-          <td>失败时的错误码（符号名，<code>str</code>）；成功时为空串（长度 0）</td>
-        </tr>
-        <tr>
-          <td class="c-frame"><code>download_complete</code></td>
-          <td class="c-len"><code>code</code></td>
-          <td>失败时的错误码（符号名，<code>str</code>）；成功时为空串（长度 0）</td>
-        </tr>
-        <tr>
-          <td class="c-frame"><code>asset_recall_complete</code></td>
-          <td class="c-len"><code>code</code></td>
-          <td>未删除时的错误码（符号名，<code>str</code>）；成功删除时为空串（长度 0）</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <ul class="spec">
-    <li>发送方与接收方<strong>必须</strong>按错误码做分支判断，<strong>不得</strong>解析 <code>detail</code> 自由文本。</li>
-    <li><code>result</code> 字段只表达「成功 / 失败」，<strong>不承载</strong>错误码；
-      <code>code</code> / <code>reason</code> 字段<strong>必须</strong>是本章中定义过的标识符。</li>
-    <li><strong>未列在本章的错误码</strong>一律视为 <code>UNKNOWN_ERROR</code>。</li>
-  </ul>
-
-  <!-- ========== 错误码总表 ========== -->
-  <h2>建议错误码（完整清单）</h2>
-
-  <h3>SESSION · 会话级错误</h3>
-  <div class="card">
-    <table class="ec-cat sym">
-      <thead>
-        <tr>
-          <th>错误码符号名</th>
-          <th>含义</th>
-          <th>触发场景</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="ec-code">SESSION_NOT_FOUND</td>
-          <td>会话不存在或已终止</td>
-          <td>对不存在的 / 已终止的会话发起操作</td>
-        </tr>
-        <tr>
-          <td class="ec-code">DELIVERY_DECLINED</td>
-          <td>接收方拒绝该次主动投递（策略、配额或用户决定）</td>
-          <td>经 <code>delivery_response.code</code> 表达；Server <strong>必须</strong>以
-            <code>session_abort</code> 终止会话（见 09 章）</td>
-        </tr>
-        <tr>
-          <td class="ec-code">STORAGE_FULL</td>
-          <td>接收方存储空间不足，无法容纳投递的文件</td>
-          <td>经 <code>delivery_response.code</code> 表达</td>
-        </tr>
-        <tr>
-          <td class="ec-code">FILE_NOT_FOUND</td>
-          <td>请求的文件在 Server 上不存在或不可拉取</td>
-          <td>Server <strong>必须</strong>以 <code>session_abort</code> 拒绝（见 09 章）</td>
-        </tr>
-        <tr>
-          <td class="ec-code">SESSION_ABORTED</td>
-          <td>会话被服务端终止</td>
-          <td>Server 主动终止会话</td>
-        </tr>
-        <tr>
-          <td class="ec-code">INVALID_STATE</td>
-          <td>当前状态不允许该操作</td>
-          <td>在当前会话状态下执行了该操作不允许的动作</td>
-        </tr>
-        <tr>
-          <td class="ec-code">TOO_MANY_SESSIONS</td>
-          <td>单条控制连接上的并发会话数已达上限</td>
-          <td><code>max_sessions_per_connection</code> = 64（见 09 章）；Server 必须以 <code>session_abort</code>（<code>reason</code> = <code>TOO_MANY_SESSIONS</code>）拒绝该请求</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>TRANSPORT · 传输层错误（UDP/TCP）</h3>
-  <div class="card">
-    <table class="ec-cat sym">
-      <thead>
-        <tr>
-          <th>错误码符号名</th>
-          <th>含义</th>
-          <th>触发场景</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="ec-code">UDP_UNAVAILABLE</td>
-          <td>UDP 探测失败</td>
-          <td>UDP 探测（PROBE）阶段失败</td>
-        </tr>
-        <tr>
-          <td class="ec-code">TCP_ERROR</td>
-          <td>TCP 数据面降级通道错误</td>
-          <td>TCP 数据面降级通道上发生错误</td>
-        </tr>
-        <tr>
-          <td class="ec-code">BIND_FAILED</td>
-          <td>数据面端口绑定失败</td>
-          <td>数据面端口绑定失败</td>
-        </tr>
-        <tr>
-          <td class="ec-code">CONNECTION_FAILED</td>
-          <td>控制通道连接失败</td>
-          <td>控制通道建立连接失败</td>
-        </tr>
-        <tr>
-          <td class="ec-code">CONNECTION_CLOSED</td>
-          <td>控制连接已关闭</td>
-          <td>对端断开或超时</td>
-        </tr>
-        <tr>
-          <td class="ec-code">NETWORK_ERROR</td>
-          <td>网络错误</td>
-          <td>一般性网络错误</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>INTEGRITY · 完整性校验错误</h3>
-  <div class="card">
-    <table class="ec-cat sym">
-      <thead>
-        <tr>
-          <th>错误码符号名</th>
-          <th>含义</th>
-          <th>触发场景</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="ec-code">CRC32_INVALID</td>
-          <td>包级校验失败</td>
-          <td>丢弃该包，<strong>不</strong>标记位图</td>
-        </tr>
-        <tr>
-          <td class="ec-code">SOURCE_FILE_MISMATCH</td>
-          <td>发送方源文件与请求的 <code>file_hash</code> 不符</td>
-          <td>摘要对帐的<strong>根区间</strong>摘要双方一致时判定；<strong>必须</strong>以
-            <code>session_abort</code> 终止会话，<strong>不得</strong>再进入复核轮（见 12 章）</td>
-        </tr>
-        <tr>
-          <td class="ec-code">FILE_HASH_MISMATCH</td>
-          <td>文件级内容哈希不一致</td>
-          <td><strong>必须</strong>按恢复阶梯处理：<strong>摘要对帐</strong> → <strong>复核轮</strong> →
-            仍失配才以 <code>session_abort</code> 终止会话（见 12 章）</td>
-        </tr>
-        <tr>
-          <td class="ec-code">INVALID_CHUNK</td>
-          <td>chunk_id 越界或非法</td>
-          <td>收到越界或非法的 <code>chunk_id</code></td>
-        </tr>
-        <tr>
-          <td class="ec-code">CHUNK_ALREADY_RECEIVED</td>
-          <td>重复 chunk</td>
-          <td>幂等丢弃</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>AUTH · 认证与 ACL 错误</h3>
-  <div class="card">
-    <table class="ec-cat sym">
-      <thead>
-        <tr>
-          <th>错误码符号名</th>
-          <th>含义</th>
-          <th>触发场景</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="ec-code">ACL_DENY</td>
-          <td>ACL 拒绝访问</td>
-          <td>访问控制校验未通过</td>
-        </tr>
-        <tr>
-          <td class="ec-code">CLIENT_ID_INVALID</td>
-          <td>client_id 非法</td>
-          <td>客户端身份非法 / 与认证凭据绑定身份不一致</td>
-        </tr>
-        <tr>
-          <td class="ec-code">LOGIN_FAILED</td>
-          <td>登录认证失败</td>
-          <td><code>login</code> 中的认证凭据校验失败</td>
-        </tr>
-        <tr>
-          <td class="ec-code">PROTO_VERSION_UNSUPPORTED</td>
-          <td>协议版本不受支持</td>
-          <td>见 06 章 <code>login</code> / <code>login_ack</code></td>
-        </tr>
-        <tr>
-          <td class="ec-code">FILE_TOO_LARGE</td>
-          <td>文件大小超出该会话 <code>chunk_size</code> 可表示的上限</td>
-          <td>Server <strong>必须</strong>以 <code>session_abort</code> 拒绝该请求，且<strong>不得</strong>创建会话（见 09 章「文件大小上限」）</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>TIMEOUT · 超时错误</h3>
-  <div class="card">
-    <table class="ec-cat sym">
-      <thead>
-        <tr>
-          <th>错误码符号名</th>
-          <th>含义</th>
-          <th>触发场景</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="ec-code">TIMEOUT_NO_ACTIVITY</td>
-          <td>长时间无活动导致超时</td>
-          <td>会话级，60 秒</td>
-        </tr>
-        <tr>
-          <td class="ec-code">TIMEOUT_PROBE</td>
-          <td>UDP 探测超时</td>
-          <td>UDP 探测未在期限内完成</td>
-        </tr>
-        <tr>
-          <td class="ec-code">TIMEOUT_HEARTBEAT</td>
-          <td>控制连接心跳超时</td>
-          <td>30 秒无任何消息（见 06 章）</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>STORAGE · 持久化与文件系统错误</h3>
-  <div class="card">
-    <table class="ec-cat sym">
-      <thead>
-        <tr>
-          <th>错误码符号名</th>
-          <th>含义</th>
-          <th>触发场景</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="ec-code">DATABASE_ERROR</td>
-          <td>SQLite 持久化失败</td>
-          <td>SQLite 持久化操作失败</td>
-        </tr>
-        <tr>
-          <td class="ec-code">FILESYSTEM_ERROR</td>
-          <td>文件系统操作失败</td>
-          <td>文件系统读写等操作失败</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <h3>PROTOCOL · 协议格式与状态错误</h3>
-  <div class="card">
-    <table class="ec-cat sym">
-      <thead>
-        <tr>
-          <th>错误码符号名</th>
-          <th>含义</th>
-          <th>触发场景</th>
-        </tr>
-      </thead>
-      <tbody>
-        <tr>
-          <td class="ec-code">MAGIC_MISMATCH</td>
-          <td>帧头魔数不匹配，判定<strong>失步</strong></td>
-          <td>控制面与 TCP 数据面帧的 <code>magic</code> 均为 <code>0x574E414C</code>（见 06、07 章）</td>
-        </tr>
-        <tr>
-          <td class="ec-code">HEADER_CRC_INVALID</td>
-          <td>帧头 CRC32 校验失败，判定<strong>失步</strong></td>
-          <td>CRC-32/ISO-HDLC；覆盖帧头除自身外的全部字节（见 06、07 章）</td>
-        </tr>
-        <tr>
-          <td class="ec-code">FRAME_LEN_INVALID</td>
-          <td>帧长越界，判定<strong>失步</strong></td>
-          <td><code>frame_len</code> &lt; 帧头长度或 &gt; <code>max_frame_len</code>；读取指针无法可信推进</td>
-        </tr>
-        <tr>
-          <td class="ec-code">INVALID_PACKET</td>
-          <td>数据包格式非法</td>
-          <td>长度不足、越界等</td>
-        </tr>
-        <tr>
-          <td class="ec-code">SESSION_ID_MISMATCH</td>
-          <td>session_id 不匹配</td>
-          <td>收到的包 <code>session_id</code> 与本会话不一致</td>
-        </tr>
-        <tr>
-          <td class="ec-code">SERIALIZATION_ERROR</td>
-          <td>控制帧解码失败</td>
-          <td>定长区长度不足、变长区越界、取值违反约束等</td>
-        </tr>
-        <tr>
-          <td class="ec-code">CONTROL_ERROR</td>
-          <td>控制面错误</td>
-          <td>控制面处理出错</td>
-        </tr>
-        <tr>
-          <td class="ec-code">UNKNOWN_ERROR</td>
-          <td>未分类错误</td>
-          <td>未列在本章的错误码一律视为 <code>UNKNOWN_ERROR</code></td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <!-- ========== 行为 ========== -->
-  <h2>终止类与过程类（规范性）</h2>
-
-  <p>错误码按<strong>是否可作为会话终止原因</strong>分为两类：</p>
-
-  <div class="card">
-    <table>
-      <thead><tr><th>类别</th><th>含义</th><th>可否作为 <code>session_abort.reason</code> / 完成消息 <code>code</code></th></tr></thead>
-      <tbody>
-        <tr><td><strong>终止类</strong></td><td>表示会话<strong>本身</strong>无法继续（会话被终止）</td><td><strong>可以</strong></td></tr>
-        <tr><td><strong>过程类</strong></td><td>表示传输过程中的<strong>局部</strong>异常；会话<strong>未必</strong>终止</td><td><strong>不可以</strong> —— <strong>必须</strong>只记录到日志 / 指标</td></tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="card">
-    <table>
-      <thead><tr><th>类别</th><th>错误码</th></tr></thead>
-      <tbody>
-        <tr>
-          <td><strong>终止类</strong></td>
-          <td class="mono">SESSION_NOT_FOUND、SESSION_ABORTED、FILE_NOT_FOUND、DELIVERY_DECLINED、INVALID_STATE、TOO_MANY_SESSIONS、FILE_HASH_MISMATCH、SOURCE_FILE_MISMATCH、ACL_DENY、CLIENT_ID_INVALID、LOGIN_FAILED、PROTO_VERSION_UNSUPPORTED、FILE_TOO_LARGE、TIMEOUT_NO_ACTIVITY、DATABASE_ERROR、STORAGE_FULL、FILESYSTEM_ERROR</td>
-        </tr>
-        <tr>
-          <td><strong>过程类</strong></td>
-          <td class="mono">UDP_UNAVAILABLE、TIMEOUT_PROBE、TCP_ERROR、BIND_FAILED、CONNECTION_FAILED、CONNECTION_CLOSED、NETWORK_ERROR、TIMEOUT_HEARTBEAT、CRC32_INVALID、INVALID_CHUNK、CHUNK_ALREADY_RECEIVED、INVALID_PACKET、SESSION_ID_MISMATCH、SERIALIZATION_ERROR、MAGIC_MISMATCH、HEADER_CRC_INVALID、FRAME_LEN_INVALID、CONTROL_ERROR、UNKNOWN_ERROR</td>
-        </tr>
-      </tbody>
-    </table>
-  </div>
-
-  <div class="note warn">
-    <strong>约束</strong>：过程类错误码<strong>不得</strong>作为 <code>session_abort.reason</code> 或完成消息 <code>code</code> 上线路；
-    会话因过程类错误而结束时，<strong>必须</strong>以<strong>终止类</strong>错误码说明终止原因
-    （如传输层反复失败导致会话超时 → <code>TIMEOUT_NO_ACTIVITY</code>）。<br>
-    <strong>为何要区分</strong>：过程类错误描述的是<strong>传输链路</strong>的状态，
-    而 <code>session_abort.reason</code> 描述的是<strong>会话为何终止</strong>。
-    把 <code>NETWORK_ERROR</code> 当作终止原因上线路，会让对端误以为「文件有问题」，
-    实际只是「链路抖了一下，会话超时被清理了」。<br>
-    失步类错误（<code>MAGIC_MISMATCH</code> / <code>HEADER_CRC_INVALID</code> / <code>FRAME_LEN_INVALID</code>）
-    属过程类：它们导致<strong>连接</strong>关闭，会话进入 13 章「中断处理」，<strong>不是</strong>会话的终止原因。
-  </div>
-
-  <h2>行为</h2>
-
-  <ul class="spec">
-    <li>错误记录日志。</li>
-    <li>INTEGRITY 错误包直接丢弃，且<strong>不得</strong>写入位图。</li>
-    <li>SESSION 错误触发 <code>session_abort</code>（<code>reason</code> 填对应错误码）。</li>
-    <li><code>CHUNK_ALREADY_RECEIVED</code> 属幂等情形，静默丢弃即可。</li>
-    <li>同一错误<strong>不得</strong>导致状态机进入非法状态。</li>
-  </ul>
-
-  <div class="note warn">
-    <strong>常见实现陷阱</strong>：把自由文本写进 <code>code</code> / <code>reason</code>（<strong>不得</strong>，必须是本章定义过的标识符）；
-    用 <code>result</code> 承载错误码；依赖 <code>detail</code> 做分支判断；
-    INTEGRITY 错误包仍写入位图（<strong>不得</strong>）。
-  </div>
+<div class="card"><table>
+<thead>
+<tr>
+<th>分类</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>SESSION</td>
+<td>会话级错误</td>
+</tr>
+<tr>
+<td>TRANSPORT</td>
+<td>传输层错误（UDP/TCP）</td>
+</tr>
+<tr>
+<td>INTEGRITY</td>
+<td>完整性校验错误</td>
+</tr>
+<tr>
+<td>AUTH</td>
+<td>认证与 ACL 错误</td>
+</tr>
+<tr>
+<td>TIMEOUT</td>
+<td>超时错误</td>
+</tr>
+<tr>
+<td>STORAGE</td>
+<td>持久化与文件系统错误</td>
+</tr>
+<tr>
+<td>PROTOCOL</td>
+<td>协议格式与状态错误</td>
+</tr>
+</tbody>
+</table></div>
+<h2>错误码上线路（规范性）</h2>
+<p>本章的错误码<strong>必须</strong>通过控制面消息上线路，字段映射如下：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>消息</th>
+<th>字段</th>
+<th>语义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>session_abort</code></td>
+<td><code>reason</code></td>
+<td>终止原因，<strong>必填</strong>（<code>str</code>），取值来自本章</td>
+</tr>
+<tr>
+<td><code>session_abort</code></td>
+<td><code>detail</code></td>
+<td>可读补充说明（<code>str</code>），仅用于日志与 UI，<strong>不得</strong>用于逻辑判断</td>
+</tr>
+<tr>
+<td><code>upload_complete</code></td>
+<td><code>code</code></td>
+<td>失败时的错误码（符号名，<code>str</code>）；成功时为空串（长度 0）</td>
+</tr>
+<tr>
+<td><code>download_complete</code></td>
+<td><code>code</code></td>
+<td>失败时的错误码（符号名，<code>str</code>）；成功时为空串（长度 0）</td>
+</tr>
+<tr>
+<td><code>asset_recall_complete</code></td>
+<td><code>code</code></td>
+<td>未删除时的错误码（符号名，<code>str</code>）；成功删除时为空串（长度 0）</td>
+</tr>
+<tr>
+<td><code>delivery_response</code></td>
+<td><code>code</code></td>
+<td>拒绝诊断，可为 <code>SERIALIZATION_ERROR</code>；Server 转成终止原因时按 09 章映射</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>发送方与接收方<strong>必须</strong>按错误码做分支判断，<strong>不得</strong>解析 <code>detail</code> 自由文本。</li>
+<li><code>result</code> 字段只表达「成功 / 失败」，<strong>不承载</strong>错误码；
+  <code>code</code> / <code>reason</code> 字段<strong>必须</strong>是本章中定义过的标识符。</li>
+<li><strong>未列在本章的错误码</strong>一律视为 <code>UNKNOWN_ERROR</code>。</li>
+</ul>
+<h2>建议错误码</h2>
+<h3>SESSION</h3>
+<ul>
+<li><code>SESSION_NOT_FOUND</code>：会话不存在或已终止</li>
+<li><code>SESSION_ABORTED</code>：会话被服务端终止</li>
+<li><code>FILE_NOT_FOUND</code>：请求的文件在 Server 上不存在或不可拉取
+  （含共享清单条目已被移除的情形）；Server <strong>必须</strong>以 <code>session_abort</code> 拒绝</li>
+<li><code>DELIVERY_DECLINED</code>：接收方拒绝该次主动投递
+  （策略、配额或用户决定）；经 <code>delivery_response.code</code> 表达，
+  Server <strong>必须</strong>以 <code>session_abort</code>（<code>reason</code> = <code>DELIVERY_DECLINED</code>）终止会话</li>
+<li><code>INVALID_STATE</code>：当前状态不允许该操作</li>
+<li><code>TOO_MANY_SESSIONS</code>：单条控制连接上的并发会话数已达上限
+  （<code>max_sessions_per_connection</code> = 64，见 09 章）；
+  Server <strong>必须</strong>以 <code>session_abort</code>（<code>reason</code> = <code>TOO_MANY_SESSIONS</code>）拒绝该请求</li>
+</ul>
+<h3>TRANSPORT</h3>
+<ul>
+<li><code>UDP_UNAVAILABLE</code>：UDP 探测失败</li>
+<li><code>TCP_ERROR</code>：TCP 数据面降级通道错误</li>
+<li><code>BIND_FAILED</code>：数据面端口绑定失败</li>
+<li><code>CONNECTION_FAILED</code>：控制通道连接失败</li>
+<li><code>CONNECTION_CLOSED</code>：控制连接已关闭（对端断开或超时）</li>
+<li><code>NETWORK_ERROR</code>：网络错误</li>
+</ul>
+<h3>INTEGRITY</h3>
+<ul>
+<li><code>CRC32_INVALID</code>：包级校验失败（丢弃该包，不标记位图）</li>
+<li><code>FILE_HASH_MISMATCH</code>：文件级内容哈希不一致（<strong>必须</strong>按恢复阶梯处理：
+  摘要对帐 → 复核轮 → 仍失配才以 <code>session_abort</code> 终止会话，见 12 章）</li>
+<li><code>SOURCE_FILE_MISMATCH</code>：发送方的源文件与请求的 <code>file_hash</code> 不符
+  （摘要对帐的<strong>根区间</strong>摘要双方一致时判定，见 12 章）；
+  接收方<strong>必须</strong>以 <code>session_abort</code> 终止会话，<strong>不得</strong>再进入复核轮</li>
+<li><code>INVALID_CHUNK</code>：chunk_id 越界或非法</li>
+<li><code>CHUNK_ALREADY_RECEIVED</code>：重复 chunk（幂等丢弃）</li>
+</ul>
+<h3>AUTH</h3>
+<ul>
+<li><code>ACL_DENY</code>：ACL 拒绝访问</li>
+<li><code>CLIENT_ID_INVALID</code>：client_id 非法</li>
+<li><code>LOGIN_FAILED</code>：登录认证失败</li>
+<li><code>PROTO_VERSION_UNSUPPORTED</code>：协议版本不受支持（见 06 章 <code>login</code> / <code>login_ack</code>）</li>
+<li><code>FILE_TOO_LARGE</code>：声明的文件大小超出该会话 <code>chunk_size</code> 可表示的上限
+  （见 09 章「文件大小上限」）；Server <strong>必须</strong>以 <code>session_abort</code>
+  （<code>reason</code> = <code>FILE_TOO_LARGE</code>）拒绝该请求，且<strong>不得</strong>创建会话</li>
+</ul>
+<h3>TIMEOUT</h3>
+<ul>
+<li><code>TIMEOUT_NO_ACTIVITY</code>：长时间无活动导致超时（会话级，60 秒）</li>
+<li><code>TIMEOUT_PROBE</code>：UDP 探测超时</li>
+<li><code>TIMEOUT_HEARTBEAT</code>：控制连接心跳超时（30 秒无任何消息，见 06 章）</li>
+</ul>
+<h3>STORAGE</h3>
+<ul>
+<li><code>DATABASE_ERROR</code>：持久化失败（位图 / 会话元数据落盘）</li>
+<li><code>STORAGE_FULL</code>：接收方存储空间不足，无法容纳投递的文件；
+  经 <code>delivery_response.code</code> 表达</li>
+<li><code>FILESYSTEM_ERROR</code>：文件系统操作失败</li>
+</ul>
+<h3>PROTOCOL</h3>
+<ul>
+<li><code>MAGIC_MISMATCH</code>：帧头魔数不匹配，判定<strong>失步</strong>
+  （控制面与 TCP 数据面帧的 <code>magic</code> 均为 <code>0x574E414C</code>；见 06、07 章）</li>
+<li><code>HEADER_CRC_INVALID</code>：帧头 CRC32（CRC-32/ISO-HDLC）校验失败，判定<strong>失步</strong>
+  （见 06、07 章「帧头校验码」）</li>
+<li><code>FRAME_LEN_INVALID</code>：帧长越界（<code>frame_len</code> &lt; 帧头长度或 &gt; <code>max_frame_len</code>），
+  判定<strong>失步</strong>；读取指针无法可信推进</li>
+<li><code>INVALID_PACKET</code>：数据包格式非法（长度不足、越界等）</li>
+<li><code>SESSION_ID_MISMATCH</code>：session_id 不匹配</li>
+<li><code>SERIALIZATION_ERROR</code>：控制帧解码失败（定长区长度不足、变长区越界、取值违反约束等）</li>
+<li><code>CONTROL_ERROR</code>：控制面错误</li>
+<li><code>UNKNOWN_ERROR</code>：未分类错误</li>
+</ul>
+<h2>终止类与过程类（规范性）</h2>
+<p>错误码按<strong>是否可作为会话终止原因</strong>分为两类：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>类别</th>
+<th>含义</th>
+<th>可否作为 <code>session_abort.reason</code> / 完成消息 <code>code</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><strong>终止类</strong></td>
+<td>表示会话<strong>本身</strong>无法继续（会话被终止）</td>
+<td><strong>可以</strong></td>
+</tr>
+<tr>
+<td><strong>过程类</strong></td>
+<td>表示传输过程中的<strong>局部</strong>异常；会话<strong>未必</strong>终止</td>
+<td><strong>不可以</strong>。可记录日志 / 指标；投递拒绝的诊断字段不是终止原因</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>终止类错误码清单（规范性）</strong>：
+<code>SESSION_NOT_FOUND</code>、<code>SESSION_ABORTED</code>、<code>FILE_NOT_FOUND</code>、<code>DELIVERY_DECLINED</code>、
+<code>INVALID_STATE</code>、<code>TOO_MANY_SESSIONS</code>、<code>FILE_HASH_MISMATCH</code>、<code>SOURCE_FILE_MISMATCH</code>、
+<code>ACL_DENY</code>、<code>CLIENT_ID_INVALID</code>、<code>LOGIN_FAILED</code>、<code>PROTO_VERSION_UNSUPPORTED</code>、
+<code>FILE_TOO_LARGE</code>、<code>TIMEOUT_NO_ACTIVITY</code>、<code>DATABASE_ERROR</code>、<code>STORAGE_FULL</code>、
+<code>FILESYSTEM_ERROR</code>。</p>
+<p><strong>其余错误码一律为过程类</strong>，即：
+<code>UDP_UNAVAILABLE</code>、<code>TIMEOUT_PROBE</code>、<code>TCP_ERROR</code>、<code>BIND_FAILED</code>、
+<code>CONNECTION_FAILED</code>、<code>CONNECTION_CLOSED</code>、<code>NETWORK_ERROR</code>、
+<code>TIMEOUT_HEARTBEAT</code>、<code>CRC32_INVALID</code>、<code>INVALID_CHUNK</code>、
+<code>CHUNK_ALREADY_RECEIVED</code>、<code>INVALID_PACKET</code>、<code>SESSION_ID_MISMATCH</code>、
+<code>SERIALIZATION_ERROR</code>、<code>MAGIC_MISMATCH</code>、<code>HEADER_CRC_INVALID</code>、
+<code>FRAME_LEN_INVALID</code>、<code>CONTROL_ERROR</code>、<code>UNKNOWN_ERROR</code>。</p>
+<p><strong>约束（规范性）</strong>：</p>
+<ul>
+<li>过程类错误码<strong>不得</strong>作为 <code>session_abort.reason</code> 或完成消息 <code>code</code> 上线路；
+  会话因过程类错误而结束时，<strong>必须</strong>以<strong>终止类</strong>错误码说明终止原因
+  （如传输层反复失败导致会话超时 → <code>TIMEOUT_NO_ACTIVITY</code>）。</li>
+<li><strong>为何要区分（说明）</strong>：过程类错误描述的是<strong>传输链路</strong>的状态，
+  而 <code>session_abort.reason</code> 描述的是<strong>会话为何终止</strong>。
+  把 <code>NETWORK_ERROR</code> 当作终止原因上线路，会让对端误以为「文件有问题」，
+  实际只是「链路抖了一下，会话超时被清理了」。</li>
+<li>失步类错误（<code>MAGIC_MISMATCH</code> / <code>HEADER_CRC_INVALID</code> / <code>FRAME_LEN_INVALID</code>）
+  属过程类：它们导致<strong>连接</strong>关闭，会话进入 13 章「中断处理」，
+  <strong>不是</strong>会话的终止原因。</li>
+</ul>
+<h2>行为</h2>
+<ul>
+<li>错误记录日志</li>
+<li>INTEGRITY 错误包直接丢弃，且<strong>不得</strong>写入位图</li>
+<li>SESSION 错误触发 <code>session_abort</code>（<code>reason</code> 填对应错误码）</li>
+<li>CHUNK_ALREADY_RECEIVED 属幂等情形，静默丢弃即可</li>
+<li>同一错误不得导致状态机进入非法状态</li>
+<li><strong>失步类错误</strong>（<code>MAGIC_MISMATCH</code> / <code>HEADER_CRC_INVALID</code> / <code>FRAME_LEN_INVALID</code>）
+  <strong>必须</strong>导致连接关闭（控制面连接或 TCP 数据面连接），
+  <strong>不得</strong>在原连接上继续解析帧；
+  受影响会话<strong>必须</strong>按 13 章「断线重连」恢复</li>
+<li>过程类错误码<strong>必须</strong>记录到日志 / 指标，但<strong>不得</strong>作为终止原因上线路
+  （见「终止类与过程类」）</li>
+</ul>
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/19-error-codes.md">docs/spec/19-error-codes.md</a></footer>
 </div>
