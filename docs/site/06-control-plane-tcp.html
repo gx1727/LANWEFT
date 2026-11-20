@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>06 TCP 控制帧结构 (Control Frame Format) — LANWEFT</title>
+<title>06 控制面（TCP） — LANWEFT</title>
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -16,343 +16,62 @@
     <a href="../spec/06-control-plane-tcp.md">规范源文</a>
   </nav>
 
-  <h1>TCP 控制帧结构 (Control Frame Format)</h1>
+  <h1>06 控制面（TCP）</h1>
 
-  <!-- ============ frame diagram ============ -->
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
+  <div class="note blue">
+    <strong>本章要点</strong>：控制面是会话状态推进与可靠性裁决的<strong>唯一</strong>通道，跑在 <strong>TCP</strong> 上，
+    一条连接可承载<strong>多个并发会话</strong>。控制帧 = <strong>16 字节定长帧头</strong> + 二进制消息体；
+    帧头 <code>magic</code> 恒为 <code>0x574E414C</code>（线上字节 <code>4C 41 4E 57</code>，小端序），
+    <code>header_crc32</code> 覆盖帧头中除自身外的 <strong>12 字节</strong>。
+    接收方<strong>必须</strong>先过 <code>magic</code> → <code>header_crc32</code> → <code>frame_len</code> 三项校验再读帧体，
+    <strong>任一失败即失步</strong>：<strong>必须</strong>丢弃该连接上未解析的数据并关闭连接，
+    <strong>不得</strong>就地「跳过一帧继续解析」。<code>frame_len</code> 上界为 1 MiB；
+    定长区一旦发布即冻结，新增字段只能追加在扩展区，接收方<strong>必须</strong>忽略扩展区。
+  </div>
+
+
+  <!-- ============ 控制帧帧头（位域图，偏移与大小由源文表格抽取） ============ -->
   <div class="diagram">
-    <div class="fields" style="--cols:8">
-      <div class="cell ruler-title">Frame Header = 16 Bytes · 小端序 (Little-Endian)</div>
-
-      <div class="cell bitnum">0</div>
-      <div class="cell bitnum">1</div>
-      <div class="cell bitnum">2</div>
-      <div class="cell bitnum">3</div>
-      <div class="cell bitnum">4</div>
-      <div class="cell bitnum">5</div>
-      <div class="cell bitnum">6</div>
-      <div class="cell bitnum">7</div>
-
-      <div class="cell span4 f-len">magic (u32, 4 bytes) · 0x574E414C</div>
-      <div class="cell span4 f-frame">frame_len (u32, 4 bytes)</div>
-
-      <div class="cell bitnum">8</div>
-      <div class="cell bitnum">9</div>
-      <div class="cell bitnum">10</div>
-      <div class="cell bitnum">11</div>
-      <div class="cell bitnum">12</div>
-      <div class="cell bitnum">13</div>
-      <div class="cell bitnum">14</div>
-      <div class="cell bitnum">15</div>
-
-      <div class="cell span4 f-crc">header_crc32 (u32, 4 bytes)</div>
-      <div class="cell f-type">msg_type</div>
-      <div class="cell f-flags">flags</div>
-      <div class="cell f-payload">body_version</div>
-      <div class="cell f-muted">reserved</div>
-
-      <div class="cell wide f-body">body (消息体：定长区 ‖ 变长区，长度 = frame_len − 16)</div>
-      <div class="cell wide f-ext">扩展区 Extension (可选，接收方必须忽略)</div>
-    </div>
+  <div class="fields" style="--cols:8">
+    <div class="cell ruler-title">控制帧帧头 = 16 字节 · 小端序（1 格 = 1 字节）</div>
+    <div class="cell span4 f-len">magic<br><span class="mono">0-3 · 4B</span></div>
+    <div class="cell span4 f-frame">frame_len<br><span class="mono">4-7 · 4B</span></div>
+    <div class="cell span4 f-crc">header_crc32<br><span class="mono">8-11 · 4B</span></div>
+    <div class="cell f-type">msg_type<br><span class="mono">12 · 1B</span></div>
+    <div class="cell f-flags">flags<br><span class="mono">13 · 1B</span></div>
+    <div class="cell f-payload">body_version<br><span class="mono">14 · 1B</span></div>
+    <div class="cell f-muted">reserved<br><span class="mono">15 · 1B</span></div>
+    <div class="cell wide f-body">body（偏移 16.. 起；长度 = frame_len − 16）</div>
+    <div class="cell wide f-ext">扩展区 Extension（可选，接收方必须忽略）</div>
   </div>
-  <div class="caption">
-    <code>magic</code> 恒为 <code>0x574E414C</code>（“LANW”），<strong>不随版本变更</strong>；
-    <code>header_crc32</code> 覆盖帧头中除自身外的 <strong>12 字节</strong>（magic ‖ frame_len ‖ msg_type ‖ flags ‖ body_version ‖ reserved）。
-    frame_len 的字节 0 为最低有效字节 (LSB first)：字节序 0 → 1 → 2 → 3 依次存放 u32 的 bit0–7 → bit8–15 → bit16–23 → bit24–31。
-  </div>
+</div>
+<div class="legend">
+  <span><i class="swatch" style="background:var(--b-len)"></i>magic</span>
+  <span><i class="swatch" style="background:var(--b-frame)"></i>frame_len</span>
+  <span><i class="swatch" style="background:var(--b-crc)"></i>header_crc32</span>
+  <span><i class="swatch" style="background:var(--b-type)"></i>msg_type</span>
+  <span><i class="swatch" style="background:var(--b-flags)"></i>flags</span>
+  <span><i class="swatch" style="background:var(--b-payload)"></i>body_version</span>
+  <span><i class="swatch" style="background:var(--b-ext)"></i>reserved / 扩展区</span>
+  <span><i class="swatch" style="background:var(--b-body)"></i>body</span>
+</div>
+<div class="caption">
+  <code>magic</code> 恒为 <code>0x574E414C</code>（“LANW”），不随版本变更；线上四字节为
+  <code>4C 41 4E 57</code>。抓包比对<strong>必须</strong>按线上字节序，
+  <strong>不得</strong>按 u32 的字节序反推。
+  <code>header_crc32</code> 覆盖帧内<strong>两段</strong>连续区间
+  （<code>magic</code> ‖ <code>frame_len</code>，以及 <code>msg_type</code> ‖ <code>flags</code> ‖
+  <code>body_version</code> ‖ <code>reserved</code>），合计 <strong>12 字节</strong>，
+  <strong>不是</strong>单一连续区间。图中字段偏移与大小均由源文帧格式表抽取（<code>0-3</code>
+  等），不手敲。
+  <code>frame_len</code> 的字节 0 为最低有效字节（LSB first）：字节序 0 → 1 → 2 → 3 依次存放 u32 的
+  bit0–7 → bit8–15 → bit16–23 → bit24–31。
+</div>
 
-  <div class="legend">
-    <span><i class="swatch" style="background:var(--b-len)"></i>magic</span>
-    <span><i class="swatch" style="background:var(--b-frame)"></i>frame_len</span>
-    <span><i class="swatch" style="background:var(--b-crc)"></i>header_crc32</span>
-    <span><i class="swatch" style="background:var(--b-type)"></i>msg_type</span>
-    <span><i class="swatch" style="background:var(--b-flags)"></i>flags</span>
-    <span><i class="swatch" style="background:var(--b-payload)"></i>body_version</span>
-    <span><i class="swatch" style="background:var(--b-ext)"></i>reserved / 扩展区</span>
-    <span><i class="swatch" style="background:var(--b-body)"></i>body</span>
-  </div>
 
-  <!-- ============ 帧头字段 & 错误处理 ============ -->
-  <div class="cols">
-    <section>
-      <h2 style="margin-top:32px">帧头字段定义</h2>
-      <div class="card">
-        <table>
-          <thead>
-            <tr><th>字段</th><th>偏移</th><th>大小</th><th>类型</th><th>说明</th></tr>
-          </thead>
-          <tbody>
-            <tr><td class="c-len">magic</td><td class="num">0-3</td><td class="num">4</td><td class="mono">u32</td><td>协议魔数，固定 <code>0x574E414C</code>（“LANW”）</td></tr>
-            <tr><td class="c-frame">frame_len</td><td class="num">4-7</td><td class="num">4</td><td class="mono">u32</td><td>本帧总字节数（含帧头）</td></tr>
-            <tr><td class="c-crc">header_crc32</td><td class="num">8-11</td><td class="num">4</td><td class="mono">u32</td><td>帧头校验码（CRC-32/ISO-HDLC），覆盖帧头其余 12 字节</td></tr>
-            <tr><td class="c-type">msg_type</td><td class="num">12</td><td class="num">1</td><td class="mono">u8</td><td>消息类型编号</td></tr>
-            <tr><td class="c-flags">flags</td><td class="num">13</td><td class="num">1</td><td class="mono">u8</td><td>帧级标志位；bit0-7 全部保留</td></tr>
-            <tr><td class="c-payload">body_version</td><td class="num">14</td><td class="num">1</td><td class="mono">u8</td><td>消息体布局版本号；初值 0</td></tr>
-            <tr><td class="c-muted">reserved</td><td class="num">15</td><td class="num">1</td><td class="mono">u8</td><td>保留字节</td></tr>
-            <tr><td class="c-body">body</td><td class="num">16..</td><td class="num">N</td><td class="mono">bytes</td><td>消息体，长度 = frame_len − 16</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h2>线上字节示例（抓包视角）</h2>
-      <p>下例是一个<strong>完整可复核</strong>的控制帧（<code>login</code>，<code>msg_type</code> = <code>0x01</code>）的线上字节。
-        本例用于<strong>锁定字节序与校验区间</strong>；实现<strong>必须</strong>与之逐字节一致。</p>
-
-      <div class="card">
-        <table>
-          <thead><tr><th>线上偏移</th><th>字节（hex）</th><th>可打印字符</th><th>字段</th></tr></thead>
-          <tbody>
-            <tr class="hlcell">
-              <td class="num">0x00–0x03</td>
-              <td class="mono"><span class="hl">4C 41 4E 57</span></td>
-              <td class="mono">LANW</td>
-              <td><code>magic</code> —— 协议魔数，<strong>位于线上最前 4 字节</strong>；小端序解读的 u32 值为 <code>0x574E414C</code></td>
-            </tr>
-            <tr>
-              <td class="num">0x04–0x07</td>
-              <td class="mono">22 00 00 00</td>
-              <td class="mono">&quot;</td>
-              <td><code>frame_len</code> = 34（16 帧头 + 18 消息体）</td>
-            </tr>
-            <tr>
-              <td class="num">0x08–0x0B</td>
-              <td class="mono">D3 E3 D5 CC</td>
-              <td class="mono">···</td>
-              <td><code>header_crc32</code> —— 小端序解读的 u32 值为 <code>0xCCD5E3D3</code></td>
-            </tr>
-            <tr>
-              <td class="num">0x0C</td>
-              <td class="mono">01</td>
-              <td class="mono">···</td>
-              <td><code>msg_type</code> = <code>0x01</code>（<code>login</code>）</td>
-            </tr>
-            <tr>
-              <td class="num">0x0D</td>
-              <td class="mono">00</td>
-              <td class="mono">···</td>
-              <td><code>flags</code> —— 保留位</td>
-            </tr>
-            <tr>
-              <td class="num">0x0E</td>
-              <td class="mono">00</td>
-              <td class="mono">···</td>
-              <td><code>body_version</code> = 0</td>
-            </tr>
-            <tr>
-              <td class="num">0x0F</td>
-              <td class="mono">00</td>
-              <td class="mono">···</td>
-              <td><code>reserved</code> —— 保留字节</td>
-            </tr>
-            <tr>
-              <td class="num">0x10–0x21</td>
-              <td class="mono">00 03 00 00 00 00 00 00 06 00 64 65 76 2D 41 31 00 00</td>
-              <td class="mono">······dev-A1··</td>
-              <td><code>body</code>（18 字节）—— <code>login</code> 定长区 8 字节 ‖ <code>device_id</code>（<code>06 00</code> + "dev-A1"）‖ <code>token</code>（<code>00 00</code>，空串）</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="note warn">
-        <strong><code>magic</code> 的字节序陷阱</strong>：<code>magic</code> 是 <strong>u32</strong>，按<strong>小端序</strong>存放 ——
-        线上字节为 <code>4C 41 4E 57</code>，<strong>不是</strong> <code>57 41 4E 4C</code>。
-        抓包工具按字节显示时应当看到 <span class="hl">4C 41 4E 57</span>；
-        按 u32 解读时应当得到 <code>0x574E414C</code>。
-        比对<strong>必须</strong>按<strong>线上字节序</strong> <code>4C 41 4E 57</code> 判断，<strong>不得</strong>按 <code>0x574E414C</code> 的字节序反推。
-      </div>
-
-      <h3>接收方的校验步骤（规范性）</h3>
-      <ol class="spec">
-        <li>比对线上字节 <code>4C 41 4E 57</code>（即 <code>magic</code> == <code>0x574E414C</code>）；</li>
-        <li>计算 <code>crc32(字节[0:8] ‖ 字节[12:16])</code> 并与 <code>header_crc32</code> 比对
-          （本例被校验的 12 字节为 <code>4C 41 4E 57 22 00 00 00 01 00 00 00</code>）；</li>
-        <li>校验 <code>frame_len</code> ∈ <code>[16, max_frame_len]</code>；</li>
-        <li>以上<strong>全部通过</strong>后，才<strong>必须</strong>按 <code>frame_len</code> 读满 <code>frame_len − 16</code> 字节的帧体。</li>
-      </ol>
-      <div class="note blue">
-        <strong>可复核性</strong>：本例的 <code>header_crc32</code> 由 <strong>CRC-32/ISO-HDLC</strong>（zlib <code>crc32</code>）
-        对上述 12 字节计算得出，实现<strong>必须</strong>能复核出 <code>0xCCD5E3D3</code>。
-      </div>
-
-      <h2>帧级错误处理</h2>
-      <div class="card">
-        <table>
-          <thead><tr><th>情况</th><th>处理</th></tr></thead>
-          <tbody>
-            <tr><td class="mono">magic != 0x574E414C</td><td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>MAGIC_MISMATCH</code>）</td></tr>
-            <tr><td class="mono">header_crc32 校验失败</td><td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>HEADER_CRC_INVALID</code>）</td></tr>
-            <tr><td class="mono">frame_len == 0</td><td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>FRAME_LEN_INVALID</code>；读取指针无法推进）</td></tr>
-            <tr><td class="mono">frame_len &gt; max_frame_len</td><td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>FRAME_LEN_INVALID</code>；帧边界不可信）</td></tr>
-            <tr><td class="mono">frame_len &lt; 16</td><td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>FRAME_LEN_INVALID</code>；帧长不足以容纳帧头）</td></tr>
-            <tr><td class="mono">msg_type 未知</td><td>按「未识别消息必须忽略」丢弃该帧，连接保持</td></tr>
-            <tr><td>定长区长度不足</td><td>按 <code>SERIALIZATION_ERROR</code> 丢弃该帧，连接保持</td></tr>
-            <tr><td>变长区长度越界</td><td>按 <code>SERIALIZATION_ERROR</code> 丢弃该帧，连接保持</td></tr>
-            <tr><td>reserved ≠ 0</td><td><strong>必须忽略</strong>，不得视为错误，连接保持</td></tr>
-            <tr><td>定长区数值违反取值约束</td><td>按 <code>SERIALIZATION_ERROR</code> 丢弃该帧，连接保持</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h2>帧同步与失步处理（规范性）</h2>
-      <p>接收方<strong>必须</strong>按下列顺序校验帧头，<strong>任一</strong>不通过即判定<strong>失步</strong>（desync）：</p>
-      <ol class="spec">
-        <li><code>magic</code> == <code>0x574E414C</code>；</li>
-        <li><code>header_crc32</code> 校验通过；</li>
-        <li><code>frame_len</code> ∈ <code>[16, max_frame_len]</code>。</li>
-      </ol>
-      <ul class="spec">
-        <li>失步<strong>必须</strong>导致：<strong>丢弃</strong>该连接上尚未解析的全部数据、<strong>关闭连接</strong>，
-          并以 PROTOCOL 类错误码记录（<code>MAGIC_MISMATCH</code> / <code>HEADER_CRC_INVALID</code> / <code>FRAME_LEN_INVALID</code>，见 19 章）。</li>
-        <li>失步后<strong>不得</strong>在本连接上继续解析任何帧，<strong>不得</strong>继续执行协议状态机。</li>
-        <li>受影响会话<strong>必须</strong>按 13 章「断线重连」恢复 —— 经 <code>login</code> / <code>login_ack</code> 的<strong>权威快照</strong>重建状态；
-          <strong>不得</strong>在失步的连接上「跳过一帧继续解析」。</li>
-        <li><strong>首帧锚点</strong>：一条控制连接上的<strong>第一帧必须</strong>是 <code>login</code>（<code>msg_type</code> = <code>0x01</code>）；
-          不满足<strong>必须</strong>关闭连接（<code>CONTROL_ERROR</code>）。</li>
-        <li><strong>有界扫描（推荐性，非规范性）</strong>：实现<strong>可以</strong>在关闭连接前做一次<strong>有界扫描</strong>辅助定位失步点；
-          其<strong>扫描范围、候选判据与扫描上限</strong>见下节「接收状态机」；
-          扫描结果<strong>仅用于诊断</strong>，<strong>不得</strong>用于恢复协议状态机。</li>
-      </ul>
-      <h2>接收状态机（规范性）</h2>
-      <p>接收方<strong>必须</strong>以如下状态机驱动帧解析。状态机的<strong>内部实现方式自由</strong>
-        （同步阻塞读、异步回调、协程、事件循环均可），
-        但其<strong>可观测行为必须</strong>满足下表与本节约束。</p>
-      <div class="card">
-        <table>
-          <thead><tr><th>状态</th><th>含义</th></tr></thead>
-          <tbody>
-            <tr><td class="mono">SYNC</td><td>帧边界可信；按 <code>frame_len</code> 正常解析帧</td></tr>
-            <tr><td class="mono">RESYNC</td><td>已判定失步；<strong>仅</strong>用于有界扫描与诊断，<strong>不得</strong>回到 <code>SYNC</code></td></tr>
-            <tr><td class="mono">CLOSED</td><td>连接已关闭；承载的会话按 13 章处理（终结状态）</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h3>状态转移表</h3>
-      <div class="card">
-        <table>
-          <thead><tr><th>当前状态</th><th>事件</th><th>条件</th><th>动作</th><th>下一状态</th></tr></thead>
-          <tbody>
-            <tr><td class="mono">SYNC</td><td>读入字节</td><td>缓冲区字节数 &lt; <code>FRAME_HEADER_SIZE</code></td><td>继续等待；<strong>不得</strong>解析</td><td class="mono">SYNC</td></tr>
-            <tr><td class="mono">SYNC</td><td>帧头读满</td><td><code>magic</code> 不匹配</td><td>记 <code>MAGIC_MISMATCH</code>；<strong>必须</strong>关闭连接</td><td class="mono">CLOSED</td></tr>
-            <tr><td class="mono">SYNC</td><td>帧头读满</td><td><code>header_crc32</code> 不匹配</td><td>记 <code>HEADER_CRC_INVALID</code>；<strong>必须</strong>关闭连接</td><td class="mono">CLOSED</td></tr>
-            <tr><td class="mono">SYNC</td><td>帧头读满</td><td><code>frame_len</code> ∉ <code>[16, max_frame_len]</code></td><td>记 <code>FRAME_LEN_INVALID</code>；<strong>必须</strong>关闭连接</td><td class="mono">CLOSED</td></tr>
-            <tr><td class="mono">SYNC</td><td>帧头读满</td><td>三项校验<strong>全部</strong>通过</td><td>按 <code>frame_len</code> <strong>读满</strong>帧体</td><td class="mono">SYNC</td></tr>
-            <tr><td class="mono">SYNC</td><td>帧体就绪</td><td><code>msg_type</code> 未知，或定长区 / 变长区非法</td><td>丢弃该帧（<code>SERIALIZATION_ERROR</code> 或「未识别消息必须忽略」）；连接保持</td><td class="mono">SYNC</td></tr>
-            <tr><td class="mono">SYNC</td><td>帧体就绪</td><td>消息合法</td><td>交给消息处理器</td><td class="mono">SYNC</td></tr>
-            <tr><td class="mono">SYNC</td><td>读帧体失败</td><td>对端中断 / 超时</td><td>关闭连接；会话进入 13 章「中断处理」</td><td class="mono">CLOSED</td></tr>
-            <tr><td class="mono">RESYNC</td><td>逐字节前移</td><td>命中满足「候选判据」的偏移</td><td>记录候选偏移（<strong>仅诊断</strong>）；<strong>必须</strong>关闭连接</td><td class="mono">CLOSED</td></tr>
-            <tr><td class="mono">RESYNC</td><td>逐字节前移</td><td>扫描量超过 <code>resync_max_scan</code></td><td><strong>必须</strong>关闭连接</td><td class="mono">CLOSED</td></tr>
-            <tr><td class="mono">任意</td><td>连接关闭 / 超时 / 对端 FIN</td><td>—</td><td>关闭连接；会话进入 13 章「中断处理」</td><td class="mono">CLOSED</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h3>候选判据（用于 <code>RESYNC</code> 的有界扫描）</h3>
-      <p>候选偏移 <code>p</code> <strong>必须</strong>同时满足：</p>
-      <ol class="spec">
-        <li><code>p</code> 起的 <code>FRAME_HEADER_SIZE</code> 字节构成<strong>合法帧头</strong>（三项校验通过）；</li>
-        <li><code>p</code> 起的<strong>第一帧</strong>完整可读（可用字节数 ≥ 该帧 <code>frame_len</code>）；</li>
-        <li>第一帧<strong>之后紧邻</strong>的第二帧的<strong>帧头</strong>也完整可读，且其三项校验通过（即「<strong>连续两帧自洽</strong>」）。</li>
-      </ol>
-      <p>不满足第 3 条的候选<strong>不得</strong>采信 —— 消息体中偶然出现的 <code>magic</code> 几乎必然后跟非法帧头。
-        扫描上限 <code>resync_max_scan</code> = <strong>64 KiB</strong>：实现<strong>可以</strong>取更小值，<strong>不得</strong>取更大值。</p>
-
-      <h3>伪代码（说明性）</h3>
-<pre class="codeblock">常量：MAGIC = 0x574E414C
-      HEADER_SIZE = 16
-      MAX_FRAME_LEN = 1 MiB
-      RESYNC_MAX_SCAN = 64 KiB
-
-<span class="cm">SYNC（控制面接收循环）</span>
-  loop:
-    若 缓冲区字节数 &lt; HEADER_SIZE:
-        继续读取（阻塞；超时 → CLOSED）
-        continue
-
-    h = 缓冲区[0 : HEADER_SIZE]
-    magic, frame_len, crc, msg_type, flags, body_version, reserved = 解析(h)
-
-    若 magic != MAGIC:                  <span class="cm">→ 失步(MAGIC_MISMATCH)</span>
-    若 crc32(h[0:8] ‖ h[12:16]) != crc: <span class="cm">→ 失步(HEADER_CRC_INVALID)</span>
-    若 frame_len &lt; HEADER_SIZE 或 frame_len &gt; MAX_FRAME_LEN:
-                                        <span class="cm">→ 失步(FRAME_LEN_INVALID)</span>
-
-    body = 精确读取(frame_len − HEADER_SIZE)   <span class="cm"># 读不满 → CLOSED（对端中断）</span>
-    交给消息处理器(msg_type, body)             <span class="cm"># 非法消息只丢帧，不断连</span>
-    消费缓冲区前 frame_len 字节
-    continue
-
-<span class="cm">失步(code):</span>
-    记录错误码 code
-    若 实现提供有界扫描:  转 RESYNC          <span class="cm"># 仅诊断</span>
-    否则:                  关闭连接 → CLOSED
-
-<span class="cm">RESYNC（仅诊断，不恢复协议状态机）</span>
-  从当前偏移逐字节前移，最多 RESYNC_MAX_SCAN 字节:
-    若 候选满足「候选判据」:  记录候选偏移;  break
-  关闭连接 → CLOSED</pre>
-
-      <div class="note blue">
-        <strong>实现提示</strong>：缓冲区<strong>必须</strong>支持「读满一帧再消费」的滑动语义 ——
-        读帧体期间到达的字节<strong>必须</strong>留在缓冲区中供下一帧使用，
-        <strong>不得</strong>因一次 <code>read</code> 读到多帧而丢弃残余字节。
-      </div>
-
-      <div class="note warn">
-        <strong>为何失步必须断连而非就地续解</strong>：被跳过的帧中<strong>可能</strong>含状态转移消息
-        （<code>session_pause</code> / <code>session_abort</code> / <code>missing_chunks</code>）。
-        一方跳过、一方不跳过时，双方对会话状态的认知已经分叉 ——
-        「看似同步、实则状态不一致」的连接比「已断开的连接」更危险：
-        断开的连接可由权威快照<strong>无歧义</strong>重建，分叉的连接不能。
-      </div>
-    </section>
-
-    <section>
-      <h2 style="margin-top:32px">消息体编码约定</h2>
-      <div class="card">
-        <table>
-          <thead><tr><th>类型</th><th>编码</th></tr></thead>
-          <tbody>
-            <tr><td class="mono">u8 / u16 / u32 / u64</td><td>小端序定长整数</td></tr>
-            <tr><td class="mono">bool</td><td><code>u8</code>，0 = 假，1 = 真；其他取值非法</td></tr>
-            <tr><td class="mono">enum8</td><td><code>u8</code>，取值见枚举表</td></tr>
-            <tr><td class="mono">str</td><td><code>u16</code> 长度 + UTF-8 字节（不含 NUL）；长度 0 表示无值</td></tr>
-            <tr><td class="mono">hash32</td><td><strong>32 字节原始 Blake3 摘要</strong>（非十六进制串）</td></tr>
-            <tr><td class="mono">chunk_list</td><td><code>u32</code> 条数 + 条数 × <code>u32</code> chunk_id（升序）</td></tr>
-    <tr><td class="mono">session_id</td><td><strong>u64</strong>，跨 Server 进程重启不复用（见 09 章）</td></tr>
-            <tr><td class="mono">record[]</td><td><code>u16</code> 条数 + 条数 × 定长记录</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h2>枚举</h2>
-      <div class="card">
-        <table>
-          <tbody>
-            <tr><td class="mono">result</td><td>0 = fail，1 = success</td></tr>
-            <tr><td class="mono">direction</td><td>0 = upload，1 = download</td></tr>
-            <tr><td class="mono">state</td><td>0 INIT · 1 NEGOTIATING · 2 TRANSFERRING · 3 PAUSED · 4 VERIFY · 5 COMMIT · 6 COMPLETED · 7 ABORTED</td></tr>
-            <tr><td class="mono">missing_chunks.mode</td><td>0 = report，1 = request</td></tr>
-            <tr><td class="mono">proto_version</td><td>三个 <code>u8</code>：major / minor / patch</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h2>TCP 特有约束</h2>
-      <ul class="spec">
-        <li>控制连接<strong>必须</strong>启用 <code>TCP_NODELAY</code>（禁止 Nagle 合并）</li>
-        <li><strong>不得</strong>假设一帧一次 <code>recv</code> 到达 —— 必须按 <code>frame_len</code> 读满后再解析</li>
-        <li><strong>不得</strong>按换行或任何字节模式切分帧</li>
-        <li>多帧可合并为一次 write，但<strong>不得</strong>延迟发送超过 <strong>50 ms</strong></li>
-        <li><strong>不携带载荷级 CRC32</strong>：TCP 自带字节流校验和与重传；但帧头<strong>必须</strong>携带 <code>header_crc32</code>（用于帧同步，非载荷校验）</li>
-        <li>心跳 <code>ping</code> 每 <strong>10 s</strong>；<strong>30 s</strong> 内无任何消息则关闭连接（<code>TIMEOUT_HEARTBEAT</code>）</li>
-        <li>连接建立失败按 <code>CONNECTION_FAILED</code> 记录；连接被任一方关闭按 <code>CONNECTION_CLOSED</code> 记录（见 19 章）</li>
-      </ul>
-    </section>
-  </div>
-
-  <!-- ============ 消息体布局示例 ============ -->
-  <h2>消息体布局示例</h2>
+  <!-- ============ 消息体布局示例（位域图） ============ -->
+    <h2>消息体布局示例</h2>
   <p style="margin:0 0 4px;font-size:13.5px;color:var(--ink-2)">
     每条消息体 = <strong>定长区</strong>（偏移与长度见各消息表）‖ <strong>变长区</strong>（按固定顺序排列）；其后的剩余字节为扩展区，接收方必须忽略。
   </p>
@@ -418,8 +137,9 @@
   </div>
   <div class="caption">received 与 total 各占 8 字节；图中按等宽示意（字节刻度仅对应 session_id 所在的第 0–3 字节）。</div>
 
-  <!-- ============ 消息类型编号 ============ -->
-  <h2>消息类型编号（<code>msg_type</code>）</h2>
+
+  <!-- ============ 消息类型编号总表 ============ -->
+    <h2>消息类型编号（<code>msg_type</code>）</h2>
   <div class="card">
     <table>
       <thead><tr><th>编号</th><th>消息</th><th>方向</th><th>定长区</th><th>变长区</th><th>用途</th></tr></thead>
@@ -466,8 +186,9 @@
     <strong>定长区一旦发布即冻结</strong>：新增字段只能追加在扩展区，既有字段的偏移与大小不得变更；接收方必须忽略扩展区的全部内容。
   </div>
 
+
   <!-- ============ 本章引用的错误码 ============ -->
-  <h2>本章引用的错误码</h2>
+    <h2>本章引用的错误码</h2>
   <p style="margin-top:0">
     下表列出 06 章正文引用、并<strong>必须</strong>经控制消息的错误码字段上线路的错误码（取值见 19 章）。
     <strong>终止类</strong>消息用 <code>reason</code> 字段、<strong>结果可能成功也可能失败</strong>的消息用 <code>code</code> 字段；
@@ -528,6 +249,2818 @@
     <code>code</code> 字段用于「结果可能成功也可能失败」的消息；<code>reason</code> 字段用于「终止类」消息。
     三者语义不重叠，实现<strong>不得</strong>混用。
   </div>
+
+
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
+  <p>控制面是会话状态推进与可靠性裁决的<strong>唯一</strong>通道。</p>
+<ul>
+<li><strong>传输</strong>：TCP。Client 主动连接 Server，一条控制连接可承载<strong>多个并发会话</strong>。</li>
+<li><strong>消息格式</strong>：定长帧头 + 二进制消息体（见「帧格式」与「消息体布局」）。</li>
+<li><strong>连接即上下文</strong>：同一连接内的消息<strong>严格有序</strong>，因此<strong>不存在</strong>陈旧消息问题；
+  跨连接的状态由 <code>login</code> / <code>login_ack</code> 的<strong>权威快照</strong>一次性重建。</li>
+</ul>
+<h2>帧格式（规范性）</h2>
+<p>控制帧为<strong>小端序</strong>二进制结构，与 08 章的数据包格式采用<strong>同一端序约定</strong>。</p>
+<pre class="codeblock"><code>偏移  大小  字段          说明
+0-3   4     magic         u32，协议魔数，固定 0x574E414C（&quot;LANW&quot;）
+4-7   4     frame_len     u32，本帧总字节数（含本帧头），见下
+8-11  4     header_crc32  u32，帧头校验码，见「帧头校验码」
+12    1     msg_type      u8，消息类型编号，见「消息类型编号」
+13    1     flags         u8，帧级标志位；bit0-7 全部保留，接收方必须忽略
+14    1     body_version  u8，消息体布局版本号；初值为 0
+15    1     reserved      u8，保留字节
+16..  N     body          消息体，长度 = frame_len − 16
+</code></pre>
+<ul>
+<li><code>FRAME_HEADER_SIZE</code> = <strong>16 字节</strong>（控制帧定长帧头长度）。</li>
+<li><code>magic</code> <strong>必须</strong>为 <code>0x574E414C</code>；该常量<strong>不得</strong>随协议版本变更
+  （版本差异一律由 <code>proto_version</code> / <code>body_version</code> 表达，见 08 章「版本比较规则」）。
+  按小端序存放时，线路上的<strong>四个字节</strong>为 <code>4C 41 4E 57</code>（"LANW"）——
+  抓包比对时<strong>必须</strong>按该字节序判断。</li>
+<li><code>frame_len</code> <strong>必须</strong> ≥ <strong>16</strong>（最小帧长即帧头长度）。</li>
+<li><code>frame_len</code> <strong>必须</strong> ≤ <strong>1 MiB</strong>（记为 <code>max_frame_len</code>）。
+  接收方读到 <code>frame_len &gt; max_frame_len</code> 时<strong>必须</strong>丢弃该帧并<strong>关闭连接</strong>
+  —— 帧边界已不可信，无法继续解析。</li>
+<li>接收方<strong>必须</strong>按 <code>frame_len</code> <strong>读满</strong>后再解析：</li>
+<li><strong>不得</strong>假设一帧一次 <code>recv</code> 到达（TCP 是字节流，<strong>必须</strong>处理拆包）；</li>
+<li><strong>不得</strong>按换行或任何字节模式切分。</li>
+<li>发送方<strong>必须</strong>写出完整帧；<strong>不得</strong>依赖多次 <code>write</code> 的边界。</li>
+<li><code>body_version</code> 由<strong>消息体布局</strong>的版本决定，与协议版本（<code>proto_version</code>）相互独立。
+  当前所有消息的 <code>body_version</code> <strong>必须</strong>为 <code>0</code>。
+  接收方遇到<strong>不认识</strong>的 <code>body_version</code> 时，<strong>必须</strong>忽略该值，
+  按已知定长区尽力解析，并忽略变长区之后的尾部字节（见「扩展区」）。</li>
+<li><strong>不携带载荷级 CRC32（说明）</strong>：TCP 自身提供字节流校验和与重传，
+  控制帧<strong>不</strong>重复<strong>载荷级</strong> CRC32 —— 与 08 章数据面因 UDP 无可靠校验而携带 <code>crc32</code> 不同。
+  但帧头<strong>必须</strong>携带 <code>header_crc32</code>：其目的<strong>不是</strong>完整性校验，而是<strong>帧同步</strong>
+  （见「帧头校验码」与「帧同步与失步处理」）。</li>
+</ul>
+<h3>帧头校验码（规范性）</h3>
+<p><code>header_crc32</code> 使用 <strong>CRC-32/ISO-HDLC</strong>（又称 CRC-32、zlib <code>crc32</code>）——
+与 08 章的 <code>crc32</code> <strong>同一变体</strong>，本协议<strong>不</strong>存在第二个 CRC32 变体。</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>参数</th>
+<th>取值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>宽度</td>
+<td>32</td>
+</tr>
+<tr>
+<td>多项式</td>
+<td>0x04C11DB7（反射形式 0xEDB88320）</td>
+</tr>
+<tr>
+<td>初值</td>
+<td>0xFFFFFFFF</td>
+</tr>
+<tr>
+<td>输入反射</td>
+<td>是</td>
+</tr>
+<tr>
+<td>输出反射</td>
+<td>是</td>
+</tr>
+<tr>
+<td>末尾异或</td>
+<td>0xFFFFFFFF</td>
+</tr>
+<tr>
+<td>校验值</td>
+<td><code>"123456789"</code> → 0xCBF43926</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>覆盖区间（规范性）</strong>：被校验的字节是帧头中<strong>除 <code>header_crc32</code> 字段自身之外</strong>的
+<strong>12 字节</strong>，按下列顺序拼接（<strong>不是</strong>帧内的<strong>单一</strong>连续区间）：</p>
+<pre class="codeblock"><code>magic(4) ‖ frame_len(4) ‖ msg_type(1) ‖ flags(1) ‖ body_version(1) ‖ reserved(1)
+</code></pre>
+<ul>
+<li>上式对应帧内的<strong>两段连续区间</strong>：字节 <code>0–7</code> 与字节 <code>12–15</code>；
+  实现可直接对这两段拼接后的 12 字节计算 CRC32。</li>
+<li>发送方<strong>必须</strong>在写出帧头前计算并填入该值。</li>
+<li>接收方<strong>必须</strong>在解析帧头时校验该值；校验失败即判定<strong>失步</strong>（见下）。</li>
+</ul>
+<p><strong>为何校验帧头而不校验载荷（说明）</strong>：载荷完整性已由 TCP 保证，
+帧头校验码解决的是<strong>另一个</strong>问题 —— 确认当前读到的字节<strong>确实是一个帧头</strong>。
+实现一旦出现消费偏移（多读 / 少读一个字节），
+仅凭 <code>frame_len ∈ [16, 1 MiB]</code> 这一弱判据，
+存在约 1e-5 ~ 1e-6 的概率把随机字节<strong>当成一帧合法控制消息执行</strong>
+（例如伪造的 <code>session_pause</code> / <code>session_abort</code>）；
+加上 <code>magic</code>（2⁻³² 误命中）与 <code>header_crc32</code> 后，该路径被消除。</p>
+<h3>帧头字节示例（规范性）</h3>
+<p>下例是一个<strong>完整可复核</strong>的控制帧（<code>login</code>，<code>msg_type</code> = <code>0x01</code>）的线上字节。
+本例用于<strong>锁定字节序与校验区间</strong>；实现<strong>必须</strong>与之逐字节一致。</p>
+<pre class="codeblock"><code>线上偏移  00 01 02 03 | 04 05 06 07 | 08 09 10 11 | 12 13 14 15
+────────  ───────────  ───────────  ───────────  ───────────
+字节      4C 41 4E 57 | 22 00 00 00 | D3 E3 D5 CC | 01 00 00 00
+          └─ magic ──┘ └ frame_len ┘ └header_crc32┘ └ msg_type ┘ flags body_ver rsvd
+</code></pre>
+<div class="card"><table>
+<thead>
+<tr>
+<th>线上偏移</th>
+<th>字节</th>
+<th>字段</th>
+<th>取值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0x00–0x03</code></td>
+<td><code>4C 41 4E 57</code></td>
+<td><code>magic</code></td>
+<td>协议魔数；<strong>位于线上最前 4 字节</strong>；小端序解读的 u32 值为 <code>0x574E414C</code></td>
+</tr>
+<tr>
+<td><code>0x04–0x07</code></td>
+<td><code>22 00 00 00</code></td>
+<td><code>frame_len</code></td>
+<td>34 = 16（帧头）+ 18（消息体）</td>
+</tr>
+<tr>
+<td><code>0x08–0x0B</code></td>
+<td><code>D3 E3 D5 CC</code></td>
+<td><code>header_crc32</code></td>
+<td>小端序解读的 u32 值为 <code>0xCCD5E3D3</code></td>
+</tr>
+<tr>
+<td><code>0x0C</code></td>
+<td><code>01</code></td>
+<td><code>msg_type</code></td>
+<td><code>0x01</code> = <code>login</code></td>
+</tr>
+<tr>
+<td><code>0x0D</code></td>
+<td><code>00</code></td>
+<td><code>flags</code></td>
+<td>保留位</td>
+</tr>
+<tr>
+<td><code>0x0E</code></td>
+<td><code>00</code></td>
+<td><code>body_version</code></td>
+<td>0</td>
+</tr>
+<tr>
+<td><code>0x0F</code></td>
+<td><code>00</code></td>
+<td><code>reserved</code></td>
+<td>保留字节</td>
+</tr>
+<tr>
+<td><code>0x10–0x21</code></td>
+<td><code>00 03 00 00 00 00 00 00 06 00 64 65 76 2D 41 31 00 00</code></td>
+<td><code>body</code></td>
+<td>18 字节：<code>login</code> 定长区 8 字节 ‖ <code>device_id</code>（<code>06 00</code> + "dev-A1"）‖ <code>token</code>（<code>00 00</code>，空串）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong><code>magic</code> 的字节序陷阱（规范性）</strong>：</p>
+<ul>
+<li><code>magic</code> 是 <strong>u32</strong>，按<strong>小端序</strong>存放 —— 线上字节为 <code>4C 41 4E 57</code>，
+  <strong>不是</strong> <code>57 41 4E 4C</code>，也<strong>不是</strong> ASCII 字符串 "LANW" 的十六进制串写法 <code>4C 41 4E 57</code> 之外的任何形式；</li>
+<li>换言之：抓包工具按字节显示时应当看到 <code>4C 41 4E 57</code>；
+  按 u32 解读时应当得到 <code>0x574E414C</code>。</li>
+<li>抓包比对<strong>必须</strong>按<strong>线上字节序</strong> <code>4C 41 4E 57</code> 判断，<strong>不得</strong>按 <code>0x574E414C</code> 的字节序反推。</li>
+</ul>
+<p><strong>校验步骤（规范性）</strong>：接收方读到 16 字节帧头后<strong>必须</strong>依次执行：</p>
+<ol>
+<li>比对线上字节 <code>4C 41 4E 57</code>（即 <code>magic</code> == <code>0x574E414C</code>）；</li>
+<li>计算 <code>crc32(字节[0x8] ‖ 字节[0xC:0x10])</code> 并与 <code>header_crc32</code> 比对
+   （本例中被校验的 12 字节为 <code>4C 41 4E 57 22 00 00 00 01 00 00 00</code>）；</li>
+<li>校验 <code>frame_len</code> ∈ <code>[16, max_frame_len]</code>；</li>
+<li>以上<strong>全部通过</strong>后，才<strong>必须</strong>按 <code>frame_len</code> 读满 <code>frame_len − 16</code> 字节的帧体。</li>
+</ol>
+<blockquote>
+<p><strong>可复核性（说明）</strong>：本例的 <code>header_crc32</code> 由 <strong>CRC-32/ISO-HDLC</strong>（zlib <code>crc32</code>）
+对上述 12 字节计算得出，实现<strong>必须</strong>能复核出 <code>0xCCD5E3D3</code>。</p>
+</blockquote>
+<h3>帧同步与失步处理（规范性）</h3>
+<p>接收方<strong>必须</strong>按下列顺序校验帧头，<strong>任一</strong>不通过即判定<strong>失步</strong>（desync）：</p>
+<ol>
+<li><code>magic</code> == <code>0x574E414C</code>；</li>
+<li><code>header_crc32</code> 校验通过；</li>
+<li><code>frame_len</code> ∈ <code>[16, max_frame_len]</code>。</li>
+</ol>
+<p><strong>失步的处置（规范性）</strong>：</p>
+<ul>
+<li>失步<strong>必须</strong>导致：<strong>丢弃</strong>该连接上尚未解析的全部数据、<strong>关闭连接</strong>、
+  并以 PROTOCOL 类错误码记录（<code>MAGIC_MISMATCH</code> / <code>HEADER_CRC_INVALID</code> /
+  <code>FRAME_LEN_INVALID</code>，见 19 章）。</li>
+<li>失步后<strong>不得</strong>在本连接上继续解析任何帧，<strong>不得</strong>继续执行协议状态机。</li>
+<li>受影响会话<strong>必须</strong>按 13 章「断线重连」恢复 —— 重新建立控制连接，
+  经 <code>login</code> / <code>login_ack</code> 的<strong>权威快照</strong>重建状态。
+  <strong>不得</strong>在失步的连接上「跳过一帧继续解析」。</li>
+</ul>
+<p><strong>为何失步必须断连而非就地续解（说明）</strong>：
+被跳过的帧中<strong>可能</strong>含状态转移消息（<code>session_pause</code> / <code>session_abort</code> /
+<code>missing_chunks</code>）。
+一方跳过、一方不跳过时，双方对会话状态的认知已经分叉；
+此时「看似同步、实则状态不一致」的连接比「已断开的连接」更危险 ——
+断开的连接可以由权威快照<strong>无歧义</strong>地重建，分叉的连接不能。</p>
+<p><strong>有界扫描（推荐性，非规范性）</strong>：
+实现<strong>可以</strong>在关闭连接前执行一次<strong>有界扫描</strong>以辅助定位失步点
+（便于区分「对端不是本协议」与「本端消费偏移」）。
+若实现提供该能力，其<strong>扫描范围、候选判据与扫描上限</strong>见下节「接收状态机」；
+扫描结果<strong>仅用于诊断与日志</strong>；<strong>不得</strong>用于恢复协议状态机，
+<strong>不得</strong>把扫描到的帧当作可信的控制消息执行。</p>
+<h3>接收状态机（规范性）</h3>
+<p>接收方<strong>必须</strong>以如下状态机驱动帧解析。状态机的<strong>内部实现方式自由</strong>
+（同步阻塞读、异步回调、协程、事件循环均可），
+但其<strong>可观测行为必须</strong>满足本节的状态转移表与约束。</p>
+<p><strong>状态定义（规范性）</strong>：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>状态</th>
+<th>含义</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SYNC</code></td>
+<td>帧边界可信；按 <code>frame_len</code> 正常解析帧</td>
+</tr>
+<tr>
+<td><code>RESYNC</code></td>
+<td>已判定失步；<strong>仅</strong>用于有界扫描与诊断，<strong>不得</strong>回到 <code>SYNC</code></td>
+</tr>
+<tr>
+<td><code>CLOSED</code></td>
+<td>连接已关闭；承载的会话按 13 章处理（终结状态）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>状态转移表（规范性）</strong>：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>当前状态</th>
+<th>事件</th>
+<th>条件</th>
+<th>动作</th>
+<th>下一状态</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>SYNC</code></td>
+<td>读入字节</td>
+<td>缓冲区字节数 &lt; <code>FRAME_HEADER_SIZE</code></td>
+<td>继续等待；<strong>不得</strong>解析</td>
+<td><code>SYNC</code></td>
+</tr>
+<tr>
+<td><code>SYNC</code></td>
+<td>帧头读满</td>
+<td><code>magic</code> 不匹配</td>
+<td>记 <code>MAGIC_MISMATCH</code>；<strong>必须</strong>关闭连接</td>
+<td><code>CLOSED</code>（实现有界扫描时先转 <code>RESYNC</code>）</td>
+</tr>
+<tr>
+<td><code>SYNC</code></td>
+<td>帧头读满</td>
+<td><code>header_crc32</code> 不匹配</td>
+<td>记 <code>HEADER_CRC_INVALID</code>；<strong>必须</strong>关闭连接</td>
+<td><code>CLOSED</code>（同上）</td>
+</tr>
+<tr>
+<td><code>SYNC</code></td>
+<td>帧头读满</td>
+<td><code>frame_len</code> ∉ <code>[16, max_frame_len]</code></td>
+<td>记 <code>FRAME_LEN_INVALID</code>；<strong>必须</strong>关闭连接</td>
+<td><code>CLOSED</code>（同上）</td>
+</tr>
+<tr>
+<td><code>SYNC</code></td>
+<td>帧头读满</td>
+<td>三项校验<strong>全部</strong>通过</td>
+<td>按 <code>frame_len</code> <strong>读满</strong>帧体</td>
+<td><code>SYNC</code></td>
+</tr>
+<tr>
+<td><code>SYNC</code></td>
+<td>帧体就绪</td>
+<td><code>msg_type</code> 未知，或定长区 / 变长区非法</td>
+<td>丢弃该帧（<code>SERIALIZATION_ERROR</code> 或「未识别消息必须忽略」）；连接保持</td>
+<td><code>SYNC</code></td>
+</tr>
+<tr>
+<td><code>SYNC</code></td>
+<td>帧体就绪</td>
+<td>消息合法</td>
+<td>交给消息处理器</td>
+<td><code>SYNC</code></td>
+</tr>
+<tr>
+<td><code>SYNC</code></td>
+<td>读帧体失败</td>
+<td>对端中断 / 超时</td>
+<td>关闭连接；会话进入 13 章「中断处理」</td>
+<td><code>CLOSED</code></td>
+</tr>
+<tr>
+<td><code>RESYNC</code></td>
+<td>逐字节前移</td>
+<td>命中满足「候选判据」的偏移</td>
+<td>记录候选偏移（<strong>仅诊断</strong>）；<strong>必须</strong>关闭连接</td>
+<td><code>CLOSED</code></td>
+</tr>
+<tr>
+<td><code>RESYNC</code></td>
+<td>逐字节前移</td>
+<td>扫描量超过 <code>resync_max_scan</code></td>
+<td><strong>必须</strong>关闭连接</td>
+<td><code>CLOSED</code></td>
+</tr>
+<tr>
+<td>任意</td>
+<td>连接关闭 / 超时 / 对端 FIN</td>
+<td>—</td>
+<td>关闭连接；会话进入 13 章「中断处理」</td>
+<td><code>CLOSED</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>约束（规范性）</strong>：</p>
+<ul>
+<li>三项校验（<code>magic</code> → <code>header_crc32</code> → <code>frame_len</code>）<strong>必须</strong>在<strong>解析帧体之前</strong>完成；
+  <strong>不得</strong>先解析再校验，<strong>不得</strong>在三项校验通过前读取帧体。</li>
+<li><code>RESYNC</code> <strong>不得</strong>回到 <code>SYNC</code>；实现<strong>不得</strong>在 <code>RESYNC</code> 状态中执行任何协议消息，
+  <strong>不得</strong>把扫描到的帧当作可信的控制消息。</li>
+<li>校验失败时<strong>不得</strong>采用「跳过 16 字节继续同步」的做法 —— 该做法只会把失步<strong>延后</strong>，
+  且丢弃的可能是一整帧合法消息。</li>
+<li>帧体<strong>必须</strong>按 <code>frame_len</code> <strong>一次性读满</strong>后再解析；
+  读不满即视为对端中断，<strong>必须</strong>关闭连接。</li>
+</ul>
+<p><strong>候选判据（规范性，用于 <code>RESYNC</code> 的有界扫描）</strong>：
+候选偏移 <code>p</code> <strong>必须</strong>同时满足：</p>
+<ol>
+<li><code>p</code> 起的 <code>FRAME_HEADER_SIZE</code> 字节构成<strong>合法帧头</strong>（三项校验通过）；</li>
+<li><code>p</code> 起的<strong>第一帧</strong>完整可读（可用字节数 ≥ 该帧 <code>frame_len</code>）；</li>
+<li>第一帧<strong>之后紧邻</strong>的第二帧的<strong>帧头</strong>也完整可读，且其三项校验通过
+   （即「<strong>连续两帧自洽</strong>」）。</li>
+</ol>
+<p>不满足第 3 条的候选<strong>不得</strong>采信 —— 消息体中偶然出现的 <code>magic</code> 几乎必然后跟非法帧头。</p>
+<p><strong>扫描上限（规范性）</strong>：<code>resync_max_scan</code> = <strong>64 KiB</strong>。
+实现<strong>可以</strong>取更小值，<strong>不得</strong>取更大值。</p>
+<p><strong>伪代码（说明性）</strong>：</p>
+<pre class="codeblock"><code>常量：MAGIC = 0x574E414C
+      HEADER_SIZE = 16
+      MAX_FRAME_LEN = 1 MiB
+      RESYNC_MAX_SCAN = 64 KiB
+
+SYNC（控制面接收循环）
+  loop:
+    若 缓冲区字节数 &lt; HEADER_SIZE:
+        继续读取（阻塞；超时 → CLOSED）
+        continue
+
+    h = 缓冲区[0 : HEADER_SIZE]
+    magic, frame_len, crc, msg_type, flags, body_version, reserved = 解析(h)
+
+    若 magic != MAGIC:                              → 失步(MAGIC_MISMATCH)
+    若 crc32(h[0:8] ‖ h[12:16]) != crc:             → 失步(HEADER_CRC_INVALID)
+    若 frame_len &lt; HEADER_SIZE 或 frame_len &gt; MAX_FRAME_LEN:
+                                                      → 失步(FRAME_LEN_INVALID)
+
+    body = 精确读取(frame_len − HEADER_SIZE)   # 读不满 → CLOSED（对端中断）
+    交给消息处理器(msg_type, body)             # 非法消息只丢帧，不断连
+    消费缓冲区前 frame_len 字节
+    continue
+
+失步(code):
+    记录错误码 code
+    若 实现提供有界扫描:  转 RESYNC          # 仅诊断
+    否则:                  关闭连接 → CLOSED
+
+RESYNC（仅诊断，不恢复协议状态机）
+  从当前偏移逐字节前移，最多 RESYNC_MAX_SCAN 字节:
+    若 候选满足「候选判据」:  记录候选偏移;  break
+  关闭连接 → CLOSED
+</code></pre>
+<blockquote>
+<p><strong>实现提示（说明性）</strong>：缓冲区<strong>必须</strong>支持「读满一帧再消费」的滑动语义 ——
+读帧体期间到达的字节<strong>必须</strong>留在缓冲区中供下一帧使用，
+<strong>不得</strong>因一次 <code>read</code> 读到多帧而丢弃残余字节。</p>
+</blockquote>
+<h3>首帧锚点（规范性）</h3>
+<ul>
+<li>一条控制连接上的<strong>第一帧必须</strong>是 <code>login</code>（<code>msg_type</code> = <code>0x01</code>）。
+  接收方在收到 <code>login</code> 之前<strong>必须</strong>丢弃该连接上的一切消息（见「连接生命周期」）；
+  首帧不是 <code>login</code> 时<strong>必须</strong>关闭连接（<code>CONTROL_ERROR</code>）。</li>
+<li>该锚点的作用是<strong>在连接建立的第一时间确认帧同步</strong>：
+  首帧若连 <code>magic</code> 与 <code>header_crc32</code> 都过不了，说明本端或对端存在消费偏移，
+  继续读只会加深错位。</li>
+</ul>
+<h3>帧级错误处理（规范性）</h3>
+<div class="card"><table>
+<thead>
+<tr>
+<th>情况</th>
+<th>处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>magic</code> != <code>0x574E414C</code></td>
+<td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>MAGIC_MISMATCH</code>）</td>
+</tr>
+<tr>
+<td><code>header_crc32</code> 校验失败</td>
+<td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>HEADER_CRC_INVALID</code>）</td>
+</tr>
+<tr>
+<td><code>frame_len == 0</code></td>
+<td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>FRAME_LEN_INVALID</code>；读取指针无法推进）</td>
+</tr>
+<tr>
+<td><code>frame_len &gt; max_frame_len</code></td>
+<td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>FRAME_LEN_INVALID</code>；帧边界不可信）</td>
+</tr>
+<tr>
+<td><code>frame_len &lt; 16</code></td>
+<td>判定<strong>失步</strong>，丢弃并<strong>关闭连接</strong>（<code>FRAME_LEN_INVALID</code>；帧长不足以容纳帧头）</td>
+</tr>
+<tr>
+<td><code>msg_type</code> 未知</td>
+<td>按「未识别消息必须忽略」丢弃该帧，<strong>连接保持</strong></td>
+</tr>
+<tr>
+<td>定长区长度不足（<code>frame_len − 16 &lt; 定长区长度</code>）</td>
+<td>按 <code>SERIALIZATION_ERROR</code> 丢弃该帧，<strong>连接保持</strong></td>
+</tr>
+<tr>
+<td>变长区长度越界（字符串/数组长度超出本帧剩余字节）</td>
+<td>按 <code>SERIALIZATION_ERROR</code> 丢弃该帧，<strong>连接保持</strong></td>
+</tr>
+<tr>
+<td>保留字节（<code>reserved</code>、记录内 reserved）非 0</td>
+<td><strong>必须忽略</strong>，<strong>不得</strong>视为错误，<strong>连接保持</strong></td>
+</tr>
+<tr>
+<td>定长区数值违反该消息的取值约束（如 <code>mode = request</code> 但 <code>chunk_count &gt; 0</code>）</td>
+<td>按 <code>SERIALIZATION_ERROR</code> 丢弃该帧，<strong>连接保持</strong></td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>帧头三项校验全部通过</strong> ⇒ 帧边界可信 ⇒ 其后的错误<strong>只丢帧、不断连</strong> ——
+单条畸形消息<strong>不得</strong>导致整条连接失效。
+<strong>帧头三项校验任一失败</strong> ⇒ 帧边界不可信 ⇒ 判定失步 ⇒ <strong>必须断连</strong>。</p>
+</blockquote>
+<h3>扩展区（规范性）</h3>
+<ul>
+<li>定长区与变长区之后若仍有剩余字节，该部分为<strong>扩展区</strong>。</li>
+<li>接收方<strong>必须</strong>忽略扩展区的全部内容，<strong>不得</strong>因扩展区非空而报错。</li>
+<li>扩展区是后续版本新增字段的落点：<strong>新增字段只能追加在扩展区</strong>，
+  既有字段的偏移与大小<strong>不得</strong>变更。</li>
+<li>因此<strong>同一 <code>msg_type</code> 的定长区一旦发布即冻结</strong>。</li>
+</ul>
+<h3>TCP 特有约束（规范性）</h3>
+<ul>
+<li>控制连接<strong>必须</strong>启用 <code>TCP_NODELAY</code>（控制消息延迟敏感，禁止 Nagle 合并）。</li>
+<li>发送方<strong>应当</strong>把多个待发消息合并为一次 <code>write</code>（减少系统调用与报文段数）；
+  但<strong>不得</strong>为合并而延迟发送超过 <strong>50 ms</strong>（裁决周期，见 11 章）。</li>
+<li>接收方<strong>必须</strong>为每条连接维持独立的读缓冲与写队列；
+  <strong>不得</strong>在写队列阻塞时阻塞读循环（否则会与心跳超时相互放大）。</li>
+</ul>
+<h2>消息体编码约定（规范性）</h2>
+<p>每条消息体由<strong>定长区</strong>与<strong>变长区</strong>两部分组成：</p>
+<pre class="codeblock"><code>body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消息规定的顺序排列）
+</code></pre>
+<h3>基本类型</h3>
+<div class="card"><table>
+<thead>
+<tr>
+<th>类型</th>
+<th>编码</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>u8</code> / <code>u16</code> / <code>u32</code> / <code>u64</code></td>
+<td>小端序定长整数</td>
+</tr>
+<tr>
+<td><code>bool</code></td>
+<td><code>u8</code>，<code>0</code> = 假，<code>1</code> = 真；其他取值视为非法</td>
+</tr>
+<tr>
+<td><code>enum8</code></td>
+<td><code>u8</code>，取值见「枚举」</td>
+</tr>
+<tr>
+<td><code>str</code></td>
+<td><code>u16</code> 长度 + UTF-8 字节（<strong>不含</strong>结尾 NUL）；长度 <code>0</code> 表示<strong>无值</strong>（null）</td>
+</tr>
+<tr>
+<td><code>hash32</code></td>
+<td><strong>32 字节原始 Blake3 摘要</strong>（非十六进制串）</td>
+</tr>
+<tr>
+<td><code>chunk_list</code></td>
+<td><code>u32</code> 条数 + 条数 × <code>u32</code> <code>chunk_id</code>（<strong>必须</strong>升序）</td>
+</tr>
+<tr>
+<td><code>record[]</code></td>
+<td><code>u16</code> 条数 + 条数 × 定长记录（记录布局见表）</td>
+</tr>
+</tbody>
+</table></div>
+<h3>可选字段的表示（规范性）</h3>
+<ul>
+<li><strong>定长可选字段</strong>（<code>u32</code> 计数类）：使用<strong>存在标志位</strong>。
+  标志位为 <code>0</code> 时该字段<strong>必须</strong>取 <code>0</code>，且接收方<strong>必须</strong>按「未携带」处理。</li>
+<li><strong>变长可选字段</strong>（字符串类）：长度 <code>0</code> 即表示未携带。</li>
+<li><code>hash32</code> 类可选字段：使用存在标志位；标志位为 <code>0</code> 时<strong>不得</strong>出现该字段的 32 字节。</li>
+</ul>
+<blockquote>
+<p><strong>为什么不用哨兵值</strong>：早期草案曾用 <code>0xFFFFFFFF</code> 表示「未知」。
+该写法把「值域上界」与「无值」混为一谈，且 <code>chunk_count</code> 的理论上界与哨兵接近时会产生歧义。
+本规范统一改用<strong>存在标志位</strong>。</p>
+</blockquote>
+<h3>枚举</h3>
+<div class="card"><table>
+<thead>
+<tr>
+<th>枚举</th>
+<th>取值</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>result</code></td>
+<td><code>0</code> = fail，<code>1</code> = success</td>
+</tr>
+<tr>
+<td><code>direction</code></td>
+<td><code>0</code> = upload，<code>1</code> = download</td>
+</tr>
+<tr>
+<td><code>state</code></td>
+<td><code>0</code> INIT、<code>1</code> NEGOTIATING、<code>2</code> TRANSFERRING、<code>3</code> PAUSED、<code>4</code> VERIFY、<code>5</code> COMMIT、<code>6</code> COMPLETED、<code>7</code> ABORTED（见 10 章）</td>
+</tr>
+<tr>
+<td><code>missing_chunks.mode</code></td>
+<td><code>0</code> = report，<code>1</code> = request</td>
+</tr>
+<tr>
+<td><code>proto_version</code></td>
+<td>三个 <code>u8</code>：<code>major</code> / <code>minor</code> / <code>patch</code>，按 major → minor → patch 逐段数值比较（见 08 章「版本比较规则」）</td>
+</tr>
+</tbody>
+</table></div>
+<h3>记录内联字符串（说明）</h3>
+<p><code>login_ack</code> 的会话快照记录含一个可变的错误码字符串。
+该字符串<strong>内联</strong>在记录的定长部分之后，长度由记录内的 <code>code_len</code> 给出，
+记录总长 = 定长部分 + <code>code_len</code>。<strong>必须</strong>先读定长部分，再读 <code>code_len</code> 字节，
+然后才是下一条记录。</p>
+<h2>连接生命周期（规范性）</h2>
+<ol>
+<li>Client 主动连接 Server 的控制端口。</li>
+<li>Client <strong>必须</strong>在连接建立后<strong>立即</strong>发送 <code>login</code> 帧。</li>
+<li>Server <strong>必须</strong>校验 <code>login</code>（认证凭据、协议版本、设备身份）；
+   校验失败<strong>必须</strong>以 <code>login_ack</code>（<code>result</code> = fail）回应并<strong>关闭连接</strong>。</li>
+<li>Server <strong>必须</strong>在收到 <code>login</code> 之前<strong>丢弃</strong>该连接上的一切消息。</li>
+<li>校验通过后，Server 回 <code>login_ack</code>，其中携带被成功恢复会话的<strong>权威快照</strong>。</li>
+<li>连接存续期间，双方<strong>必须</strong>按「心跳与超时」维持连接。</li>
+<li>任一方关闭连接时，该连接承载的会话进入<strong>中断</strong>处理（见 13 章）。</li>
+</ol>
+<p><strong>握手超时（规范性）</strong>：Server <strong>必须</strong>在连接建立后 <strong>10 秒</strong>内未收到 <code>login</code> 时
+关闭该连接（防止半开连接占用资源）。
+连接建立失败（如对端拒绝、地址不可达）按 <code>CONNECTION_FAILED</code> 记录
+（见 19 章）；连接被任一方关闭按 <code>CONNECTION_CLOSED</code> 记录。</p>
+<h2>认证与身份（规范性）</h2>
+<ul>
+<li>身份在<strong>连接握手</strong>阶段确定，<strong>不得</strong>依赖后续消息自证。</li>
+<li>Server <strong>必须</strong>把每条控制连接<strong>绑定到唯一 <code>device_id</code></strong>；
+  该连接上的一切会话<strong>必须</strong>属于该 <code>device_id</code>。</li>
+<li><code>device_id</code> <strong>必须</strong>与认证凭据绑定（见 21 章）；
+  不一致<strong>必须</strong>以 <code>CLIENT_ID_INVALID</code> 拒绝。</li>
+<li><strong>在线状态由连接存续直接表达</strong>：连接存在即在线。
+  Server <strong>必须</strong>维护连接表，并据此回答「某设备是否在线」。</li>
+</ul>
+<h2>会话与连接的关系（规范性）</h2>
+<ul>
+<li>一条控制连接<strong>可以</strong>承载<strong>多个并发会话</strong>；
+  消息中的 <code>session_id</code> 用于区分会话，因此 <code>session_id</code>
+  在所有会话类消息中<strong>必须</strong>出现。</li>
+<li>控制通道<strong>不重放历史帧流</strong>；13 章规定的持久化完成回执可以幂等重发。同一连接内的消息<strong>严格有序</strong>，
+  跨连接的状态由 <code>login</code> 的<strong>权威快照</strong>一次性重建。</li>
+<li>数据面与控制面<strong>相互独立</strong>：控制连接承载 N 个会话时，
+  数据面端口<strong>可以</strong>被多个会话共用 —— UDP 包头中的 <code>session_id</code>
+  足以区分（见 08 章）。</li>
+</ul>
+<h2>心跳与超时（规范性）</h2>
+<div class="card"><table>
+<thead>
+<tr>
+<th>消息</th>
+<th>方向</th>
+<th>周期</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>ping</code></td>
+<td>双向</td>
+<td><strong>10 秒</strong></td>
+</tr>
+<tr>
+<td><code>pong</code></td>
+<td>双向</td>
+<td>收到 <code>ping</code> 后<strong>立即</strong></td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>任一方<strong>必须</strong>每 <strong>10 秒</strong>发送一次 <code>ping</code>；收到 <code>ping</code> <strong>必须</strong>立即回 <code>pong</code>。</li>
+<li><strong>30 秒</strong>内未收到该连接的任何消息时，接收方<strong>必须</strong>关闭该连接
+  （按 <code>TIMEOUT_HEARTBEAT</code> 记录，见 19 章）。</li>
+<li>连接超时（30s）<strong>必须</strong>早于会话超时（60s，见 09 章）触发：
+  <strong>先</strong>断开连接，<strong>再</strong>由会话超时兜底清理。</li>
+</ul>
+<h2>消息类型编号</h2>
+<div class="card"><table>
+<thead>
+<tr>
+<th>编号</th>
+<th>消息</th>
+<th>方向</th>
+<th>用途</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>0x01</code></td>
+<td>login</td>
+<td>Client→Server</td>
+<td>连接握手、认证与恢复请求</td>
+</tr>
+<tr>
+<td><code>0x02</code></td>
+<td>login_ack</td>
+<td>Server→Client</td>
+<td>握手结果与权威快照</td>
+</tr>
+<tr>
+<td><code>0x03</code></td>
+<td>upload_start</td>
+<td>Client→Server</td>
+<td>发起上传</td>
+</tr>
+<tr>
+<td><code>0x04</code></td>
+<td>upload_accept</td>
+<td>Server→Client</td>
+<td>接受上传，返回会话参数</td>
+</tr>
+<tr>
+<td><code>0x05</code></td>
+<td>download_start</td>
+<td>Client→Server</td>
+<td>发起下载</td>
+</tr>
+<tr>
+<td><code>0x06</code></td>
+<td>download_accept</td>
+<td>Server→Client</td>
+<td>接受下载，返回会话参数</td>
+</tr>
+<tr>
+<td><code>0x07</code></td>
+<td>missing_chunks</td>
+<td>双向</td>
+<td>缺失 chunk 列表报告 / 索要；<strong>报告方恒为接收方</strong></td>
+</tr>
+<tr>
+<td><code>0x08</code></td>
+<td>resume_session</td>
+<td>Client→Server</td>
+<td>恢复会话（显式暂停后的恢复）</td>
+</tr>
+<tr>
+<td><code>0x09</code></td>
+<td>resume_ack</td>
+<td>Server→Client</td>
+<td>恢复确认与权威状态</td>
+</tr>
+<tr>
+<td><code>0x0A</code></td>
+<td>progress_update</td>
+<td>双向</td>
+<td>传输进度更新；<strong>发布方恒为接收方</strong></td>
+</tr>
+<tr>
+<td><code>0x0B</code></td>
+<td>udp_ready</td>
+<td>Server→Client</td>
+<td>UDP 可用性通知</td>
+</tr>
+<tr>
+<td><code>0x0C</code></td>
+<td>upload_complete</td>
+<td>Server→Client</td>
+<td>上传完成（接收方 Server 上报）</td>
+</tr>
+<tr>
+<td><code>0x0D</code></td>
+<td>download_complete</td>
+<td>Client→Server</td>
+<td>下载完成（接收方 Client 上报）</td>
+</tr>
+<tr>
+<td><code>0x0E</code></td>
+<td>session_pause</td>
+<td>双向</td>
+<td>暂停会话</td>
+</tr>
+<tr>
+<td><code>0x0F</code></td>
+<td>session_abort</td>
+<td>双向</td>
+<td>终止会话；<strong>发布方受限</strong>，见下方说明</td>
+</tr>
+<tr>
+<td><code>0x10</code></td>
+<td>asset_recall</td>
+<td>Client→Server</td>
+<td>请求撤回（删除）已上传的素材记录</td>
+</tr>
+<tr>
+<td><code>0x11</code></td>
+<td>asset_recall_complete</td>
+<td>Server→Client</td>
+<td>撤回处理结果回执</td>
+</tr>
+<tr>
+<td><code>0x12</code></td>
+<td>ping</td>
+<td>双向</td>
+<td>心跳</td>
+</tr>
+<tr>
+<td><code>0x13</code></td>
+<td>pong</td>
+<td>双向</td>
+<td>心跳应答</td>
+</tr>
+<tr>
+<td><code>0x14</code></td>
+<td>reconcile_request</td>
+<td>双向</td>
+<td>摘要对帐请求（<strong>发布方恒为接收方</strong>）</td>
+</tr>
+<tr>
+<td><code>0x15</code></td>
+<td>reconcile_response</td>
+<td>双向</td>
+<td>摘要对帐应答（<strong>发布方恒为发送方</strong>）</td>
+</tr>
+<tr>
+<td><code>0x16</code></td>
+<td>material_available</td>
+<td>Server→Client</td>
+<td>共享清单变更通知（预置素材）</td>
+</tr>
+<tr>
+<td><code>0x17</code></td>
+<td>material_list</td>
+<td>Client→Server</td>
+<td>查询共享清单（预置素材）</td>
+</tr>
+<tr>
+<td><code>0x18</code></td>
+<td>material_list_ack</td>
+<td>Server→Client</td>
+<td>共享清单查询应答</td>
+</tr>
+<tr>
+<td><code>0x19</code></td>
+<td>delivery_offer</td>
+<td>Server→Client</td>
+<td>主动投递提议（携带全套会话参数）</td>
+</tr>
+<tr>
+<td><code>0x1A</code></td>
+<td>delivery_response</td>
+<td>Client→Server</td>
+<td>投递应答（接受 / 拒绝）</td>
+</tr>
+<tr>
+<td><code>0x1B</code></td>
+<td>complete_ack</td>
+<td>双向</td>
+<td>数据发送方确认已持久化接收方的完成回执</td>
+</tr>
+<tr>
+<td><code>0x00</code>、<code>0x1C</code>–<code>0xFF</code></td>
+<td>—</td>
+<td>—</td>
+<td><strong>保留</strong>，接收方必须按「未识别消息必须忽略」处理</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><strong>方向标注约定</strong>：标记为「双向」的消息，其<strong>发布方由会话方向决定</strong>：
+<code>missing_chunks</code>（<code>mode=report</code>）与 <code>progress_update</code> 由<strong>接收方</strong>发布；
+<code>session_pause</code> 双方均可发布；<code>mode=request</code> 的 <code>missing_chunks</code> 由<strong>发送方</strong>发布。
+见 10 章「视角定义」。</p>
+<p><strong>投递消息的发布方（规范性）</strong>：<code>delivery_offer</code> 恒由 <strong>Server</strong> 发布，
+<code>delivery_response</code> 恒由 <strong>Client</strong> 发布（见 09 章「主动投递」）。</p>
+<p><strong>共享清单消息的发布方（规范性）</strong>：<code>material_available</code> 与 <code>material_list_ack</code>
+恒由 <strong>Server</strong> 发布，<code>material_list</code> 恒由 <strong>Client</strong> 发布
+（见 09 章「预置素材与共享清单」）。</p>
+<p><strong>摘要对帐消息的发布方（规范性）</strong>：<code>reconcile_request</code> 恒由<strong>接收方</strong>发布，
+<code>reconcile_response</code> 恒由<strong>发送方</strong>发布。
+上传方向为 Server → Client；下载方向为 Client → Server（见 12 章）。</p>
+<p><strong><code>session_abort</code> 的发布方（规范性）</strong>：仅 <strong>Server</strong> 与<strong>接收方</strong>有权发布。
+非 Server 的接收方仅可使用 10 章「终止权」列明的原因；非 Server 的发送方不得发布。
+详见 10 章「终止权」。</p>
+<p><strong>断线重连的恢复不走</strong> <code>resume_session</code> / <code>resume_ack</code>，
+而是走 <code>login</code> 的恢复列表与 <code>login_ack</code> 的权威快照（见「连接生命周期」与 13 章）。</p>
+</blockquote>
+<h2>消息体布局</h2>
+<p>各消息体的偏移均<strong>相对于消息体首字节</strong>（即帧内偏移 16）。
+定长区之外的变长区按表中「变长区顺序」依次排列。</p>
+<h3>login（<code>0x01</code>）</h3>
+<p><strong>定长区（8 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>1</td>
+<td>proto_major</td>
+<td>u8</td>
+<td>Client 支持的<strong>最高</strong>协议版本 major</td>
+</tr>
+<tr>
+<td>1</td>
+<td>1</td>
+<td>proto_minor</td>
+<td>u8</td>
+<td>同上 minor</td>
+</tr>
+<tr>
+<td>2</td>
+<td>1</td>
+<td>proto_patch</td>
+<td>u8</td>
+<td>同上 patch</td>
+</tr>
+<tr>
+<td>3</td>
+<td>1</td>
+<td>reserved</td>
+<td>u8</td>
+<td>保留</td>
+</tr>
+<tr>
+<td>4</td>
+<td>2</td>
+<td>resume_count</td>
+<td>u16</td>
+<td>待恢复会话条目数；<strong>无待恢复会话时为 0</strong>；<strong>必须</strong> ≤ <code>max_sessions_per_connection</code>（64，见 09 章）</td>
+</tr>
+<tr>
+<td>6</td>
+<td>2</td>
+<td>reserved</td>
+<td>u16</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>device_id</code>：<code>str</code>。设备标识；<strong>必须</strong>与认证凭据绑定的身份一致（见 21、23 章）。</li>
+<li><code>token</code>：<code>str</code>。认证凭据；采用客户端证书时<strong>必须</strong>为空串（长度 0）。</li>
+<li><code>resume[]</code>：<code>resume_count</code> 条记录，每条 <strong>20 字节定长</strong>：</li>
+</ol>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>4</td>
+<td>next_chunk_id</td>
+<td>u32</td>
+<td>恢复提示（<strong>仅接收方提供</strong>）；<code>flags.bit0 = 0</code> 时<strong>必须</strong>为 0</td>
+</tr>
+<tr>
+<td>12</td>
+<td>4</td>
+<td>missing_count</td>
+<td>u32</td>
+<td>恢复提示（<strong>仅接收方提供</strong>）；<code>flags.bit1 = 0</code> 时<strong>必须</strong>为 0</td>
+</tr>
+<tr>
+<td>16</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <code>next_chunk_id</code> 有效，bit1 = <code>missing_count</code> 有效；bit2-7 保留</td>
+</tr>
+<tr>
+<td>17</td>
+<td>3</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>恢复列表的方向规则（规范性）</strong>：续传起点来自<strong>接收方</strong>的位图，
+因此<strong>只有接收方才可能提供</strong>它：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>direction</th>
+<th>恢复列表的提供方</th>
+<th><code>next_chunk_id</code> / <code>missing_count</code></th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>upload</code></td>
+<td>Client（<strong>发送方</strong>）</td>
+<td><strong>必须</strong>未携带（<code>flags.bit0</code> / <code>flags.bit1</code> = 0；Server 用自己的位图计算）</td>
+</tr>
+<tr>
+<td><code>download</code></td>
+<td>Client（<strong>接收方</strong>）</td>
+<td><strong>必须</strong>携带（<code>flags.bit0</code> / <code>flags.bit1</code> = 1；Server 没有 Client 的位图）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>幂等（规范性）</strong>：同一连接上重复的 <code>login</code> <strong>必须</strong>被 Server 忽略
+（一条连接<strong>只</strong>能握手一次）；Client <strong>不得</strong>在同一连接上重复握手。</p>
+<h3>login_ack（<code>0x02</code>）</h3>
+<p><strong>定长区（10 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>1</td>
+<td>result</td>
+<td>enum8</td>
+<td><code>0</code> = fail，<code>1</code> = success</td>
+</tr>
+<tr>
+<td>1</td>
+<td>1</td>
+<td>reserved</td>
+<td>u8</td>
+<td>保留</td>
+</tr>
+<tr>
+<td>2</td>
+<td>1</td>
+<td>proto_major</td>
+<td>u8</td>
+<td>Server 选定的协议版本 major</td>
+</tr>
+<tr>
+<td>3</td>
+<td>1</td>
+<td>proto_minor</td>
+<td>u8</td>
+<td>同上 minor</td>
+</tr>
+<tr>
+<td>4</td>
+<td>1</td>
+<td>proto_patch</td>
+<td>u8</td>
+<td>同上 patch</td>
+</tr>
+<tr>
+<td>5</td>
+<td>1</td>
+<td>reserved</td>
+<td>u8</td>
+<td>保留</td>
+</tr>
+<tr>
+<td>6</td>
+<td>2</td>
+<td>sessions_count</td>
+<td>u16</td>
+<td>权威快照条目数；<strong>无待恢复会话时为 0</strong>；<strong>必须</strong> ≤ <code>max_sessions_per_connection</code>（64，见 09 章）</td>
+</tr>
+<tr>
+<td>8</td>
+<td>2</td>
+<td>reserved</td>
+<td>u16</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>code</code>：<code>str</code>。失败时的机器可判定错误码（取值见 19 章，如 <code>LOGIN_FAILED</code> /
+   <code>PROTO_VERSION_UNSUPPORTED</code> / <code>CLIENT_ID_INVALID</code>）；成功时<strong>必须</strong>为空串。</li>
+<li><code>sessions[]</code>：<code>sessions_count</code> 条快照记录，每条 = <strong>42 字节定长</strong> + <code>code_len</code> 字节内联字符串。</li>
+</ol>
+<p><strong>快照记录定长区（42 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>1</td>
+<td>result</td>
+<td>enum8</td>
+<td>该会话的恢复结果</td>
+</tr>
+<tr>
+<td>9</td>
+<td>1</td>
+<td>direction</td>
+<td>enum8</td>
+<td>会话方向</td>
+</tr>
+<tr>
+<td>10</td>
+<td>1</td>
+<td>state</td>
+<td>enum8</td>
+<td>会话当前状态（见 10 章）；<code>result</code> = fail 时<strong>必须</strong>为 ABORTED</td>
+</tr>
+<tr>
+<td>11</td>
+<td>1</td>
+<td>reserved</td>
+<td>u8</td>
+<td>保留</td>
+</tr>
+<tr>
+<td>12</td>
+<td>4</td>
+<td>chunk_count</td>
+<td>u32</td>
+<td>会话参数</td>
+</tr>
+<tr>
+<td>16</td>
+<td>4</td>
+<td>chunk_size</td>
+<td>u32</td>
+<td>会话参数</td>
+</tr>
+<tr>
+<td>20</td>
+<td>4</td>
+<td>window</td>
+<td>u32</td>
+<td>会话参数</td>
+</tr>
+<tr>
+<td>24</td>
+<td>4</td>
+<td>connection_window</td>
+<td>u32</td>
+<td><strong>连接级</strong>在途上限（见 11 章）</td>
+</tr>
+<tr>
+<td>28</td>
+<td>4</td>
+<td>next_chunk_id</td>
+<td>u32</td>
+<td><strong>续传顺序起点</strong>：<strong>接收方</strong>位图中第一个尚未收到的 <code>chunk_id</code></td>
+</tr>
+<tr>
+<td>32</td>
+<td>4</td>
+<td>missing_count</td>
+<td>u32</td>
+<td><strong>接收方</strong>位图中尚未收到的 chunk 总数（精确值）</td>
+</tr>
+<tr>
+<td>36</td>
+<td>2</td>
+<td>udp_port</td>
+<td>u16</td>
+<td>数据面端口；<strong>可能因会话重建而变化</strong></td>
+</tr>
+<tr>
+<td>38</td>
+<td>2</td>
+<td>tcp_port</td>
+<td>u16</td>
+<td>数据面 TCP 降级端口；<code>0</code> 表示不支持</td>
+</tr>
+<tr>
+<td>40</td>
+<td>2</td>
+<td>code_len</td>
+<td>u16</td>
+<td>该会话失败时的错误码长度；成功时为 0</td>
+</tr>
+</tbody>
+</table></div>
+<p>紧随记录定长区之后是 <code>code_len</code> 字节的 ASCII 错误码（见「记录内联字符串」）。</p>
+<ul>
+<li><code>result</code> = fail 时保留请求的 <code>session_id</code>、<code>state = ABORTED</code> 与实际 <code>code_len</code>；无效的参数字段置 0。</li>
+<li><strong>快照的帧长边界（规范性）</strong>：权威快照<strong>必须</strong>在一帧内下发完毕
+  （不引入分页）。由于 <code>sessions_count</code> <strong>必须</strong> ≤ <code>max_sessions_per_connection</code>
+  （64，见 09 章），快照的最大体积为 64 × (42 + <code>code_len</code>) 字节，
+  <strong>远小于</strong> <code>max_frame_len</code>（1 MiB）——
+  因此「快照必须一帧内完整」<strong>始终可编码</strong>。</li>
+<li><strong>权威快照的效力（规范性）</strong>：快照确定会话关联、协商参数和端口；续传字段是接收方持久化位图的摘要，<strong>不得</strong>据此覆盖位图或接收方的本地提交阶段。<code>state = COMPLETED</code> 的回执交付见 13 章。</li>
+<li>Client 若不支持 Server 选定的 <code>proto_version</code>，<strong>必须</strong>关闭连接（见 08 章版本比较规则）。</li>
+</ul>
+<h3>upload_start（<code>0x03</code>）</h3>
+<p><strong>定长区（28 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>可为 0；由 Server 生成并在 <code>upload_accept</code> 中回填</td>
+</tr>
+<tr>
+<td>8</td>
+<td>8</td>
+<td>size</td>
+<td>u64</td>
+<td>文件大小（字节）；<strong>必须</strong>满足 09 章的「文件大小上限」</td>
+</tr>
+<tr>
+<td>16</td>
+<td>8</td>
+<td>mtime</td>
+<td>u64</td>
+<td>文件修改时间戳（UTC 秒）；Server 依此记录素材时间属性</td>
+</tr>
+<tr>
+<td>24</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <code>session_id</code> 有效；bit1-7 保留</td>
+</tr>
+<tr>
+<td>25</td>
+<td>3</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>file_hash</code>：<code>hash32</code>。文件内容的 Blake3 摘要。</li>
+<li><code>file_name</code>：<code>str</code>。文件名（UTF-8）。</li>
+</ol>
+<h3>upload_accept（<code>0x04</code>）</h3>
+<p><strong>定长区（32 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>Server 生成的会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>4</td>
+<td>chunk_count</td>
+<td>u32</td>
+<td>总 chunk 数量 = ceil(size / chunk_size)</td>
+</tr>
+<tr>
+<td>12</td>
+<td>4</td>
+<td>window</td>
+<td>u32</td>
+<td>滑动窗口大小（<strong>在途上限</strong>），由 Server 下发；<strong>Client 不得擅自修改</strong>；<strong>规范默认 8192</strong>（见 11 章）</td>
+</tr>
+<tr>
+<td>16</td>
+<td>4</td>
+<td>connection_window</td>
+<td>u32</td>
+<td><strong>连接级</strong>在途上限；由 Server 下发；<strong>Client 不得擅自修改</strong>；<strong>规范默认 16384</strong>（见 11 章）</td>
+</tr>
+<tr>
+<td>20</td>
+<td>4</td>
+<td>chunk_size</td>
+<td>u32</td>
+<td>协商确定的 chunk 大小</td>
+</tr>
+<tr>
+<td>24</td>
+<td>2</td>
+<td>udp_port</td>
+<td>u16</td>
+<td>数据面 UDP 端口；Client <strong>必须</strong>以该端口作为数据面目的端口</td>
+</tr>
+<tr>
+<td>26</td>
+<td>2</td>
+<td>tcp_port</td>
+<td>u16</td>
+<td><strong>数据面</strong> TCP 降级通道端口；<strong>0 表示不支持 TCP 降级</strong>。<strong>不是</strong>控制面端口</td>
+</tr>
+<tr>
+<td>28</td>
+<td>1</td>
+<td>file_exists</td>
+<td>bool</td>
+<td>秒传标志：当前设备有引用权且既有内容校验通过时为 <code>1</code>（见 09、10 章）</td>
+</tr>
+<tr>
+<td>29</td>
+<td>3</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>file_hash</code>：<code>hash32</code>。回显请求中的文件哈希，Client 据此关联 <code>session_id</code> 与文件。</li>
+</ol>
+<h3>download_start（<code>0x05</code>）</h3>
+<p><strong>定长区（28 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>可为 0；由 Server 生成并在 <code>download_accept</code> 中回填</td>
+</tr>
+<tr>
+<td>8</td>
+<td>8</td>
+<td>size</td>
+<td>u64</td>
+<td>文件大小（字节）；<strong>必须</strong>满足 09 章的「文件大小上限」</td>
+</tr>
+<tr>
+<td>16</td>
+<td>4</td>
+<td>chunk_size</td>
+<td>u32</td>
+<td>期望的 chunk 大小（字节）</td>
+</tr>
+<tr>
+<td>20</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <code>session_id</code> 有效；bit1-7 保留</td>
+</tr>
+<tr>
+<td>21</td>
+<td>7</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>file_hash</code>：<code>hash32</code>。要下载的文件的 Blake3 摘要。</li>
+<li><code>file_name</code>：<code>str</code>。文件名（UTF-8）。</li>
+</ol>
+<h3>download_accept（<code>0x06</code>）</h3>
+<p><strong>定长区（32 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>Server 生成的会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>4</td>
+<td>chunk_count</td>
+<td>u32</td>
+<td>总 chunk 数量 = ceil(size / chunk_size)</td>
+</tr>
+<tr>
+<td>12</td>
+<td>4</td>
+<td>window</td>
+<td>u32</td>
+<td>滑动窗口大小（<strong>在途上限</strong>），由 Server 下发；<strong>Client 不得擅自修改</strong>；<strong>规范默认 8192</strong>（见 11 章）</td>
+</tr>
+<tr>
+<td>16</td>
+<td>4</td>
+<td>connection_window</td>
+<td>u32</td>
+<td><strong>连接级</strong>在途上限；由 Server 下发；<strong>Client 不得擅自修改</strong>；<strong>规范默认 16384</strong>（见 11 章）</td>
+</tr>
+<tr>
+<td>20</td>
+<td>4</td>
+<td>chunk_size</td>
+<td>u32</td>
+<td>协商确定的 chunk 大小；Client <strong>必须</strong>用它核算 <code>chunk_count</code></td>
+</tr>
+<tr>
+<td>24</td>
+<td>2</td>
+<td>udp_port</td>
+<td>u16</td>
+<td>数据面 UDP 端口；Server 向该端口推送 chunk，Client <strong>必须</strong>以它作为数据面端口</td>
+</tr>
+<tr>
+<td>26</td>
+<td>2</td>
+<td>tcp_port</td>
+<td>u16</td>
+<td><strong>数据面</strong> TCP 降级通道端口；<strong>0 表示不支持 TCP 降级</strong>。<strong>不是</strong>控制面端口</td>
+</tr>
+<tr>
+<td>28</td>
+<td>1</td>
+<td>file_exists</td>
+<td>bool</td>
+<td>秒传标志；下载方向<strong>必须</strong>为 0（假）</td>
+</tr>
+<tr>
+<td>29</td>
+<td>3</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>file_hash</code>：<code>hash32</code>。回显请求中的文件哈希。</li>
+</ol>
+<p><strong>与 <code>upload_accept</code> 的字段对称性（规范性）</strong>：<code>upload_accept</code> 与 <code>download_accept</code> <strong>必须</strong>携带
+同构的字段集合 —— <code>file_hash</code> / <code>session_id</code> / <code>chunk_count</code> / <code>window</code> /
+<code>connection_window</code> / <code>udp_port</code> / <code>tcp_port</code> / <code>chunk_size</code> / <code>file_exists</code>；
+下载方向的 <code>file_exists</code> <strong>必须</strong>为 0。
+数据面端口与 <code>chunk_size</code> <strong>必须</strong>出现在两个 accept 消息中：
+缺端口则数据通路无法建立（Server 不得向未知端口发送 UDP，见 20 章），
+缺 <code>chunk_size</code> 则接收方无法核算 <code>chunk_count = ceil(size / chunk_size)</code>。</p>
+<h3>missing_chunks（<code>0x07</code>）</h3>
+<p><strong>定长区（20 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>1</td>
+<td>mode</td>
+<td>enum8</td>
+<td><code>0</code> = report，<code>1</code> = request</td>
+</tr>
+<tr>
+<td>9</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <code>missing_count</code> 有效；bit1 = 启动全量复核；bit2–3 = 修复代号（0/1/2，见 08、12 章）；bit4–7 保留</td>
+</tr>
+<tr>
+<td>10</td>
+<td>2</td>
+<td>reserved</td>
+<td>u16</td>
+<td>保留</td>
+</tr>
+<tr>
+<td>12</td>
+<td>4</td>
+<td>missing_count</td>
+<td>u32</td>
+<td>位图中<strong>尚未收到</strong>的 chunk <strong>总数</strong>（精确值）；<code>flags.bit0 = 0</code> 时<strong>必须</strong>为 0</td>
+</tr>
+<tr>
+<td>16</td>
+<td>4</td>
+<td>chunk_count</td>
+<td>u32</td>
+<td>本批 <code>chunks</code> 条目数</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>chunks</code>：<code>chunk_list</code>，条目<strong>必须</strong>按 <code>chunk_id</code> 升序；单条<strong>不得超过 4096 条</strong>（见 18 章）。</li>
+</ol>
+<p><strong><code>chunks</code> 的语义（规范性）</strong>：<code>chunks</code> 恒为「<strong>发布方自己尚未收到的块</strong>」，
+而不是「我已有的块」。</p>
+<ul>
+<li>上传方向 Server→Client：Server 报告「我还缺这些块」，Client 收到后<strong>重传</strong>这些块。</li>
+<li>下载方向 Client→Server：Client 报告「我还缺这些块」，Server 收到后<strong>重传</strong>这些块。</li>
+</ul>
+<p>两种方向下语义一致：<strong>接收方报告缺失，发送方补发</strong>。</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>mode</th>
+<th>语义</th>
+<th>chunks</th>
+<th>收到方的处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>report</code></td>
+<td><strong>发布方</strong>报告自己尚未收到的 chunk</td>
+<td>非空或空列表</td>
+<td>按 <code>chunks</code> 重传这些块；条数为 0 <strong>且未置复核轮标志</strong>时表示「我这边没有缺失，可继续推进」；置复核轮标志时空列表表示「全部块」（见下）</td>
+</tr>
+<tr>
+<td><code>request</code></td>
+<td>发送方索要对端的缺失列表</td>
+<td><strong>必须</strong>为空列表</td>
+<td>对端<strong>必须</strong>在 50ms 内以 <code>mode=report</code> 的 <code>missing_chunks</code> 应答</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>按会话方向展开</strong>（<code>direction</code> 见 09 章）：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>direction</th>
+<th><code>mode=report</code> 的发布方</th>
+<th><code>chunks</code> 的含义</th>
+<th>收到方的处理</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>upload</code></td>
+<td><strong>Server</strong>（接收方）</td>
+<td>Server 尚未收到的块</td>
+<td>Client 重传这些块</td>
+</tr>
+<tr>
+<td><code>download</code></td>
+<td><strong>Client</strong>（接收方）</td>
+<td>Client 尚未收到的块</td>
+<td>Server 重传这些块</td>
+</tr>
+</tbody>
+</table></div>
+<p>发送方（上传方向 Client / 下载方向 Server）<strong>不得</strong>发布 <code>mode=report</code>。
+发送方要了解对端的缺失情况，<strong>必须</strong>使用 <code>mode=request</code> 索要。</p>
+<p><strong><code>missing_count</code> 的取值（规范性）</strong>：<code>missing_count</code> <strong>必须</strong>是位图中<strong>尚未收到</strong>的
+chunk <strong>精确总数</strong>（<strong>不是</strong>本批 <code>chunks</code> 的长度）。发送方据此推算对端已收数与在途量
+（见 11 章），因此该值<strong>不得</strong>是估计值或近似值。<code>mode=request</code> 时<strong>必须</strong>为 0。</p>
+<p><strong>复核轮标志 <code>flags.bit1</code>（规范性）</strong>：<code>flags.bit1</code> = 1 表示本条裁决是<strong>复核轮</strong>
+的启动裁决（见 12 章「复核轮」）。每条 report 都携带当前代号；
+bit1 置位时必须为代号 2。其后同轮普通裁决只带代号、不再置 bit1。
+request 不声明代号（bit2–3 必须为 0）。恢复时先同步代号的规则见 13 章。</p>
+<ul>
+<li>该标志<strong>仅</strong>在 <code>mode = report</code> 时有意义；<code>mode = request</code> 时<strong>必须</strong>为 0。</li>
+<li>复核轮中，接收方<strong>必须</strong>已清空位图，<strong>必须</strong>要求发送方<strong>全量重发</strong>：</li>
+<li><code>chunks</code> <strong>必须</strong>为空列表（含义为「全部块」，而非「没有缺失」）；</li>
+<li><code>missing_count</code> <strong>必须</strong>等于该会话的 <code>chunk_count</code>（<code>flags.bit0</code> <strong>必须</strong>为 1）。</li>
+<li>发送方收到该标志时<strong>必须</strong>按 12 章「复核轮」执行：
+  重新打开源文件、从 <code>chunk_id</code> = 0 起全量重发，并重置顺序流与在途量基线。</li>
+<li>发送方<strong>必须</strong>对同一会话<strong>最多响应一次</strong>复核轮
+  （接收方的发起次数上限见 12 章「上限」；该上限按会话计，<strong>不随连接重建而重置</strong>）。</li>
+</ul>
+<p><strong>裁决即推进（规范性）</strong>：接收方<strong>必须</strong>周期性下发 <code>mode=report</code> 的 <code>missing_chunks</code>
+（含空列表），发送方据此推进窗口。详见 11 章「窗口推进判据」。</p>
+<blockquote>
+<p><strong>为什么需要 <code>request</code></strong>：上传方向的发送方（Client）无法自行表达「我还缺什么」——
+它并不缺任何块。<code>request</code> 是它向接收方（Server）索要缺失裁决的唯一途径，
+也是 11 章兜底索要机制与 12 章看门狗的载体。</p>
+</blockquote>
+<p><strong>空列表的两种含义（规范性）</strong>：<code>chunks</code> 为空列表时，其含义由<strong>复核轮标志</strong>区分：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>复核轮标志</th>
+<th>含义</th>
+<th>发送方动作</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>flags.bit1</code> = 0</td>
+<td>本会话<strong>没有缺失块</strong></td>
+<td>继续推进新数据</td>
+</tr>
+<tr>
+<td><code>flags.bit1</code> = 1</td>
+<td><strong>复核轮</strong>：全部块都需要重发</td>
+<td>按 12 章「复核轮」全量重读重发</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>立即裁决（推荐性）</strong>：接收方<strong>可以</strong>在<strong>检测到空洞的那一刻</strong>立即下发 <code>mode=report</code>，
+不必等待 50ms 周期，以降低丢包恢复时延。
+该优化<strong>不改变</strong>协议语义 —— 周期下发（空列表亦须下发）仍为<strong>规范性</strong>要求。</p>
+<h3>resume_session（<code>0x08</code>）</h3>
+<p><strong>定长区（20 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>4</td>
+<td>next_chunk_id</td>
+<td>u32</td>
+<td>恢复提示（<strong>仅接收方提供</strong>）；<code>flags.bit0 = 0</code> 时<strong>必须</strong>为 0</td>
+</tr>
+<tr>
+<td>12</td>
+<td>4</td>
+<td>missing_count</td>
+<td>u32</td>
+<td>恢复提示（<strong>仅接收方提供</strong>）；<code>flags.bit1 = 0</code> 时<strong>必须</strong>为 0</td>
+</tr>
+<tr>
+<td>16</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <code>next_chunk_id</code> 有效，bit1 = <code>missing_count</code> 有效；bit2-7 保留</td>
+</tr>
+<tr>
+<td>17</td>
+<td>3</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>恢复提示的方向规则（规范性）</strong>：<code>resume_session</code> <strong>恒由 Client 发起</strong>。
+Client 是会话对端，Server 不主动发起恢复。</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>direction</th>
+<th>Client 的身份</th>
+<th>恢复提示</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>upload</code></td>
+<td><strong>发送方</strong></td>
+<td><code>next_chunk_id</code> 与 <code>missing_count</code> <strong>必须</strong>未携带（Server 用自己的位图计算）</td>
+</tr>
+<tr>
+<td><code>download</code></td>
+<td><strong>接收方</strong></td>
+<td><code>next_chunk_id</code> 与 <code>missing_count</code> <strong>必须</strong>携带（Server 没有 Client 的位图）</td>
+</tr>
+</tbody>
+</table></div>
+<blockquote>
+<p><code>resume_session</code> 用于<strong>显式暂停后的恢复</strong>（同一连接内）；
+断线重连的恢复走 <code>login</code> 的恢复列表（见 13 章）。</p>
+</blockquote>
+<h3>resume_ack（<code>0x09</code>）</h3>
+<p><strong>定长区（28 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>1</td>
+<td>result</td>
+<td>enum8</td>
+<td><code>0</code> = fail，<code>1</code> = success</td>
+</tr>
+<tr>
+<td>9</td>
+<td>3</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+<tr>
+<td>12</td>
+<td>4</td>
+<td>next_chunk_id</td>
+<td>u32</td>
+<td><strong>续传顺序起点</strong>：<strong>接收方</strong>位图中<strong>第一个尚未收到的 chunk_id</strong>；位图已全真时为 <code>chunk_count</code></td>
+</tr>
+<tr>
+<td>16</td>
+<td>4</td>
+<td>missing_count</td>
+<td>u32</td>
+<td><strong>接收方</strong>位图中尚未收到的 chunk 总数（精确值）</td>
+</tr>
+<tr>
+<td>20</td>
+<td>2</td>
+<td>udp_port</td>
+<td>u16</td>
+<td>数据面 UDP 端口；会话重建后端口可能变化，<strong>Client 必须使用回执中的端口</strong></td>
+</tr>
+<tr>
+<td>22</td>
+<td>2</td>
+<td>tcp_port</td>
+<td>u16</td>
+<td>数据面 TCP 降级端口；<code>0</code> 表示不支持</td>
+</tr>
+<tr>
+<td>24</td>
+<td>4</td>
+<td>connection_window</td>
+<td>u32</td>
+<td><strong>连接级</strong>在途上限；由 Server 下发（见 11 章）</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>code</code>：<code>str</code>。失败时的机器可判定错误码（见 19 章）；成功时<strong>必须</strong>为空串。
+   取值包括 <code>SESSION_NOT_FOUND</code>、<code>SESSION_ABORTED</code>、<code>INVALID_STATE</code>。</li>
+</ol>
+<p><strong><code>next_chunk_id</code> 的定义（规范性）</strong>：<strong>接收方</strong>位图中<strong>第一个尚未收到</strong>的 <code>chunk_id</code>。</p>
+<p>本协议显式支持乱序写与随机访问，位图可能出现「空洞」——即存在低于最大已收 id 的缺失块。
+若以 <code>max_received_id + 1</code> 作为续传起点，<strong>空洞块将永远不会被重传</strong>，
+文件级 Blake3 校验必然失配。因此续传起点<strong>必须</strong>是<strong>第一个缺失块</strong>。
+空洞块的精确集合以周期下发的 <code>missing_chunks</code>（<code>mode=report</code>）为准，
+两者互补：前者决定顺序发送流从哪里继续，后者决定哪些块需要补发。</p>
+<h3>progress_update（<code>0x0A</code>）</h3>
+<p><strong>定长区（24 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>8</td>
+<td>received</td>
+<td>u64</td>
+<td>已接收的 chunk <strong>数量</strong>（不是字节数）</td>
+</tr>
+<tr>
+<td>16</td>
+<td>8</td>
+<td>total</td>
+<td>u64</td>
+<td>本会话的 <code>chunk_count</code></td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>发布方（规范性）</strong>：<code>progress_update</code> 由<strong>接收方</strong>发布 ——
+上传方向是 Server，下载方向是 Client。
+原因：<code>received</code> 表达的是<strong>本端已接收</strong>的 chunk 数，只有持有位图的接收方才知道该值；
+发送方需要它来估算链路丢包率并驱动 AIMD（见 11 章）。</p>
+<ul>
+<li>周期：接收方约每 <strong>500ms</strong> 发布一次。</li>
+</ul>
+<p><code>progress_update</code> 与 <code>missing_chunks</code> 是<strong>两种不同的周期消息</strong>，不得混淆：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>消息</th>
+<th>周期</th>
+<th>作用</th>
+<th>方向</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>missing_chunks</code>（<code>mode=report</code>）</td>
+<td><strong>50ms</strong></td>
+<td>缺失裁决，驱动窗口推进</td>
+<td>接收方 → 发送方</td>
+</tr>
+<tr>
+<td><code>progress_update</code></td>
+<td>500ms</td>
+<td>进度统计，供 AIMD 估算丢包率</td>
+<td>接收方 → 发送方</td>
+</tr>
+</tbody>
+</table></div>
+<h3>udp_ready（<code>0x0B</code>）</h3>
+<p><strong>定长区（12 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>2</td>
+<td>udp_port</td>
+<td>u16</td>
+<td>本次 PROBE 确认的 Server 端口，必须匹配当前待探测的端口；不得以就绪消息改写端口（见 14 章）</td>
+</tr>
+<tr>
+<td>10</td>
+<td>2</td>
+<td>reserved</td>
+<td>u16</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<h3>upload_complete（<code>0x0C</code>）</h3>
+<p><strong>定长区（12 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>1</td>
+<td>result</td>
+<td>enum8</td>
+<td><code>0</code> = fail，<code>1</code> = success</td>
+</tr>
+<tr>
+<td>9</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <code>file_hash</code> 有效；bit1-7 保留</td>
+</tr>
+<tr>
+<td>10</td>
+<td>2</td>
+<td>reserved</td>
+<td>u16</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>code</code>：<code>str</code>。失败时的错误码（见 19 章）；成功时<strong>必须</strong>为空串。</li>
+<li><code>file_hash</code>：<code>hash32</code>，<strong>仅当</strong> <code>flags.bit0 = 1</code> 时存在。</li>
+<li><code>asset_id</code>：<code>str</code>。Server 为本次素材分配的记录 ID，用于后续 <code>asset_recall</code>；
+   未建立记录时<strong>必须</strong>为空串。</li>
+</ol>
+<h3>download_complete（<code>0x0D</code>）</h3>
+<p><strong>定长区（12 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>1</td>
+<td>result</td>
+<td>enum8</td>
+<td><code>0</code> = fail，<code>1</code> = success</td>
+</tr>
+<tr>
+<td>9</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <code>file_hash</code> 有效；bit1-7 保留</td>
+</tr>
+<tr>
+<td>10</td>
+<td>2</td>
+<td>reserved</td>
+<td>u16</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>code</code>：<code>str</code>。失败时的错误码（见 19 章）；成功时<strong>必须</strong>为空串。</li>
+<li><code>file_hash</code>：<code>hash32</code>，<strong>仅当</strong> <code>flags.bit0 = 1</code> 时存在。</li>
+</ol>
+<p><strong>完成消息由接收方发布（规范性）</strong>：</p>
+<ul>
+<li>上传方向接收方是 Server → Server 发布 <code>upload_complete</code>；</li>
+<li>下载方向接收方是 Client → Client 发布 <code>download_complete</code>。</li>
+</ul>
+<p>原因：只有接收方持有位图与临时文件，能完成「校验 hash → 原子重命名」，
+也只有接收方能判定完成与否。发送方通过收到该消息得知会话已提交。</p>
+<h3>complete_ack（<code>0x1B</code>）</h3>
+<p><strong>定长区（8 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>已持久化最终结果的会话</td>
+</tr>
+</tbody>
+</table></div>
+<p>无变长区。上传由 Client 应答 <code>upload_complete</code>，下载由 Server 应答
+<code>download_complete</code>。只确认结果已记录，不表示传输成功；重发与清理规则见 13 章。</p>
+<h3>session_pause（<code>0x0E</code>）</h3>
+<p><strong>定长区（8 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>语义（规范性）</strong>：暂停会话，双方停止发送数据面数据包，
+会话转入 <code>PAUSED</code> 状态；位图与临时文件全部保留。</p>
+<ul>
+<li><strong>无独立 ack</strong>：<code>session_pause</code> 本身即状态转移消息，
+  对端转入 <code>PAUSED</code> 后<strong>必须</strong>停止发送数据面数据包；
+  恢复见 10 章「暂停与恢复」。</li>
+<li><strong>不表示「切换」</strong>：重复发布是幂等的（已处于 <code>PAUSED</code> 时不再产生状态变化）。
+  恢复一律通过 <code>resume_session</code> / <code>resume_ack</code> 表达。</li>
+<li>与 <code>session_abort</code> 的区别：暂停<strong>可恢复</strong>，中止<strong>不可恢复</strong>。</li>
+<li>与 <code>resume_session</code> 的区别：<code>session_pause</code> 是<strong>显式暂停</strong>，
+  <code>resume_session</code> 是<strong>暂停后的恢复</strong>；两者的恢复动作相同。</li>
+</ul>
+<h3>session_abort（<code>0x0F</code>）</h3>
+<p><strong>定长区（12 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>2</td>
+<td>reserved</td>
+<td>u16</td>
+<td>保留</td>
+</tr>
+<tr>
+<td>10</td>
+<td>2</td>
+<td>reserved</td>
+<td>u16</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>reason</code>：<code>str</code>。机器可判定的错误码，取值见 19 章（如 <code>FILE_HASH_MISMATCH</code>）；
+   <strong>不得</strong>填写自由文本。<strong>必须</strong>非空。</li>
+<li><code>detail</code>：<code>str</code>。可读补充说明，仅用于日志与 UI，不得被用于逻辑判断；无则为空串。</li>
+</ol>
+<p><strong>错误码上线路（规范性）</strong>：19 章定义的错误码<strong>必须</strong>通过本消息的 <code>reason</code> 字段上线路。
+发送方与接收方<strong>必须</strong>按错误码做分支判断，不得解析自由文本。</p>
+<p><code>result</code> 字段（<code>success</code> / <code>fail</code>）用于「完成类」消息；
+<code>code</code> 字段（19 章错误码）用于「结果可能成功也可能失败」的消息；
+<code>reason</code> 字段（19 章错误码）用于「终止类」消息。
+三者语义不重叠，实现<strong>不得</strong>混用。</p>
+<h3>asset_recall（<code>0x10</code>）</h3>
+<p><strong>定长区（4 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <code>asset_id</code> 有效；bit1-7 保留</td>
+</tr>
+<tr>
+<td>1</td>
+<td>3</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>file_hash</code>：<code>hash32</code>。要撤回的素材的 Blake3 摘要。</li>
+<li><code>asset_id</code>：<code>str</code>，<strong>仅当</strong> <code>flags.bit0 = 1</code> 时存在；
+   素材记录 ID，为空时按 <code>file_hash</code> 定位。</li>
+</ol>
+<p>资产撤回请求：Client 请求 Server 删除已接收的素材记录。
+本消息不关联 session，可独立于传输会话使用。</p>
+<p><strong><code>asset_id</code> 语义</strong>：Server 为每条已接收素材分配的<strong>记录标识</strong>，
+由 Server 分配并在 <code>asset_recall_complete</code> 中回填
+（新建素材时经 <code>upload_complete.asset_id</code> 交付）。
+Client 可用 <code>file_hash</code> 单独定位，也可用 <code>asset_id</code> 精确定位到某一条记录。</p>
+<p><strong>撤回语义</strong>：删除的是 Server 侧的<strong>素材记录</strong>（索引条目及其引用），
+不删除已被其他会话引用的物理文件；物理文件的回收策略由实现决定。</p>
+<p><strong>幂等</strong>：对同一 <code>file_hash</code> / <code>asset_id</code> 重复撤回<strong>必须</strong>是幂等的 ——
+第二次撤回若记录已不存在，应回 <code>deleted = false</code> 且 <code>code</code> 为空串
+（视作「已处于目标状态」），<strong>不得</strong>报错。</p>
+<p><strong>权限</strong>：Server <strong>必须</strong>校验发起方的 <code>device_id</code> 对该素材记录的所有权，
+越权时回 <code>code = ACL_DENY</code>（见 19 章）。</p>
+<h3>asset_recall_complete（<code>0x11</code>）</h3>
+<p><strong>定长区（4 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <code>asset_id</code> 有效，bit1 = <code>code</code> 有效，bit2 = <code>detail</code> 有效；bit3-7 保留</td>
+</tr>
+<tr>
+<td>1</td>
+<td>1</td>
+<td>deleted</td>
+<td>bool</td>
+<td>是否已删除素材记录</td>
+</tr>
+<tr>
+<td>2</td>
+<td>2</td>
+<td>reserved</td>
+<td>u16</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>file_hash</code>：<code>hash32</code>。被撤回素材的 Blake3 摘要。</li>
+<li><code>asset_id</code>：<code>str</code>，<strong>仅当</strong> <code>flags.bit0 = 1</code> 时存在；未建立记录时为空串。</li>
+<li><code>code</code>：<code>str</code>，<strong>仅当</strong> <code>flags.bit1 = 1</code> 时存在；未删除时的机器可判定错误码
+   （见 19 章）；成功删除时<strong>必须</strong>为空串。</li>
+<li><code>detail</code>：<code>str</code>，<strong>仅当</strong> <code>flags.bit2 = 1</code> 时存在；可读补充说明，仅用于日志与 UI。</li>
+</ol>
+<p>资产撤回完成通知：Server 处理撤回后的回执。
+<code>deleted</code> 表达成功与否，<code>code</code> 表达失败原因，<strong>不再重复提供语义重叠的 <code>result</code> 字段</strong>。</p>
+<h3>reconcile_request（<code>0x14</code>）</h3>
+<p><strong>定长区（16 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>4</td>
+<td>range_count</td>
+<td>u32</td>
+<td>本次请求比较的区间数；<strong>必须</strong> ≤ 64（见 12 章「上限」）</td>
+</tr>
+<tr>
+<td>12</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <strong>根轮</strong>（本次携带的是覆盖整个文件的根区间）；bit1-7 保留</td>
+</tr>
+<tr>
+<td>13</td>
+<td>3</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>ranges[]</code>：<code>range_count</code> 条记录，每条 <strong>8 字节定长</strong>：</li>
+</ol>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>4</td>
+<td>first_chunk</td>
+<td>u32</td>
+<td>区间起始 <code>chunk_id</code>（含）</td>
+</tr>
+<tr>
+<td>4</td>
+<td>4</td>
+<td>chunk_count</td>
+<td>u32</td>
+<td>区间包含的 chunk 数</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li>区间<strong>必须</strong>按 <code>first_chunk</code> <strong>升序</strong>排列。</li>
+<li>区间的字节范围与摘要定义见 12 章「对帐区间」。</li>
+<li><strong>发布方恒为接收方</strong>（见「消息与方向」）。</li>
+</ul>
+<h3>reconcile_response（<code>0x15</code>）</h3>
+<p><strong>定长区（16 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>4</td>
+<td>range_count</td>
+<td>u32</td>
+<td>本应答覆盖的区间数；<strong>必须</strong>等于对应请求的 <code>range_count</code></td>
+</tr>
+<tr>
+<td>12</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <strong>源文件已变更</strong>；bit1 = <strong>请求超限</strong>（拒绝执行）；bit2-7 保留</td>
+</tr>
+<tr>
+<td>13</td>
+<td>3</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>digests[]</code>：<code>range_count</code> 条记录，每条 <strong>40 字节定长</strong>：</li>
+</ol>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>4</td>
+<td>first_chunk</td>
+<td>u32</td>
+<td>与请求中对应区间一致</td>
+</tr>
+<tr>
+<td>4</td>
+<td>4</td>
+<td>chunk_count</td>
+<td>u32</td>
+<td>与请求中对应区间一致</td>
+</tr>
+<tr>
+<td>8</td>
+<td>32</td>
+<td>digest</td>
+<td>hash32</td>
+<td>该区间字节在<strong>发送方侧</strong>的 BLAKE3 摘要</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><code>flags.bit0</code>（源文件已变更）置位时，<code>digests[]</code> <strong>必须</strong>为空列表，
+  <code>range_count</code> <strong>必须</strong>为 0。</li>
+<li><code>flags.bit1</code>（请求超限）置位时同样<strong>不</strong>返回摘要。</li>
+<li><strong>发布方恒为发送方</strong>（见「消息与方向」）。</li>
+</ul>
+<h3>素材条目记录（共享清单用）</h3>
+<p>共享清单的每个条目由<strong>定长区 + 变长区</strong>组成，
+在 <code>material_available</code> 与 <code>material_list_ack</code> 中<strong>共用</strong>同一格式。</p>
+<p><strong>条目定长区（32 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>seq</td>
+<td>u64</td>
+<td>单调递增序号；Client 的增量水位与分页游标</td>
+</tr>
+<tr>
+<td>8</td>
+<td>8</td>
+<td>size</td>
+<td>u64</td>
+<td>文件大小（字节）</td>
+</tr>
+<tr>
+<td>16</td>
+<td>8</td>
+<td>mtime</td>
+<td>u64</td>
+<td>文件修改时间戳（UTC 秒）</td>
+</tr>
+<tr>
+<td>24</td>
+<td>2</td>
+<td>name_len</td>
+<td>u16</td>
+<td><code>file_name</code> 字节数（UTF-8，不含 NUL）</td>
+</tr>
+<tr>
+<td>26</td>
+<td>2</td>
+<td>asset_id_len</td>
+<td>u16</td>
+<td><code>asset_id</code> 字节数（UTF-8，不含 NUL）</td>
+</tr>
+<tr>
+<td>28</td>
+<td>4</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p>紧随定长区之后依次是：<code>file_hash</code>（<code>hash32</code>，32 字节）、
+<code>file_name</code>（<code>name_len</code> 字节）、<code>asset_id</code>（<code>asset_id_len</code> 字节）。</p>
+<ul>
+<li><code>seq</code> <strong>必须</strong>在 Server 侧<strong>全局单调递增</strong>且<strong>不复用</strong>（见 09 章）。</li>
+<li><code>asset_id</code> 长度<strong>必须</strong>为 0 或大于 0（空串表示无素材记录标识）。</li>
+</ul>
+<h3>material_available（<code>0x16</code>）</h3>
+<p><strong>定长区（8 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>4</td>
+<td>count</td>
+<td>u32</td>
+<td>本条消息携带的条目数</td>
+</tr>
+<tr>
+<td>4</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <strong>末条</strong>（本次通知的条目到此为止）；bit1-7 保留</td>
+</tr>
+<tr>
+<td>5</td>
+<td>3</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>entries[]</code>：<code>count</code> 条素材条目记录（格式见「素材条目记录」）。</li>
+</ol>
+<ul>
+<li><strong>发布方恒为 Server</strong>。</li>
+<li>本消息是<strong>至少一次</strong>的提示，<strong>不保证送达</strong>；Client <strong>不得</strong>仅凭通知
+  维护完整清单，<strong>必须</strong>另行查询 <code>material_list</code>（见 09 章「发现」）。</li>
+</ul>
+<h3>material_list（<code>0x17</code>）</h3>
+<p><strong>定长区（16 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>since_seq</td>
+<td>u64</td>
+<td><code>0</code> = 全量；否则只要 <code>seq &gt; since_seq</code> 的条目</td>
+</tr>
+<tr>
+<td>8</td>
+<td>4</td>
+<td>max_count</td>
+<td>u32</td>
+<td>本次期望的条目数上限；<code>0</code> = 规范默认 256</td>
+</tr>
+<tr>
+<td>12</td>
+<td>4</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<ul>
+<li><strong>发布方恒为 Client</strong>。</li>
+<li>本消息<strong>不得</strong>创建任何传输会话（见 09 章「发现」）。</li>
+</ul>
+<h3>material_list_ack（<code>0x18</code>）</h3>
+<p><strong>定长区（16 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>max_seq</td>
+<td>u64</td>
+<td>Server 侧当前的最大 <code>seq</code></td>
+</tr>
+<tr>
+<td>8</td>
+<td>4</td>
+<td>count</td>
+<td>u32</td>
+<td>本批条目数</td>
+</tr>
+<tr>
+<td>12</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <strong>末批</strong>（没有更多条目了）；bit1-7 保留</td>
+</tr>
+<tr>
+<td>13</td>
+<td>3</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>entries[]</code>：<code>count</code> 条素材条目记录（格式见「素材条目记录」）。</li>
+</ol>
+<ul>
+<li><strong>发布方恒为 Server</strong>。</li>
+<li><strong>分页（规范性）</strong>：若 <code>flags.bit0</code> = 0，Client <strong>必须</strong>以本批<strong>最后一个</strong>条目的
+  <code>seq</code> 作为 <code>since_seq</code> 再次查询，直到 <code>flags.bit0</code> = 1。</li>
+<li><strong>增量（规范性）</strong>：Client <strong>可以</strong>用已知的最大 <code>seq</code> 作为 <code>since_seq</code>，
+  只取新增条目；Server <strong>必须</strong>只返回 <code>seq &gt; since_seq</code> 的条目。</li>
+<li><strong>水位的取法（规范性）</strong>：Client <strong>必须</strong>以<strong>最后收到的条目</strong>的 <code>seq</code>
+  作为下一次查询的 <code>since_seq</code>；<strong>不得</strong>使用本应答的 <code>max_seq</code>
+  —— <code>max_seq</code> 可能超前于本批已返回的条目，用它作水位会<strong>跳过</strong>条目。</li>
+</ul>
+<h3>delivery_offer（<code>0x19</code>）</h3>
+<p><strong>定长区（48 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>Server 分配的会话 ID（见 09 章「创建规则」）</td>
+</tr>
+<tr>
+<td>8</td>
+<td>8</td>
+<td>size</td>
+<td>u64</td>
+<td>文件大小（字节）</td>
+</tr>
+<tr>
+<td>16</td>
+<td>8</td>
+<td>mtime</td>
+<td>u64</td>
+<td>文件修改时间戳（UTC 秒）</td>
+</tr>
+<tr>
+<td>24</td>
+<td>4</td>
+<td>chunk_count</td>
+<td>u32</td>
+<td>总 chunk 数量 = ceil(size / chunk_size)</td>
+</tr>
+<tr>
+<td>28</td>
+<td>4</td>
+<td>window</td>
+<td>u32</td>
+<td>滑动窗口大小（<strong>会话级在途上限</strong>），见 11 章</td>
+</tr>
+<tr>
+<td>32</td>
+<td>4</td>
+<td>connection_window</td>
+<td>u32</td>
+<td><strong>连接级</strong>在途上限，见 11 章</td>
+</tr>
+<tr>
+<td>36</td>
+<td>4</td>
+<td>chunk_size</td>
+<td>u32</td>
+<td>协商确定的 chunk 大小</td>
+</tr>
+<tr>
+<td>40</td>
+<td>2</td>
+<td>udp_port</td>
+<td>u16</td>
+<td>数据面 UDP 端口；Client <strong>必须</strong>向它发出 PROBE</td>
+</tr>
+<tr>
+<td>42</td>
+<td>2</td>
+<td>tcp_port</td>
+<td>u16</td>
+<td><strong>数据面</strong> TCP 降级通道端口；<code>0</code> 表示不支持。<strong>不是</strong>控制面端口</td>
+</tr>
+<tr>
+<td>44</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0-7 保留（接收方<strong>必须</strong>忽略未知位）</td>
+</tr>
+<tr>
+<td>45</td>
+<td>3</td>
+<td>reserved</td>
+<td>—</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>file_hash</code>：<code>hash32</code>。待投递文件内容的 Blake3 摘要。</li>
+<li><code>file_name</code>：<code>str</code>。文件名（UTF-8）。</li>
+</ol>
+<ul>
+<li><strong>发布方恒为 Server</strong>。</li>
+<li>本消息<strong>携带全套会话参数</strong>：Client 接受后<strong>必须</strong>按这些参数工作，
+  <strong>不得</strong>自行改动 <code>window</code> / <code>connection_window</code> / <code>chunk_size</code>。</li>
+<li>Client <strong>必须</strong>校验 <code>chunk_count == ceil(size / chunk_size)</code>，
+  不一致即以 <code>delivery_response</code>（<code>result</code> = fail，<code>code</code> = <code>SERIALIZATION_ERROR</code>）
+  拒绝。</li>
+<li>本消息<strong>不携带</strong>任何认证凭据 —— 投递只<strong>可能</strong>发生在已认证的控制连接上。</li>
+</ul>
+<h3>delivery_response（<code>0x1A</code>）</h3>
+<p><strong>定长区（12 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>对应 <code>delivery_offer</code> 的会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>1</td>
+<td>result</td>
+<td>enum8</td>
+<td><code>0</code> = fail（拒绝）、<code>1</code> = success（接受）</td>
+</tr>
+<tr>
+<td>9</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <code>file_hash</code> 有效；bit1-7 保留</td>
+</tr>
+<tr>
+<td>10</td>
+<td>2</td>
+<td>reserved</td>
+<td>u16</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>code</code>：<code>str</code>。<code>result</code> = fail 时的机器可判定错误码（见 19 章，如
+   <code>DELIVERY_DECLINED</code> / <code>STORAGE_FULL</code> / <code>ACL_DENY</code> / <code>SERIALIZATION_ERROR</code>）；
+   <code>result</code> = success 时<strong>必须</strong>为空串。</li>
+<li><code>file_hash</code>：<code>hash32</code>，<strong>仅当</strong> <code>flags.bit0</code> = 1 时存在。
+   接受时<strong>必须</strong>携带，且<strong>必须</strong>与 <code>delivery_offer.file_hash</code> 一致。</li>
+</ol>
+<ul>
+<li><strong>发布方恒为 Client</strong>。</li>
+<li><code>result</code> = success 时，Client <strong>必须</strong>打开数据面 socket 并发出 PROBE
+  （见 09 章「流程」、07 章「接收方 socket 生命周期」）。</li>
+<li><code>result</code> = fail 时，Client <strong>不得</strong>发出 PROBE。</li>
+</ul>
+<h3>ping（<code>0x12</code>）/ pong（<code>0x13</code>）</h3>
+<p><strong>定长区（8 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>ts</td>
+<td>u64</td>
+<td>发送方的单调时钟毫秒值；<strong>仅用于</strong>日志与 RTT 统计，<strong>不得</strong>用于协议判断</td>
+</tr>
+</tbody>
+</table></div>
+<h2>非法行为</h2>
+<ul>
+<li>在同一条连接上使用<strong>另一个</strong> <code>device_id</code> 的会话</li>
+<li>Server 发布 <code>download_complete</code> —— 下载方向的接收方是 Client，
+  完成消息只能由 Client 发布</li>
+<li>Client 发布 <code>upload_complete</code> —— 上传方向的接收方是 Server，
+  完成消息只能由 Server 发布</li>
+<li>在同一连接上重复握手（第二个 <code>login</code>）</li>
+</ul>
+<p><strong>COMPLETED 状态下的应答义务（规范性）</strong>：会话处于 COMPLETED 状态时，
+接收方<strong>必须</strong>应答 <code>missing_chunks</code>（<code>mode=request</code>），
+应答内容为<strong>空列表</strong>的 <code>mode=report</code>。</p>
+<p>若最终回执尚未确认，接收方还必须重发该回执。空缺失列表只说明块已收齐，
+<strong>不证明提交成功</strong>；断线后按 13 章交付原结果。</p>
+<h2>重要约束</h2>
+<ol>
+<li><strong>session_id</strong>: <strong>u64</strong>，由 Server 生成（见 09 章）；控制帧、UDP 数据包与
+   TCP 数据面帧<strong>必须</strong>使用同一取值域与同一字节序</li>
+<li><strong>file_hash</strong>: 一律为 <strong>32 字节原始 Blake3 摘要</strong>；<strong>禁止</strong>用十六进制串或 u64 承载
+   （日志与 UI 展示时由实现自行转十六进制）</li>
+<li><strong>Client 发送 upload_start / download_start 时 session_id 可为 0</strong>，
+   由 Server 生成并在 accept 中回填</li>
+<li><strong>未识别消息必须忽略，保持幂等性</strong>；重复投递<strong>不得</strong>改变协议语义
+   （TCP 本身提供可靠有序投递，重复只可能来自实现层重发）</li>
+<li><strong>一条控制连接只承载一个 <code>device_id</code></strong>；连接与设备的绑定在握手时确定，<strong>不得</strong>在连接存续期间变更</li>
+<li><strong>完成消息由接收方发布</strong>：<code>upload_complete</code> 由 Server 发布，<code>download_complete</code> 由 Client 发布</li>
+<li><strong><code>missing_chunks.chunks</code> 恒为「发布方自己尚未收到的块」</strong>；请求对端缺失列表时用 <code>mode=request</code></li>
+<li><strong>错误码必须上线路</strong>：19 章的错误码通过 <code>session_abort.reason</code> 与完成类消息的 <code>code</code> 字段承载</li>
+<li><strong>数据面端口必须出现在 accept 消息中</strong>：<code>upload_accept</code> 与 <code>download_accept</code> <strong>必须</strong>携带 <code>udp_port</code></li>
+<li><strong>控制消息必须幂等</strong>：实现可能因超时重发而重复投递控制消息，
+    重复投递<strong>不得</strong>改变协议语义</li>
+<li><strong>定长区一旦发布即冻结</strong>：新增字段只能追加在扩展区；既有字段的偏移与大小不得变更</li>
+<li><strong>连接级在途上限</strong>：同一控制连接上所有会话的数据面在途量之和<strong>必须</strong>不超过
+    <code>connection_window</code>（见 11 章）；Client <strong>不得</strong>擅自修改该值</li>
+<li><strong>摘要对帐消息</strong>：<code>reconcile_request</code> 恒由<strong>接收方</strong>发布，
+    <code>reconcile_response</code> 恒由<strong>发送方</strong>发布；每会话的摘要对帐<strong>至多一次</strong>
+    （见 12 章「上限」）</li>
+<li><strong>共享清单消息</strong>：<code>material_available</code> 与 <code>material_list_ack</code> 恒由 <strong>Server</strong>
+    发布，<code>material_list</code> 恒由 <strong>Client</strong> 发布；清单查询<strong>不得</strong>创建传输会话
+    （见 09 章）</li>
+<li><strong>投递消息</strong>：<code>delivery_offer</code> 恒由 <strong>Server</strong> 发布，
+    <code>delivery_response</code> 恒由 <strong>Client</strong> 发布；
+    Server 在收到接受后<strong>必须</strong>等到该会话的 PROBE 才可发送数据面数据包
+    （见 09 章、20 章）</li>
+<li><strong>待决请求唯一</strong>：Client 在同一控制连接上同一时刻<strong>必须</strong>只保留一个待决的
+    <code>upload_start</code> / <code>download_start</code>；因此 Server 对该请求的拒绝
+    （以 <code>session_abort</code> 表达，见 19 章 <code>FILE_TOO_LARGE</code>）<strong>必须</strong>能被 Client 唯一归属</li>
+<li><strong>帧同步三项校验</strong>：<code>magic</code>、<code>header_crc32</code>、<code>frame_len</code> 是帧边界可信的<strong>充分必要条件</strong>；
+    任一失败即判定失步并<strong>必须断连</strong>（见「帧同步与失步处理」）。
+    实现<strong>不得</strong>在未通过这三项校验的情况下解析帧体</li>
+<li><strong><code>magic</code> 恒定</strong>：<code>0x574E414C</code> <strong>不得</strong>随版本变更；
+    协议演进<strong>只能</strong>通过 <code>proto_version</code>（会话级）与 <code>body_version</code>（消息体级）表达</li>
+<li><strong>首帧锚点</strong>：控制连接的首帧<strong>必须</strong>是 <code>login</code>（见「首帧锚点」）；
+    不满足<strong>必须</strong>关闭连接</li>
+<li><strong>失步必须断连</strong>：失步<strong>不得</strong>就地续解，<strong>必须</strong>按 13 章走断线重连恢复</li>
+</ol>
+<h2>与状态机关系</h2>
+<ul>
+<li>映射以 10-state-machine 为准</li>
+<li>状态转换必须符合合法状态转移规则</li>
+</ul>
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/06-control-plane-tcp.md">docs/spec/06-control-plane-tcp.md</a></footer>
 </div>

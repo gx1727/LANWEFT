@@ -1,0 +1,18 @@
+<h2>超时层级（规范性）· 非等比示意</h2>
+
+<div class="diagram">
+    <div class="fields" style="--cols:4">
+      <div class="cell ruler-title">超时层级（规范性）· 非等比示意</div>
+
+      <div class="cell bitnum">t = 0</div>
+      <div class="cell bitnum">30 s</div>
+      <div class="cell bitnum">60 s</div>
+      <div class="cell bitnum">终态</div>
+
+      <div class="cell half f-len">控制连接空闲超时 30 s</div>
+      <div class="cell half f-crc">会话活动超时 60 s → ABORTED</div>
+
+      <div class="cell wide f-session">连接先断开 → 会话转为<strong>中断</strong>（可恢复）</div>
+      <div class="cell wide f-muted">随后才由会话超时兜底清理 → 转为 <strong>ABORTED</strong>（不可恢复）· 对应 19 章 <code>TIMEOUT_NO_ACTIVITY</code></div>
+    </div>
+  </div>

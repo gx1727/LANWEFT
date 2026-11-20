@@ -1,0 +1,65 @@
+  <h2>消息体布局示例</h2>
+  <p style="margin:0 0 4px;font-size:13.5px;color:var(--ink-2)">
+    每条消息体 = <strong>定长区</strong>（偏移与长度见各消息表）‖ <strong>变长区</strong>（按固定顺序排列）；其后的剩余字节为扩展区，接收方必须忽略。
+  </p>
+
+  <h3>login（<code>0x01</code>）· 定长区 8 字节</h3>
+  <div class="diagram">
+    <div class="fields" style="--cols:8">
+      <div class="cell bitnum">0</div>
+      <div class="cell bitnum">1</div>
+      <div class="cell bitnum">2</div>
+      <div class="cell bitnum">3</div>
+      <div class="cell bitnum">4</div>
+      <div class="cell bitnum">5</div>
+      <div class="cell bitnum">6</div>
+      <div class="cell bitnum">7</div>
+      <div class="cell f-type">proto_major</div>
+      <div class="cell f-type">proto_minor</div>
+      <div class="cell f-type">proto_patch</div>
+      <div class="cell f-muted">reserved</div>
+      <div class="cell span2 f-len">resume_count (u16)</div>
+      <div class="cell span2 f-muted">reserved</div>
+      <div class="cell wide f-body">变长区：device_id (str) ‖ token (str) ‖ resume[] (每条 20 字节)</div>
+    </div>
+  </div>
+
+  <h3>missing_chunks（<code>0x07</code>）· 定长区 20 字节</h3>
+  <div class="diagram">
+    <div class="fields" style="--cols:8">
+      <div class="cell bitnum">0</div>
+      <div class="cell bitnum">1</div>
+      <div class="cell bitnum">2</div>
+      <div class="cell bitnum">3</div>
+      <div class="cell bitnum">4</div>
+      <div class="cell bitnum">5</div>
+      <div class="cell bitnum">6</div>
+      <div class="cell bitnum">7</div>
+      <div class="cell span4 f-session">session_id (u64)</div>
+      <div class="cell f-type">mode</div>
+      <div class="cell f-flags">flags</div>
+      <div class="cell span2 f-muted">reserved</div>
+      <div class="cell span4 f-len">missing_count (u32)</div>
+      <div class="cell span4 f-len">chunk_count (u32)</div>
+      <div class="cell wide f-body">变长区：chunks (chunk_list = u32 条数 + 条数 × u32 chunk_id，升序)</div>
+    </div>
+  </div>
+
+  <h3>progress_update（<code>0x0A</code>）· 定长区 24 字节</h3>
+  <div class="diagram">
+    <div class="fields" style="--cols:8">
+      <div class="cell bitnum">0</div>
+      <div class="cell bitnum">1</div>
+      <div class="cell bitnum">2</div>
+      <div class="cell bitnum">3</div>
+      <div class="cell bitnum">4</div>
+      <div class="cell bitnum">5</div>
+      <div class="cell bitnum">6</div>
+      <div class="cell bitnum">7</div>
+      <div class="cell span4 f-session">session_id (u64)</div>
+      <div class="cell span4 f-chunk">received (u64)</div>
+      <div class="cell span8 f-chunk">total (u64)</div>
+      <div class="cell wide f-body">无变长区</div>
+    </div>
+  </div>
+  <div class="caption">received 与 total 各占 8 字节；图中按等宽示意（字节刻度仅对应 session_id 所在的第 0–3 字节）。</div>

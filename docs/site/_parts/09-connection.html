@@ -1,0 +1,16 @@
+<h2>控制连接 → 会话（1 : N）</h2>
+
+<div class="diagram">
+    <div class="fields" style="--cols:4">
+      <div class="cell ruler-title">控制连接 → 会话（1 : N）</div>
+
+      <div class="cell wide f-frame">控制连接（device_id）</div>
+
+      <div class="cell f-session">session_id A</div>
+      <div class="cell f-session">session_id B</div>
+      <div class="cell f-session">session_id C</div>
+      <div class="cell f-muted">…</div>
+
+      <div class="cell wide f-muted">数据面端口可被多个会话共用（UDP 包头中的 session_id 足以区分）</div>
+    </div>
+  </div>

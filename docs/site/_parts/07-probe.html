@@ -1,0 +1,19 @@
+  <h2>UDP 可用性探测</h2>
+
+  <h2>交互流程</h2>
+  <div class="diagram">
+    <div class="fields">
+      <div class="cell ruler-title">UDP Availability Probe</div>
+
+      <div class="cell bitnum">①</div>
+      <div class="cell bitnum">②</div>
+      <div class="cell bitnum">③</div>
+      <div class="cell bitnum">超时</div>
+
+      <div class="cell f-type span4">Client → Server：UDP_PROBE</div>
+      <div class="cell f-type span4">Server → Client：UDP_PROBE_ACK</div>
+      <div class="cell f-frame span4">Server → Client（控制通道）：udp_ready</div>
+      <div class="cell f-crc span4">等待 PROBE_ACK 超时（建议 2 s）→ 判定 UDP 不可用 → 回退到 TCP</div>
+    </div>
+  </div>
+  <div class="caption">探测三步：PROBE → PROBE_ACK → 控制通道下发 udp_ready。</div>

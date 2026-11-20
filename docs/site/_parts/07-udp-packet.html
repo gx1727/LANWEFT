@@ -1,0 +1,32 @@
+  <!-- ============ UDP 数据包结构 ============ -->
+  <h2>UDP 数据包结构</h2>
+  <div class="diagram">
+    <div class="fields">
+      <div class="cell ruler-title">UDP Datagram Layout</div>
+
+      <div class="cell bitnum">0-3</div>
+      <div class="cell bitnum">4-7</div>
+      <div class="cell bitnum">8-11</div>
+      <div class="cell bitnum">12…</div>
+
+      <div class="cell half f-session">session_id</div>
+      <div class="cell half f-chunk">chunk_id</div>
+
+      <div class="cell half f-len">payload_len</div>
+      <div class="cell half f-flags">flags</div>
+
+      <div class="cell wide f-payload">payload (Variable Length)</div>
+
+      <div class="cell wide f-crc">crc32</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--b-session)"></i>session_id</span>
+    <span><i class="swatch" style="background:var(--b-chunk)"></i>chunk_id</span>
+    <span><i class="swatch" style="background:var(--b-len)"></i>payload_len</span>
+    <span><i class="swatch" style="background:var(--b-flags)"></i>flags</span>
+    <span><i class="swatch" style="background:var(--b-payload)"></i>payload</span>
+    <span><i class="swatch" style="background:var(--b-crc)"></i>crc32</span>
+  </div>
+  <div class="caption">头部长度 = 8 + 4 + 2 + 2 = 16 字节，随后是 payload 与尾部 crc32；字段级定义见 08 章。</div>

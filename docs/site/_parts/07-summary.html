@@ -1,0 +1,6 @@
+<div class="note blue">
+  <strong>本章要点</strong>：数据面以 <strong>UDP</strong> 为默认传输，原则是
+  <strong>无连接、无逐包 ACK、允许丢包与乱序</strong>，并以 <code>crc32</code> 做包级完整性校验；
+  UDP 不可用时回退到<strong>数据面</strong> TCP 通道（与 06 章的控制面 TCP 长连接<strong>完全无关</strong>）。
+  数据面<strong>不得</strong>改变会话状态，只更新接收侧位图。
+</div>

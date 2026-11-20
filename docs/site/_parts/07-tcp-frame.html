@@ -1,0 +1,42 @@
+  <h2>帧结构（小端序）</h2>
+  <div class="diagram">
+    <div class="fields">
+      <div class="cell ruler-title">TCP 数据面帧：帧头 28 字节 ‖ payload</div>
+
+      <div class="cell bitnum">0-3</div>
+      <div class="cell bitnum">4-7</div>
+      <div class="cell bitnum">8-11</div>
+      <div class="cell bitnum">12-19</div>
+
+      <div class="cell bitnum">20-23</div>
+      <div class="cell bitnum">24-25</div>
+      <div class="cell bitnum">26-27</div>
+      <div class="cell bitnum">28…</div>
+
+      <div class="cell f-len">magic (u32)</div>
+      <div class="cell f-frame">frame_len (u32)</div>
+      <div class="cell f-crc">header_crc32 (u32)</div>
+      <div class="cell f-session">session_id (u64)</div>
+
+      <div class="cell f-chunk">chunk_id (u32)</div>
+      <div class="cell f-len">payload_len (u16)</div>
+      <div class="cell f-flags">flags (u16)</div>
+      <div class="cell f-payload">payload</div>
+
+      <div class="cell wide f-muted">frame_len = 28 + payload_len（<code>frame_len</code> 含帧头）</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--b-len)"></i>magic</span>
+    <span><i class="swatch" style="background:var(--b-frame)"></i>frame_len</span>
+    <span><i class="swatch" style="background:var(--b-crc)"></i>header_crc32</span>
+    <span><i class="swatch" style="background:var(--b-session)"></i>session_id</span>
+    <span><i class="swatch" style="background:var(--b-chunk)"></i>chunk_id</span>
+    <span><i class="swatch" style="background:var(--b-flags)"></i>flags</span>
+    <span><i class="swatch" style="background:var(--b-payload)"></i>payload</span>
+  </div>
+  <div class="caption">
+    帧头长度 = 4 + 4 + 4 + 8 + 4 + 2 + 2 = <strong>28 字节</strong>；
+    <code>magic</code> 恒为 <code>0x574E414C</code>（“LANW”），线上字节为 <code>4C 41 4E 57</code>（小端序）。
+  </div>

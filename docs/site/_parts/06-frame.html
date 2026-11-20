@@ -12,6 +12,16 @@
     <div class="cell wide f-ext">扩展区 Extension（可选，接收方必须忽略）</div>
   </div>
 </div>
+<div class="legend">
+  <span><i class="swatch" style="background:var(--b-len)"></i>magic</span>
+  <span><i class="swatch" style="background:var(--b-frame)"></i>frame_len</span>
+  <span><i class="swatch" style="background:var(--b-crc)"></i>header_crc32</span>
+  <span><i class="swatch" style="background:var(--b-type)"></i>msg_type</span>
+  <span><i class="swatch" style="background:var(--b-flags)"></i>flags</span>
+  <span><i class="swatch" style="background:var(--b-payload)"></i>body_version</span>
+  <span><i class="swatch" style="background:var(--b-ext)"></i>reserved / 扩展区</span>
+  <span><i class="swatch" style="background:var(--b-body)"></i>body</span>
+</div>
 <div class="caption">
   <code>magic</code> 恒为 <code>{{VAR:c06_magic_value}}</code>（“LANW”），不随版本变更；线上四字节为
   <code>{{VAR:c06_magic_bytes}}</code>。抓包比对<strong>必须</strong>按线上字节序，
@@ -21,4 +31,6 @@
   <code>body_version</code> ‖ <code>reserved</code>），合计 <strong>{{VAR:c06_crc_bytes}} 字节</strong>，
   <strong>不是</strong>单一连续区间。图中字段偏移与大小均由源文帧格式表抽取（<code>{{VAR:c06_f_magic_off}}</code>
   等），不手敲。
+  <code>frame_len</code> 的字节 0 为最低有效字节（LSB first）：字节序 0 → 1 → 2 → 3 依次存放 u32 的
+  bit0–7 → bit8–15 → bit16–23 → bit24–31。
 </div>

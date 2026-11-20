@@ -1,0 +1,6 @@
+  <div class="note blue">
+    <strong>本章要点</strong>：会话由一组固定字段描述，其中 <code>direction</code> 是<strong>必需</strong>的，
+    用于区分「我是接收方」还是「我是发送方」。<code>session_id</code> <strong>由 Server 生成</strong>且在 Server 生命周期内<strong>必须</strong>唯一；
+    同一 <code>client_id + file_hash</code> 正在同步时<strong>必须</strong>复用既有会话。接收方<strong>必须</strong>持久化
+    临时文件、位图与会话元数据，以便进程 / 设备重启后恢复。
+  </div>

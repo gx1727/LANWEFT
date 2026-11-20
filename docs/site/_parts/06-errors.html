@@ -1,0 +1,61 @@
+  <h2>本章引用的错误码</h2>
+  <p style="margin-top:0">
+    下表列出 06 章正文引用、并<strong>必须</strong>经控制消息的错误码字段上线路的错误码（取值见 19 章）。
+    <strong>终止类</strong>消息用 <code>reason</code> 字段、<strong>结果可能成功也可能失败</strong>的消息用 <code>code</code> 字段；
+    双方<strong>必须</strong>按错误码分支判断，<strong>不得</strong>解析自由文本。
+  </p>
+  <div class="card">
+    <table>
+      <thead><tr><th>错误码</th><th>出现位置（消息 · 字段）</th><th>触发条件</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="mono">ACL_DENY</td>
+          <td><code>session_abort</code> · <code>reason</code></td>
+          <td>
+            Server 侧校验会话的 <code>device_id</code> 与控制连接绑定的身份不一致时，
+            Server <strong>必须</strong>以 <code>session_abort</code>（<code>reason</code> = <code>ACL_DENY</code>）拒绝该会话（见 21 章「访问控制」）。
+          </td>
+        </tr>
+        <tr>
+          <td class="mono">CLIENT_ID_INVALID</td>
+          <td><code>login_ack</code> · <code>code</code>（<code>result</code> = fail）</td>
+          <td>
+            <code>login</code> 的 <code>device_id</code> 与认证凭据所绑定的身份不一致时，
+            Server <strong>必须</strong>以 <code>login_ack</code>（<code>result</code> = fail，
+            <code>code</code> = <code>CLIENT_ID_INVALID</code>）拒绝并<strong>关闭连接</strong>。
+          </td>
+        </tr>
+        <tr>
+          <td class="mono">FILE_HASH_MISMATCH</td>
+          <td><code>session_abort</code> · <code>reason</code></td>
+          <td>
+            复核轮之后文件级校验（Blake3）仍然失配时，接收方<strong>必须</strong>以
+            <code>session_abort</code>（<code>reason</code> = <code>FILE_HASH_MISMATCH</code>）终止会话（见 12 章）。
+          </td>
+        </tr>
+        <tr>
+          <td class="mono">FILE_TOO_LARGE</td>
+          <td><code>session_abort</code> · <code>reason</code></td>
+          <td>
+            声明的文件大小超出该会话 <code>chunk_size</code> 可表示的上限时，Server <strong>必须</strong>以
+            <code>session_abort</code>（<code>reason</code> = <code>FILE_TOO_LARGE</code>）拒绝，
+            且<strong>不得</strong>创建会话（见 09 章「文件大小上限」）。
+          </td>
+        </tr>
+        <tr>
+          <td class="mono">PROTO_VERSION_UNSUPPORTED</td>
+          <td><code>login_ack</code> · <code>code</code></td>
+          <td>
+            Client 不支持 Server 选定的 <code>proto_version</code>（Server 回填的 major 与 Client 声明的 major 不同）时，
+            Client <strong>必须</strong>关闭连接，并以 <code>login_ack.code</code> = <code>PROTO_VERSION_UNSUPPORTED</code> 报告（见 08 章「版本比较规则」）。
+          </td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn">
+    <strong>字段语义不重叠</strong>：<code>result</code> 字段（success / fail）用于「完成类」消息；
+    <code>code</code> 字段用于「结果可能成功也可能失败」的消息；<code>reason</code> 字段用于「终止类」消息。
+    三者语义不重叠，实现<strong>不得</strong>混用。
+  </div>

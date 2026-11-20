@@ -1,0 +1,34 @@
+  <h2>相关错误码的适用情形</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>错误码</th><th>适用情形</th><th>上线路位置</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="mono">FILE_NOT_FOUND</td>
+          <td>
+            请求的文件在 Server 上<strong>不存在或不可拉取</strong> —— 包括共享清单（catalog）中的条目
+            <strong>已被 Server 移除</strong>、而 Client 本地视图滞后的情形。
+            Server <strong>必须</strong>以 <code>session_abort</code>（<code>reason</code> = <code>FILE_NOT_FOUND</code>）拒绝该拉取请求。
+          </td>
+          <td><code>session_abort</code> · <code>reason</code></td>
+        </tr>
+        <tr>
+          <td class="mono">FILE_TOO_LARGE</td>
+          <td>
+            声明的文件大小超出该会话 <code>chunk_size</code> 可表示的上限
+            （即 <code>ceil(size / chunk_size) ≤ 2³² − 1</code> 不成立）。
+            Server <strong>必须</strong>以 <code>session_abort</code>（<code>reason</code> = <code>FILE_TOO_LARGE</code>）拒绝该请求，
+            且<strong>不得</strong>创建会话。
+          </td>
+          <td><code>session_abort</code> · <code>reason</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <strong>两者的区分</strong>：<code>FILE_NOT_FOUND</code> 说的是「<strong>内容不存在</strong>」，
+    <code>FILE_TOO_LARGE</code> 说的是「<strong>内容存在但声明的大小不可承载</strong>」——
+    前者由 <code>download_start</code> 的 <code>file_hash</code> 校验失败触发，后者由 <code>size</code> 的上界校验触发；
+    两者均以 <code>session_abort</code> 的 <code>reason</code> 字段上线路（取值见 19 章）。
+  </div>

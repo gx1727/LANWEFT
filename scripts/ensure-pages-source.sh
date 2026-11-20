@@ -33,7 +33,7 @@ if [ -z "$TOKEN" ]; then
 fi
 
 AUTH=(-H "Authorization: Bearer ${TOKEN}"
-      -H "X-GitHub-Api-Version: 2022-11-18"
+      -H "X-GitHub-Api-Version: 2022-11-28"
       -H "Accept: application/vnd.github+json"
       -H "Content-Type: application/json")
 
@@ -45,15 +45,19 @@ show() { head -c 400 "$1" 2>/dev/null; echo; }
 
 echo "==> 1/3 查询现有 Pages 站点"
 code=$(curl -s -o /tmp/pages-site.json -w '%{http_code}' "${AUTH[@]}" "${API}/pages")
-if [ "$code" != "200" ]; then
-  echo "    查询失败（HTTP ${code}）："
-  show /tmp/pages-site.json
-  echo "==> 2/3 直接创建（build_type = workflow）"
+if [ "$code" = "404" ]; then
+  echo "    未启用 Pages，直接创建（build_type = workflow）"
   curl -s -X POST "${AUTH[@]}" "${API}/pages" \
        -d '{"build_type":"workflow"}' -o /tmp/pages-create.json -w "    POST HTTP %{http_code}\n"
   show /tmp/pages-create.json
-  echo "==> 3/3 完成"
+  echo "==> 完成"
   exit 0
+fi
+if [ "$code" != "200" ]; then
+  echo "    查询失败（HTTP ${code}）："
+  show /tmp/pages-site.json
+  echo "==> 放弃（只对 404 做创建，其余错误需要排查权限 / 令牌）"
+  exit 1
 fi
 
 BT=$(json_get /tmp/pages-site.json "d.get('build_type','')")

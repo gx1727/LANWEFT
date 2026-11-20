@@ -161,7 +161,7 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
 - `session_pause` 使会话进入 PAUSED；位图、临时文件与已传输数据**全部保留**。
 - PAUSED 状态下双方**必须**停止发送数据面数据包。
 - 连接存活时恢复**只有一条路径**：Client 发布 `resume_session`，Server 回成功的 `resume_ack`
-  （含续传起点与数据面端口），双方回到 TRANSFERRING。
+  （含续传起点与数据面端口），双方回到 TRANSFERRING（**前提是显式暂停已被解除**）。
 - `session_pause` **不是**切换开关：重复发布是幂等的
   （已处于 `PAUSED` 时不产生状态变化）。
 - `session_pause` 与 `session_abort` 的区别：暂停**可恢复**，中止**不可恢复**。
@@ -175,7 +175,9 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
 | upload_start / download_start | 发送侧 | INIT → NEGOTIATING |
 | upload_accept / download_accept | 发送侧 | NEGOTIATING → TRANSFERRING；秒传只等待完成回执 |
 | missing_chunks（mode=report） | 接收侧 | 维持 TRANSFERRING，触发补发 |
+| reconcile_request / reconcile_response | 接收侧发布请求 / 发送侧发布应答 | VERIFY → TRANSFERRING（恢复阶梯：摘要对帐，见 12 章） |
 | session_pause | 双方 | TRANSFERRING ⇄ PAUSED |
 | resume_session / resume_ack | 发送侧 | PAUSED → TRANSFERRING（或恢复中断的会话） |
+| complete_ack | 数据发送方 | 确认已持久化接收方的完成回执（持久化成功后） |
 | upload_complete / download_complete | 发送侧 | TRANSFERRING → COMPLETED |
 | session_abort | 双方 | 任意状态 → ABORTED |

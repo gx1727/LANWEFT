@@ -1,0 +1,7 @@
+  <div class="note blue">
+    <strong>本章要点</strong>：本章定义传输会话的 8 个状态与合法状态转移，控制面（TCP）负责裁决与同步。
+    同一个会话在<strong>发送侧</strong>与<strong>接收侧</strong>各自持有一份状态视图：接收侧使用全部状态，
+    发送侧<strong>不存在</strong> <code>VERIFY</code> 与 <code>COMMIT</code>。
+    <code>ABORTED</code> 是<strong>终态</strong>，没有出边；<strong>Server 是会话状态的唯一仲裁者</strong>。
+    状态在控制消息中以 <code>state</code> 字段承载（<code>enum8</code>）。
+  </div>

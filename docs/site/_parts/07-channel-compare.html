@@ -1,0 +1,28 @@
+  <!-- ============ 通道对比 ============ -->
+  <h2>两条通道的对比</h2>
+  <div class="diagram">
+    <div class="fields">
+      <div class="cell ruler-title">控制面 TCP 长连接  vs  数据面 UDP</div>
+
+      <div class="cell half f-frame">控制面 · TCP 长连接</div>
+      <div class="cell half f-type">数据面 · UDP</div>
+
+      <div class="cell half f-muted">见 06 章</div>
+      <div class="cell half f-muted">见本章 + 08 章</div>
+
+      <div class="cell half f-body">长连接；端口为控制连接端口</div>
+      <div class="cell half f-payload">无连接、无逐包 ACK、允许丢包与乱序</div>
+
+      <div class="cell half f-body">承载控制面消息（如 <code>udp_ready</code>）</div>
+      <div class="cell half f-payload">承载 chunk 数据包（crc32 包级校验）</div>
+
+      <div class="cell half f-muted">消息集：控制面消息</div>
+      <div class="cell half f-muted">消息集：数据面数据包 / 数据面 TCP 降级帧</div>
+    </div>
+  </div>
+
+  <div class="note warn">
+    <strong>术语澄清</strong>：本章的「TCP 通道」指<strong>数据面</strong>的降级通道，
+    与<strong>控制面</strong>的 TCP 长连接（见 06 章）<strong>完全无关</strong> ——
+    二者是不同的通道、不同的端口、不同的消息。
+  </div>
