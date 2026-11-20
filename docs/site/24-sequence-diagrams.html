@@ -184,6 +184,13 @@
     {from:'S', to:'C', type:'tcp', label:'upload_complete {result, code, file_hash, asset_id}',
       chip:{side:'C', text:'Client: TRANSFERRING → COMPLETED'}, chip2:{side:'S', text:'Server: COMMIT → COMPLETED'}},
 
+    {sep:'⑥-2 摘要对帐（文件级失配时，恢复阶梯第 ① 级）'},
+    {from:'S', to:'C', type:'tcp', label:'reconcile_request {ranges=[根区间]}', chip:{side:'S', text:'接收方发起'}},
+    {from:'C', to:'S', type:'tcp', label:'reconcile_response {digests[]}', chip:{side:'C', text:'发送方返回该区间摘要'}},
+    {from:'S', to:'S', type:'self', label:'双方逐层二分比对（每层一次往返）'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, 可疑块} —— 复用既有裁决机制'},
+    {note:'根区间摘要一致 → 源文件与请求的 file_hash 不符 → session_abort(SOURCE_FILE_MISMATCH)；对帐后仍失配 → 进入复核轮'},
+
     {sep:'⑦ 中断与恢复'},
     {note:'路径一 · 断线重连（连接重建）：走 login 的恢复列表 + login_ack 的权威快照'},
     {from:'C', to:'S', type:'conn', label:'TCP connect（重建）'},
@@ -235,6 +242,13 @@
     {from:'C', to:'C', type:'self', label:'COMMIT：原子重命名'},
     {from:'C', to:'S', type:'tcp', label:'download_complete {result, code, file_hash}',
       chip:{side:'C', text:'Client: COMMIT → COMPLETED'}, chip2:{side:'S', text:'Server: TRANSFERRING → COMPLETED'}},
+
+    {sep:'⑥-2 摘要对帐（文件级失配时，恢复阶梯第 ① 级）'},
+    {from:'C', to:'S', type:'tcp', label:'reconcile_request {ranges=[根区间]}', chip:{side:'C', text:'接收方发起'}},
+    {from:'S', to:'C', type:'tcp', label:'reconcile_response {digests[]}', chip:{side:'S', text:'发送方返回该区间摘要'}},
+    {from:'C', to:'C', type:'self', label:'双方逐层二分比对（每层一次往返）'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report, 可疑块} —— 复用既有裁决机制'},
+    {note:'根区间摘要一致 → 源文件与请求的 file_hash 不符 → session_abort(SOURCE_FILE_MISMATCH)；对帐后仍失配 → 进入复核轮'},
 
     {sep:'⑦ 中断与恢复'},
     {note:'路径一 · 断线重连：恢复提示由 Client（接收方）提供 —— Server 没有 Client 的位图'},

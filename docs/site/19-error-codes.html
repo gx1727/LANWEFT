@@ -200,10 +200,16 @@
           <td>丢弃该包，<strong>不</strong>标记位图</td>
         </tr>
         <tr>
+          <td class="ec-code">SOURCE_FILE_MISMATCH</td>
+          <td>发送方源文件与请求的 <code>file_hash</code> 不符</td>
+          <td>摘要对帐的<strong>根区间</strong>摘要双方一致时判定；<strong>必须</strong>以
+            <code>session_abort</code> 终止会话，<strong>不得</strong>再进入复核轮（见 12 章）</td>
+        </tr>
+        <tr>
           <td class="ec-code">FILE_HASH_MISMATCH</td>
           <td>文件级内容哈希不一致</td>
-          <td><strong>必须</strong>先执行<strong>复核轮</strong>；复核轮后仍失配才以
-            <code>session_abort</code> 终止会话（见 12 章）</td>
+          <td><strong>必须</strong>按恢复阶梯处理：<strong>摘要对帐</strong> → <strong>复核轮</strong> →
+            仍失配才以 <code>session_abort</code> 终止会话（见 12 章）</td>
         </tr>
         <tr>
           <td class="ec-code">INVALID_CHUNK</td>

@@ -345,6 +345,16 @@
       <tbody>
         <tr>
           <td class="mono">—</td>
+          <td><strong>摘要对帐（Reconciliation）</strong>：新增<strong>恢复阶梯</strong> ——
+            文件级失配后 ①<strong>摘要对帐</strong>（逐区间比对摘要，零内容流量定位差异区间 →
+            清零可疑块位图 → 复用既有缺失裁决定点补发）→ ②<strong>复核轮</strong>（全量重传）→ ③中止；
+            新增控制面消息 <code>reconcile_request</code>(0x14) / <code>reconcile_response</code>(0x15)；
+            新错误码 <code>SOURCE_FILE_MISMATCH</code>；每会话对帐<strong>至多一次</strong>并设上限。
+            <strong>版本号不变</strong>（按上游指示）</td>
+          <td>02、03、06、09、10、12、13、19、20、24、26、99、README</td>
+        </tr>
+        <tr>
+          <td class="mono">—</td>
           <td><strong>P0 修订</strong>：①文件级失配<strong>不再</strong>立即终止，改为<strong>复核轮</strong>
             （清空位图 → 全量重读重发 → 重新校验），<strong>至多一次</strong>；
             ②<code>session_id</code> 由 u32 扩为 <strong>u64</strong>，要求<strong>跨 Server 进程重启不复用</strong>；

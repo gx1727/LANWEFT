@@ -61,6 +61,23 @@ Client 连续发送 UDP chunk；Server 乱序随机写盘
 接收方校验 hash、原子重命名，发布完成消息
 （上传方向 `upload_complete`，下载方向 `download_complete`）
 
+**摘要对帐（文件级失配时，恢复阶梯第 ① 级）**
+
+```
+  |--- reconcile_request {ranges=[根区间]} -->|   接收方发起
+  |<-- reconcile_response {digests[]} --------|   发送方返回该区间的摘要
+  |                                            |   接收方用临时文件同区间摘要比对
+  |--- reconcile_request {ranges=[左半,右半]}>|   逐层二分，每层一次往返
+  |<-- reconcile_response {digests[]} --------|
+  |                                            |   可疑块 → 清零位图
+  |--- missing_chunks {mode=report, 可疑块} ->|   复用既有裁决机制定点补发
+  |=============== 定点补发 =================|
+```
+
+- 根区间摘要**一致** → 双方内容相同 → 请求的 `file_hash` 有误 →
+  `session_abort(SOURCE_FILE_MISMATCH)`，不再进入复核轮
+- 对帐后仍失配 → 进入复核轮（恢复阶梯第 ② 级）
+
 **复核轮（文件级失配时）**
 
 ```

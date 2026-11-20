@@ -66,7 +66,7 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
 | PAUSED | TRANSFERRING | 双方 | resume_session（发送侧发起）/ resume_ack（接收侧应答后） |
 | PAUSED | ABORTED | 双方 | session_abort |
 | VERIFY | COMMIT | 接收侧 | 文件级 Blake3 校验通过 |
-| VERIFY | TRANSFERRING | 接收侧 | **复核轮**：文件级 Blake3 失配（见 12 章） |
+| VERIFY | TRANSFERRING | 接收侧 | **恢复阶梯**：文件级 Blake3 失配 —— 摘要对帐或复核轮（见 12 章） |
 | VERIFY | ABORTED | 双方 | session_abort（reason = FILE_HASH_MISMATCH，**复核轮后仍失配**） |
 | COMMIT | COMPLETED | 接收侧 | 原子重命名完成，发布 upload_complete / download_complete |
 | COMMIT | ABORTED | 双方 | session_abort |
@@ -109,6 +109,7 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
   |------------|--------------------|
   | 位图出现缺失 | `missing_chunks`（`mode=report`），携带缺失 chunk 列表 |
   | 位图全真 → VERIFY | 无需单独消息；随后的 `upload_complete` / `download_complete` 隐含告知 |
+  | VERIFY → TRANSFERRING（摘要对帐） | 无需单独消息；随后的 `reconcile_request` 隐含告知 |
   | VERIFY → TRANSFERRING（复核轮） | 无需单独消息；随后的 `missing_chunks`（**复核轮标志**）隐含告知 |
   | VERIFY → COMMIT | 无需单独消息 |
   | COMMIT → COMPLETED | `upload_complete`（上传方向）/ `download_complete`（下载方向） |
@@ -118,8 +119,9 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
   接收方在 `mode=report` 时给出的是**自己尚未收到**的块
   （见 06 章「missing_chunks」）。
 
-- **复核轮（规范性）**：接收侧在 VERIFY 阶段检测到文件级失配时，
-  **必须**回到 TRANSFERRING 并进入复核轮（见 12 章）；发送侧无 VERIFY 状态，
+- **恢复阶梯（规范性）**：接收侧在 VERIFY 阶段检测到文件级失配时，
+  **必须**回到 TRANSFERRING 并进入**恢复阶梯**（摘要对帐 → 复核轮，见 12 章）；
+  发送侧无 VERIFY 状态，收到 `reconcile_request` 时**必须**应答，
   收到带复核轮标志的裁决时**必须**全量重发。
 - **数据面（UDP）只能更新位图**，不得直接触发状态转移。
   位图变化是接收侧推进的**输入**，不是状态转移本身。

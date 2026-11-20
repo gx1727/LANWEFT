@@ -32,6 +32,7 @@
 | flags | 数据包标志位（u16） |
 | bitmap | 位图，记录各 chunk 的接收状态 |
 | missing_chunks | 缺失块列表；`chunks` 恒为「**发布方**自己尚未收到的块」（发布方恒为接收方） |
+| reconcile_request / reconcile_response | 摘要对帐请求 / 应答；请求恒由**接收方**发布，应答恒由**发送方**发布（见 12 章） |
 | missing_count | 位图中尚未收到的 chunk **精确总数**；未携带时由**存在标志位**表示 |
 | udp_ready | UDP 可用性就绪通知 |
 | file_hash | 文件哈希，**32 字节原始 Blake3 摘要**（hash32，非十六进制串） |

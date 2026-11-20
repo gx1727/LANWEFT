@@ -40,6 +40,11 @@
 - `mode`（enum8）：`missing_chunks` 的判别字段，`0` = `report`（报告缺失）/ `1` = `request`（索要缺失列表）
 - **复核轮**：文件级校验失配后，接收方要求发送方**重新读取源文件并全量重发**的
   恢复过程；**至多一次**（见 12 章）。由 `missing_chunks.flags.bit1` 表达
+- **摘要对帐**：文件级校验失配后，接收方与发送方**逐区间比对摘要**以定位
+  差异区间、进而定点修复的过程；**至多一次**（见 12 章）。
+  由 `reconcile_request` / `reconcile_response` 表达
+- **对帐区间**：摘要对帐的比较单位，由 `(first_chunk, chunk_count)` 确定，
+  以 chunk 为最小粒度（见 12 章「对帐区间」）
 - `missing_count`（u32）：位图中**未收到**的 chunk 总数（精确值）；
   未携带时由**存在标志位**表示（见 06 章、18 章）
 - `udp_ready`：UDP 就绪通知

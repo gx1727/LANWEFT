@@ -161,6 +161,16 @@
             下载方向 <code>download_complete</code>）</td>
         </tr>
         <tr>
+          <td><strong>恢复阶梯</strong></td>
+          <td>文件级失配后按 <strong>① 摘要对帐 → ② 复核轮 → ③ 中止</strong> 逐级恢复，<strong>每一级至多一次</strong>：<br>
+            ① <strong>摘要对帐</strong>：逐区间比对摘要，<strong>零内容流量</strong>地定位差异区间 →
+            清零可疑块位图 → 复用既有缺失裁决定点补发；<br>
+            ② <strong>复核轮</strong>：重新读取源文件并全量重发；<br>
+            ③ <strong>中止</strong>：<code>session_abort(FILE_HASH_MISMATCH)</code>。<br>
+            对帐的<strong>根区间摘要一致</strong>时，判定请求的 <code>file_hash</code> 与源文件不符 →
+            <code>SOURCE_FILE_MISMATCH</code>，不再进入复核轮。</td>
+        </tr>
+        <tr>
           <td><strong>文件级校验失败 → 复核轮</strong></td>
           <td>接收方<strong>不得</strong>立即终止会话，<strong>必须</strong>进入<strong>复核轮</strong>：<br>
             ① 清空位图（临时文件保留）；② 发布带<strong>复核轮标志</strong>
