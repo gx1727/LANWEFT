@@ -29,6 +29,8 @@ _site/
 # 临时截图目录
 .tmp-shot/
 
+.tmp-migrate/
+
 .trae-html-share-packages/
 
 # Python 缓存
