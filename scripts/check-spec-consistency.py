@@ -10,6 +10,7 @@
   * 规范默认值（max_frame_len / window / chunk_size / 心跳 / 裁决周期）全章统一
   * 交叉引用的章节存在且未被删除的章节不再被引用
   * 站点 HTML 与规范源文的关键常量同步
+  * 站点 HTML 与规范源文的**内容级**同步（每章的消息 / 错误码 / 规范常量覆盖）
 
 用法：
     python3 scripts/check-spec-consistency.py            # 打印报告，失败时退出码 1
@@ -21,6 +22,7 @@
 
 from __future__ import annotations
 
+import html
 import os
 import re
 import sys
@@ -342,6 +344,144 @@ def check_site_sync(spec: dict[str, str], res: Result) -> None:
         res.fail("SITE-SYNC", "站点无陈旧 magic 常量", stale)
     else:
         res.ok("SITE-SYNC", "站点无陈旧 magic 常量")
+
+
+# ---------------------------------------------------------------- 站点内容级同步
+
+# 未做可视化页面的章节（显式豁免，避免默默漏页）
+SITE_PAGE_EXEMPT: dict[str, str] = {
+    "99": "术语速查表：内容与 02 章重复，未单独做可视化页面",
+}
+
+# 每章必须出现在站点页面中的**规范常量**（数值 / 固定短语）。
+# 双向校验：既要在该章规范中出现（防止清单过期），也要在站点页面中出现（防止漂移）。
+SITE_NUM_TOKENS: dict[str, list[str]] = {
+    "06": ["16 字节", "1 MiB", "0x574E414C", "4C 41 4E 57", "64"],
+    "07": ["28 字节", "0x574E414C", "4C 41 4E 57"],
+    "08": ["1400", "1200", "1220", "0x04C11DB7", "0xCBF43926"],
+    "09": ["64", "2³² − 1", "4 TiB"],
+    "11": ["8192", "16384", "50 ms", "1000 ms"],
+    "12": ["50 ms", "1000 ms", "2⁻³²"],
+    "13": ["20 字节", "42 字节"],
+    "18": ["4096"],
+    "19": ["终止类", "过程类"],
+}
+
+# 规范用语 —— 出现在含这些词的行上的标识符，才算该章的「实质内容」
+NORM_WORDS = ("必须", "不得", "应当")
+
+
+def site_page_text(path: str) -> str:
+    """站点 HTML → 纯文本（去掉标签、脚本与样式），用于内容比对。"""
+    raw = read(path)
+    raw = re.sub(r"(?is)<(script|style).*?</\1>", " ", raw)
+    raw = re.sub(r"(?s)<!--.*?-->", " ", raw)
+    raw = re.sub(r"<[^>]+>", " ", raw)
+    raw = html.unescape(raw).replace("\u00a0", " ")
+    return re.sub(r"\s+", " ", raw)
+
+
+def is_substantive(text: str, token: str) -> bool:
+    """token 在该章是否属实质内容：出现在规范性行中，或全章出现 >= 2 次。
+
+    只出现一次的跨章引用（如「见 06 章」）不算实质内容 ——
+    否则站点页面会被要求复述它并未承载的内容。
+    """
+    hits = 0
+    pat = re.compile(rf"\b{re.escape(token)}\b")
+    for line in text.split("\n"):
+        if pat.search(line):
+            hits += 1
+            if any(w in line for w in NORM_WORDS):
+                return True
+    return hits >= 2
+
+
+def check_site_content(spec: dict[str, str], res: Result) -> None:
+    """站点页面与规范源文的**内容级**同步。
+
+    仅比对常量字符串是不够的：站点页面是规范的可视化改写，
+    规范新增一整节机制（如主动投递、共享清单、摘要对帐）而站点页面未跟进时，
+    常量抽查依然会全部通过。本检查改为按章比对「协议实体」：
+
+      1. 每章都要有对应的站点页面（豁免须显式登记）；
+      2. 该章规范中**实质**出现的控制面消息名，站点页面必须覆盖；
+      3. 该章规范中**实质**出现的错误码，站点页面必须覆盖；
+      4. 每章的规范常量清单（见 SITE_NUM_TOKENS）双向校验。
+    """
+    # 1) 页面齐备
+    missing_pages: list[str] = []
+    for chap in sorted(spec):
+        if chap in SITE_PAGE_EXEMPT:
+            continue
+        if not any(f.startswith(chap + "-") and f.endswith(".html")
+                   for f in os.listdir(SITE)):
+            missing_pages.append(f"{chap} 章缺少站点页面")
+    if missing_pages:
+        res.fail("SITE-CONTENT", "站点页面齐备", missing_pages)
+    else:
+        res.ok("SITE-CONTENT", "站点页面齐备"
+               + (f"（豁免：{', '.join(sorted(SITE_PAGE_EXEMPT))}）" if SITE_PAGE_EXEMPT else ""))
+
+    # 2) / 3) 消息名与错误码覆盖
+    msgs = sorted({m[1] for m in re.findall(
+        r"\|\s*`(0x[0-9A-F]{2})`\s*\|\s*([a-z_]+)\s*\|", spec.get("06", ""))})
+    codes = sorted(set(re.findall(r"^- `([A-Z][A-Z0-9_]+)`", spec.get("19", ""), re.M)))
+
+    miss_msg: list[str] = []
+    miss_code: list[str] = []
+    for chap, text in sorted(spec.items()):
+        # 26 章是修订记录 / 待定议题，其中的历史标识符不构成协议引用
+        if chap == "26" or chap in SITE_PAGE_EXEMPT:
+            continue
+        page = next((f for f in os.listdir(SITE)
+                     if f.startswith(chap + "-") and f.endswith(".html")), None)
+        if not page:
+            continue
+        st = site_page_text(os.path.join(SITE, page))
+        for m in msgs:
+            if m not in st and is_substantive(text, m):
+                miss_msg.append(f"{chap} 章规范涉及 `{m}`，站点页面 {page} 未覆盖")
+        for c in codes:
+            if c not in st and is_substantive(text, c):
+                miss_code.append(f"{chap} 章规范涉及 `{c}`，站点页面 {page} 未覆盖")
+
+    if miss_msg:
+        res.fail("SITE-CONTENT", "站点页面覆盖该章的消息", miss_msg)
+    else:
+        res.ok("SITE-CONTENT", "站点页面覆盖该章的消息")
+
+    if miss_code:
+        res.fail("SITE-CONTENT", "站点页面覆盖该章的错误码", miss_code)
+    else:
+        res.ok("SITE-CONTENT", "站点页面覆盖该章的错误码")
+
+    # 4) 规范常量清单：双向校验
+    stale: list[str] = []
+    drifted: list[str] = []
+    for chap, tokens in sorted(SITE_NUM_TOKENS.items()):
+        text = spec.get(chap, "")
+        page = next((f for f in os.listdir(SITE)
+                     if f.startswith(chap + "-") and f.endswith(".html")), None)
+        if not page:
+            continue
+        st = site_page_text(os.path.join(SITE, page))
+        for tok in tokens:
+            # 比对时忽略空白差异：规范写「50ms」、站点写「50 ms」视为同一常量
+            needle = re.sub(r"\s+", "", tok)
+            if needle not in re.sub(r"\s+", "", text):
+                stale.append(f"{chap} 章常量清单中的 {tok!r} 已不在规范中（清单需更新）")
+            if needle not in re.sub(r"\s+", "", st):
+                drifted.append(f"{chap} 章常量 {tok!r} 未出现在站点页面 {page}")
+    if stale:
+        res.fail("SITE-CONTENT", "规范常量清单未过期", stale)
+    else:
+        res.ok("SITE-CONTENT", "规范常量清单未过期")
+
+    if drifted:
+        res.fail("SITE-CONTENT", "站点页面保留规范常量", drifted)
+    else:
+        res.ok("SITE-CONTENT", "站点页面保留规范常量")
 
 
 def check_links(spec: dict[str, str], res: Result) -> None:
@@ -845,6 +985,7 @@ def main() -> int:
     check_walkthrough_rules(spec, res)
     check_session_cap(spec, res)
     check_site_sync(spec, res)
+    check_site_content(spec, res)
     check_links(spec, res)
 
     p, f, w = res.counts()

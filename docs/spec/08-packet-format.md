@@ -33,8 +33,10 @@ CRC_SIZE    = 4 字节
 - 推荐 `chunk_size` 取 **1200** 字节
 - **接收端必须校验**：`payload_len ≤ 1400` 且 `payload_len ≤ 本会话协商的 chunk_size`；
   越界即按 `INVALID_PACKET` 丢弃，**不得**写入位图
-- 最后一个 chunk 的 `payload_len` **必须**等于 `size - chunk_id × chunk_size`；
-  不等即按 `INVALID_PACKET` 丢弃
+- 对 `FLAG_DATA`，先检查 `chunk_id < chunk_count`，再要求
+  `payload_len == min(chunk_size, size - chunk_id × chunk_size)`（按宽整数计算）。
+  非末块必须满长；空文件没有 DATA 块。UDP 报文总长必须恰为 `16 + payload_len + 4`。
+  长度不符按 `INVALID_PACKET` 丢弃，不写盘、不标位。PROBE / ACK 使用 07 章的独立长度。
 
 ## CRC32 变体（规范性）
 
@@ -77,7 +79,7 @@ CRC_SIZE    = 4 字节
 | bit1 | FLAG_RESEND | 0x0002 | 重传包标志；接收方**无需**区别处理（重传是幂等的） |
 | bit2 | FLAG_LAST_CHUNK | 0x0004 | 最后一个 chunk 标志，置位时该包的 `chunk_id` = `chunk_count - 1`；**可选**，接收方**不得**依赖它判断完成（完成以位图为准） |
 | bit3 | FLAG_PROBE | 0x0008 | 探测包标志；PROBE 与 PROBE_ACK 共用，以 `payload_len` 区分（8 / 9） |
-| bit4-5 | RESERVED | 0x0000 | 保留位；**必须**为 0 |
+| bit4-5 | DATA_GENERATION | 0x0030 | DATA 修复代号：`(flags >> 4) & 3`，0 初传、1 摘要对帐后的定点修复、2 全量复核；3 非法。非 DATA 帧必须为 0 |
 | bit6 | FLAG_BIND | 0x0040 | **仅用于 TCP 数据面帧**的绑定帧（见 07 章）；UDP 包**必须**为 0 |
 | bit7-15 | RESERVED | 0x0000 | 保留位；接收方**必须**忽略未知标志位 |
 
@@ -132,7 +134,7 @@ PROBE_ACK 的 payload 为 9 字节：8 字节 session_id + 1 字节状态码
 
 ## 扩展
 
-- flags 预留位（bit4-5、bit7–15）；接收方**必须**忽略未知标志位
+- flags 预留位（bit7–15）；接收方**必须**忽略未知保留位。DATA 代号须与接收方持久化的当前代号相等；不符在写盘和标位前丢弃，见 12 章。
 - 不兼容扩展通过控制通道的协议版本协商：`login` 携带 `proto_version`，
   Server 在 `login_ack` 中回填选定的版本；Client 不支持该版本时**必须**关闭连接
   （见 06 章）

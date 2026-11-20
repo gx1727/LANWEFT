@@ -157,6 +157,62 @@
     因此防伪依赖控制面的认证与 ACL（见 21 章）。
   </div>
 
+  <!-- ========== 主动投递的边界 ========== -->
+  <h2>主动投递的边界（规范性）</h2>
+
+  <div class="diagram">
+    <div class="fields" style="--cols:2">
+      <div class="cell ruler-title">Server（投递方）</div>
+      <div class="cell ruler-title">Client（接收方）</div>
+
+      <div class="cell f-type">delivery_offer {session_id, 参数, file_hash, file_name}</div>
+      <div class="cell f-muted">决策（策略 / 配额 / 用户）—— 可以拒绝</div>
+
+      <div class="cell f-muted">等待该会话的 UDP_PROBE 确认对端地址</div>
+      <div class="cell f-type">delivery_response {result=success} 或 {result=fail + code}</div>
+
+      <div class="cell f-muted">收到接受后才可发送数据面数据包</div>
+      <div class="cell f-muted">重复的 delivery_offer 被幂等忽略</div>
+    </div>
+  </div>
+
+  <ul class="spec">
+    <li>主动投递<strong>只</strong>发生在<strong>已认证且存续</strong>的控制连接上（见 09 章「主动投递」）；
+      Server <strong>不得</strong>向离线设备投递。</li>
+    <li>投递<strong>不携带</strong>任何认证凭据 —— 它复用控制连接已建立的身份边界。</li>
+    <li>Server 在收到 <code>delivery_response</code>（接受）后<strong>必须</strong>等到该会话的
+      <code>UDP_PROBE</code> 才可发送数据面数据包：<strong>不得</strong>向未经 PROBE 确认的地址发送
+      （见 07 章「端口与地址绑定」）。</li>
+    <li>接收方<strong>可以</strong>拒绝投递；拒绝是<strong>正常</strong>的协议结果，
+      <strong>不得</strong>被当作错误或触发重试风暴。</li>
+    <li>重复投递<strong>必须</strong>被幂等忽略：接收方<strong>不得</strong>因重复的
+      <code>delivery_offer</code> 而重复落盘同一内容。</li>
+  </ul>
+
+  <!-- ========== 资源消耗 ========== -->
+  <h2>资源消耗（规范性）</h2>
+
+  <div class="note">
+    摘要对帐会诱导发送方反复读取源文件（见 12 章），因此<strong>必须</strong>设限。
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>上限项</th><th>规范取值</th></tr></thead>
+      <tbody>
+        <tr><td class="c-type">每会话的摘要对帐次数</td><td><strong>至多一次</strong></td></tr>
+        <tr><td class="c-type">单次请求的区间数</td><td>≤ 64</td></tr>
+        <tr><td class="c-type">单会话累计区间比较数</td><td>≤ 8192</td></tr>
+        <tr><td class="c-type">层级</td><td>≤ 32</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <ul class="spec">
+    <li>发送方<strong>必须</strong>拒绝超出上限的请求，<strong>不得</strong>无条件执行。</li>
+    <li>接收方<strong>不得</strong>通过反复发起对帐来消耗对端的磁盘与 CPU。</li>
+  </ul>
+
   <!-- ========== 状态与权限 ========== -->
   <h2>状态与权限</h2>
 

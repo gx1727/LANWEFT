@@ -147,6 +147,8 @@
         <li>CRC32 校验失败的包 必须丢弃 (<strong>MUST discard</strong>)</li>
         <li>Session ID 不匹配的包 必须丢弃 (<strong>MUST discard</strong>)</li>
         <li>Payload Length 非法的包 必须丢弃 (<strong>MUST discard</strong>)</li>
+        <li><code>payload_len</code> 越界（&gt; 1400 或 &gt; 本会话协商的 <code>chunk_size</code>）→ 判为 <code>INVALID_PACKET</code>，丢弃且<strong>不得</strong>写入位图</li>
+        <li>最后一个 chunk 的 <code>payload_len</code> <strong>必须</strong>等于 <code>size − chunk_id × chunk_size</code>；不等即判为 <code>INVALID_PACKET</code>，丢弃</li>
         <li>chunk_id ≥ chunk_count 的包 必须丢弃 (<strong>MUST discard</strong>)</li>
         <li>该 chunk_id <strong>已收到</strong>（重复包）→ 幂等丢弃，不重复写盘（<code>CHUNK_ALREADY_RECEIVED</code>）</li>
       </ul>
@@ -167,6 +169,61 @@
         <li><strong>单次校验失败的代价是一个块</strong>，与文件大小无关</li>
       </ul>
     </section>
+  </div>
+
+  <!-- ============ 版本协商与协议版本 ============ -->
+  <h2>版本协商与协议版本（规范性）</h2>
+  <p style="margin-top:0">
+    不兼容扩展通过<strong>控制通道</strong>的协议版本协商达成：控制面 <code>login</code> 携带
+    <code>proto_version</code>，Server 在 <code>login_ack</code> 中回填选定的版本；
+    Client 不支持该版本时<strong>必须</strong>关闭连接（见 06 章）。
+  </p>
+  <div class="card">
+    <table>
+      <thead><tr><th>环节</th><th>规范要求</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>编码</strong></td>
+          <td>版本号在控制面上编码为<strong>三个 <code>u8</code></strong>（<code>major</code> / <code>minor</code> / <code>patch</code>，见 06 章 <code>login</code>），
+            按 major → minor → patch 逐段<strong>数值</strong>比较。</td>
+        </tr>
+        <tr>
+          <td><strong>Client 声明</strong></td>
+          <td>Client 声明其<strong>最高</strong>支持的版本（<code>login</code> 的 <code>proto_major</code> / <code>proto_minor</code> / <code>proto_patch</code>）。</td>
+        </tr>
+        <tr>
+          <td><strong>Server 回填</strong></td>
+          <td>Server <strong>应当</strong>在 <code>login_ack</code> 中回填<strong>两者都支持的最高版本</strong>。</td>
+        </tr>
+        <tr>
+          <td><strong>major 必须相同</strong></td>
+          <td>Server 回填的版本其 major <strong>必须</strong>等于 Client 声明的 major ——
+            <strong>major 不同即不兼容</strong>：Client <strong>必须</strong>关闭连接，
+            并以 <code>login_ack.code</code> = <code>PROTO_VERSION_UNSUPPORTED</code> 报告。</td>
+        </tr>
+        <tr>
+          <td><strong>minor / patch 差异</strong></td>
+          <td>major 相同、minor 或 patch 不同即视为<strong>兼容</strong>：新增字段一律可选，接收方<strong>必须</strong>忽略不认识的字段。</td>
+        </tr>
+        <tr>
+          <td><strong>0.x 例外（规范性）</strong></td>
+          <td>本规范处于 <code>0.x</code> 阶段，<code>minor</code> 变更<strong>可能</strong>是不兼容的 ——
+            例如 v0.3.0 相对 v0.2 的控制面即<strong>不兼容</strong>（传输层、帧格式、消息集均已改变）。
+            因此 <code>minor</code> 不同<strong>不得</strong>作为「可互通」的充分依据；
+            实现<strong>必须</strong>以 06 章的消息集为准判断实际兼容性（版本策略见 26 章）。</td>
+        </tr>
+        <tr>
+          <td><strong>数据面格式绑定</strong></td>
+          <td>数据包格式的任何不兼容变更<strong>必须</strong>伴随 <code>proto_major</code> 的提升；
+            Server <strong>不得</strong>向仅支持旧 major 的对端建立使用新格式的数据面会话。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note warn">
+    <strong>注意</strong>：<code>proto_version</code>（协议版本）与 06 章帧头中的 <code>body_version</code>（消息体布局版本）<strong>相互独立</strong>；
+    版本差异一律由二者表达，<code>magic</code> <strong>不得</strong>随协议版本变更。
   </div>
 
   <div class="note">

@@ -42,8 +42,7 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
 - **发送侧**只使用 INIT / NEGOTIATING / TRANSFERRING / PAUSED / COMPLETED / ABORTED ——
   发送侧不持有位图，**不存在** VERIFY 与 COMMIT 状态：文件级校验与原子提交
   天然发生在接收侧。
-- 「Server 为最终裁决者」指**终止权**：任何进入 ABORTED 的转换只能由 Server 通过
-  `session_abort` 发起（发送侧收到 `session_abort` 后同样转入 ABORTED）。
+- 终止原因与发布方必须符合本章「终止权」。
 
 ## 合法状态转移
 
@@ -60,24 +59,27 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
 | NEGOTIATING | TRANSFERRING | 接收侧 | upload_accept / download_accept（发送 accept 后进入常规传输） |
 | NEGOTIATING | TRANSFERRING | 双方 | **delivery_response**（接受投递，见 09 章） |
 | NEGOTIATING | VERIFY | 接收侧 | 秒传：accept 携带 file_exists = 1（bool），跳过数据传输 |
-| NEGOTIATING | COMPLETED | 发送侧 | 秒传：accept 携带 file_exists = 1（bool），不发送任何数据 |
+| NEGOTIATING | TRANSFERRING | 发送侧 | 秒传：不发送数据，仅等待 `upload_complete` |
 | NEGOTIATING | ABORTED | 双方 | session_abort |
 | NEGOTIATING | ABORTED | 发送侧 | **delivery_response**（拒绝投递，见 09 章） |
 | TRANSFERRING | VERIFY | 接收侧 | 位图全真，进入文件级校验 |
 | TRANSFERRING | PAUSED | 双方 | session_pause |
-| TRANSFERRING | COMPLETED | 发送侧 | upload_complete / download_complete |
+| TRANSFERRING | COMPLETED | 发送侧 | 持久化成功的 upload_complete / download_complete，回复 complete_ack |
+| TRANSFERRING | ABORTED | 发送侧 | 持久化失败的完成回执，回复 complete_ack |
 | TRANSFERRING | ABORTED | 双方 | session_abort |
-| PAUSED | TRANSFERRING | 双方 | resume_session（发送侧发起）/ resume_ack（接收侧应答后） |
+| PAUSED | TRANSFERRING | 双方 | Client 发 resume_session；Server 接受并回 resume_ack |
 | PAUSED | ABORTED | 双方 | session_abort |
 | VERIFY | COMMIT | 接收侧 | 文件级 Blake3 校验通过 |
 | VERIFY | TRANSFERRING | 接收侧 | **恢复阶梯**：文件级 Blake3 失配 —— 摘要对帐或复核轮（见 12 章） |
-| VERIFY | ABORTED | 双方 | session_abort（reason = FILE_HASH_MISMATCH，**复核轮后仍失配**） |
+| VERIFY | ABORTED | 接收侧 | session_abort（见下方终止权） |
 | COMMIT | COMPLETED | 接收侧 | 原子重命名完成，发布 upload_complete / download_complete |
 | COMMIT | ABORTED | 双方 | session_abort |
 
 **ABORTED 是终态（规范性）**：没有出边，也不存在 `ABORTED → ABORTED`。
 清理动作（删除临时文件 / 位图 / 元数据）在进入 ABORTED 之后执行
 （见 09 章「超时与回收」、13 章「失败与清理」）。
+传输状态与最终回执分开保存：下载发送侧因超时关闭传输后，仍必须按 13 章
+处理迟到的 `download_complete`。记录提交结果不是从 ABORTED 恢复数据传输。
 
 **每个视角都必须能从 INIT 走到 COMPLETED（规范性）**：转移表必须对**两个视角**
 都给出完整路径。接收侧同样需要 `NEGOTIATING → TRANSFERRING` ——
@@ -95,10 +97,11 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
 - **Server 是会话状态的唯一仲裁者**：会话参数、状态、超时的裁决都由 Server 做出。
 - **`session_abort` 的发布方有两类**：
   - **Server** —— 可因任意原因终止会话（超时、ACL、状态非法、资源不足等）；
-  - **接收侧** —— **仅限**检测到不可恢复的数据完整性失败
-    （`reason` = `FILE_HASH_MISMATCH`），且**必须**已在复核轮之后
-    （见 12 章「复核轮」）。这是接收侧唯一有权发起的终止。
-- 发送侧**不得**主动发布 `session_abort`（除非它也是该会话的接收侧）。
+  - **非 Server 的接收侧**仅可使用：`FILE_HASH_MISMATCH`（复核轮后仍失配）、
+    `SOURCE_FILE_MISMATCH`（根区间一致但请求摘要不符）、
+    `FILESYSTEM_ERROR` / `STORAGE_FULL`（读写或提交失败）、
+    `DATABASE_ERROR`（会话元数据或位图无法持久化）。本地存储失败必须立即报告，不得触发内容重传。
+- 非 Server 的发送侧**不得**主动发布 `session_abort`。
   发送侧需要终止时，**必须**发布 `session_pause` 或等待 Server 的裁决。
 - `session_abort` 的 `reason` 以 `str` 承载 19 章的错误码**符号名**
   （如 `FILE_HASH_MISMATCH`），**不得**填写自由文本（见 06 章「session_abort」）。
@@ -138,7 +141,7 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
 下载方向的 `download_accept.file_exists` **必须**为 `0`（假，见 06 章），
 **不得**走秒传路径。
 
-当 Server 侧已存在相同 `file_hash` 的完整文件时：
+当当前设备有权引用该内容且 Server 已有完整文件时（授权见 09 章「创建规则」）：
 
 1. Server **必须**在生成 `upload_accept` **之前**完成既有文件的校验：
    对已存在的同 `file_hash` 文件重新计算 Blake3 并与 `upload_start.file_hash` 比对。
@@ -146,7 +149,7 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
    校验**不通过**时**不得**置该标志，按常规传输路径下发 `file_exists` = `0`。
    （`file_exists` 是单向发布的消息字段，一旦上线即不可撤回 ——
    因此校验必须发生在发布之前。）
-3. 发送侧：NEGOTIATING → COMPLETED（**不发送任何数据**，直接等待完成通知）。
+3. 发送侧：NEGOTIATING → TRANSFERRING，仅等待回执，**不发送数据**；持久化成功回执后才进入 COMPLETED。
 4. 接收侧：NEGOTIATING → VERIFY → COMMIT → COMPLETED → 发布 `upload_complete`。
 
 秒传路径**不产生位图**，因此「bitmap 全真」这一完成条件**不适用于**秒传路径；
@@ -157,20 +160,20 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
 
 - `session_pause` 使会话进入 PAUSED；位图、临时文件与已传输数据**全部保留**。
 - PAUSED 状态下双方**必须**停止发送数据面数据包。
-- 恢复**只有一条路径**：发送侧发布 `resume_session`，对端回 `resume_ack`
+- 连接存活时恢复**只有一条路径**：Client 发布 `resume_session`，Server 回成功的 `resume_ack`
   （含续传起点与数据面端口），双方回到 TRANSFERRING。
 - `session_pause` **不是**切换开关：重复发布是幂等的
   （已处于 `PAUSED` 时不产生状态变化）。
 - `session_pause` 与 `session_abort` 的区别：暂停**可恢复**，中止**不可恢复**。
 - `session_pause` 与 `resume_session` 的区别：`session_pause` 是**显式暂停**，
-  `resume_session` 是**异常中断后的恢复**。两者的恢复动作相同（回到 TRANSFERRING）。
+  `resume_session` 用于**显式暂停后的恢复**；断线时使用 13 章的登录恢复流程。
 
 ## 典型触发消息
 
 | 消息 | 视角 | 状态效果 |
 |------|------|----------|
 | upload_start / download_start | 发送侧 | INIT → NEGOTIATING |
-| upload_accept / download_accept | 发送侧 | NEGOTIATING → TRANSFERRING（或秒传 → COMPLETED） |
+| upload_accept / download_accept | 发送侧 | NEGOTIATING → TRANSFERRING；秒传只等待完成回执 |
 | missing_chunks（mode=report） | 接收侧 | 维持 TRANSFERRING，触发补发 |
 | session_pause | 双方 | TRANSFERRING ⇄ PAUSED |
 | resume_session / resume_ack | 发送侧 | PAUSED → TRANSFERRING（或恢复中断的会话） |

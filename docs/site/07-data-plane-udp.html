@@ -158,7 +158,7 @@
       <ul class="spec">
         <li><code>flags.bit3 = 1</code></li>
         <li>payload 为 <code>session_id</code> + 1 字节状态码（<code>0</code>=成功，<code>1</code>=失败），
-          共 <strong>5 字节</strong></li>
+          共 <strong>9 字节</strong></li>
         <li><code>payload_len == 9</code></li>
       </ul>
     </section>
@@ -192,12 +192,12 @@
         </tr>
         <tr>
           <td><strong>打开时机</strong></td>
-          <td>接收方<strong>必须</strong>在发出 PROBE（或建立 TCP 数据面连接）<strong>之前</strong>打开 socket；
+          <td>Client <strong>必须</strong>在发出 PROBE（或建立 TCP 数据面连接）<strong>之前</strong>打开 socket；
             否则 PROBE 的源端口与后续接收端口不一致，对端会把数据发往错误地址</td>
         </tr>
         <tr>
           <td><strong>端口来源</strong></td>
-          <td>接收方<strong>不必</strong>绑定固定端口 —— 通常用<strong>临时端口</strong>，
+          <td>Client <strong>不必</strong>绑定固定端口 —— 通常用<strong>临时端口</strong>，
             由对端从 PROBE 的源地址:端口学到；多个会话<strong>可以</strong>共用同一个 socket</td>
         </tr>
         <tr>
@@ -207,8 +207,10 @@
         </tr>
         <tr>
           <td><strong>关闭前</strong></td>
-          <td><strong>必须</strong>已发布完成消息；若完成消息未送达，
-            <strong>必须</strong>在会话进入终态前继续应答 <code>missing_chunks</code>（<code>mode=request</code>）</td>
+          <td>成功提交后<strong>必须</strong>持久化完成回执；数据面可关闭，
+            回执及 <code>complete_ack</code> 只走控制面，断线不影响再次交付（见 13 章）。
+            因 <code>session_abort</code> 终止时无需发布成功回执；
+            共享 socket 仅在无其他会话使用时关闭</td>
         </tr>
       </tbody>
     </table>
@@ -225,10 +227,182 @@
   <ul class="spec">
     <li>UDP 不可用或异常时启用</li>
     <li>保持 chunk 与 bitmap 语义</li>
-    <li><strong>TCP 通道的线路格式见 07 章「TCP 数据面线路格式」</strong>：
+    <li><strong>TCP 通道的线路格式见本页「TCP 数据面线路格式」</strong>：
       帧边界、绑定与权限校验均<strong>必须</strong>与 UDP 通道语义一致</li>
     <li>TCP 端口由 accept 消息的 <code>tcp_port</code> 字段下发；<strong><code>tcp_port = 0</code> 表示不支持 TCP 降级</strong>，
       此时探测失败即判定传输不可用</li>
+  </ul>
+
+  <!-- ============ § TCP 数据面线路格式 ============ -->
+  <h2>TCP 数据面线路格式（规范性）</h2>
+  <p>TCP 是字节流，<strong>必须</strong>有帧边界；且 TCP 已提供字节流校验，
+    因此 TCP 数据面帧<strong>不重复载荷级</strong> CRC32（与 06 章控制帧同理）；
+    但帧头<strong>必须</strong>携带 <code>magic</code> 与 <code>header_crc32</code>
+    （见 06 章「帧格式」与「帧同步与失步处理」）。</p>
+
+  <h3>帧结构（小端序）</h3>
+  <div class="diagram">
+    <div class="fields">
+      <div class="cell ruler-title">TCP 数据面帧：帧头 28 字节 ‖ payload</div>
+
+      <div class="cell bitnum">0-3</div>
+      <div class="cell bitnum">4-7</div>
+      <div class="cell bitnum">8-11</div>
+      <div class="cell bitnum">12-19</div>
+
+      <div class="cell bitnum">20-23</div>
+      <div class="cell bitnum">24-25</div>
+      <div class="cell bitnum">26-27</div>
+      <div class="cell bitnum">28…</div>
+
+      <div class="cell f-len">magic (u32)</div>
+      <div class="cell f-frame">frame_len (u32)</div>
+      <div class="cell f-crc">header_crc32 (u32)</div>
+      <div class="cell f-session">session_id (u64)</div>
+
+      <div class="cell f-chunk">chunk_id (u32)</div>
+      <div class="cell f-len">payload_len (u16)</div>
+      <div class="cell f-flags">flags (u16)</div>
+      <div class="cell f-payload">payload</div>
+
+      <div class="cell wide f-muted">frame_len = 28 + payload_len（<code>frame_len</code> 含帧头）</div>
+    </div>
+  </div>
+
+  <div class="legend">
+    <span><i class="swatch" style="background:var(--b-len)"></i>magic</span>
+    <span><i class="swatch" style="background:var(--b-frame)"></i>frame_len</span>
+    <span><i class="swatch" style="background:var(--b-crc)"></i>header_crc32</span>
+    <span><i class="swatch" style="background:var(--b-session)"></i>session_id</span>
+    <span><i class="swatch" style="background:var(--b-chunk)"></i>chunk_id</span>
+    <span><i class="swatch" style="background:var(--b-flags)"></i>flags</span>
+    <span><i class="swatch" style="background:var(--b-payload)"></i>payload</span>
+  </div>
+  <div class="caption">
+    帧头长度 = 4 + 4 + 4 + 8 + 4 + 2 + 2 = <strong>28 字节</strong>；
+    <code>magic</code> 恒为 <code>0x574E414C</code>（“LANW”），线上字节为 <code>4C 41 4E 57</code>（小端序）。
+  </div>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>字段</th><th>偏移</th><th>大小</th><th>类型</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr><td class="c-len">magic</td><td class="num">0-3</td><td class="num">4</td><td class="mono">u32</td><td>协议魔数，固定 <code>0x574E414C</code>（“LANW”），与控制帧同一常量</td></tr>
+        <tr><td class="c-frame">frame_len</td><td class="num">4-7</td><td class="num">4</td><td class="mono">u32</td><td>本帧总字节数（含本帧头）</td></tr>
+        <tr><td class="c-crc">header_crc32</td><td class="num">8-11</td><td class="num">4</td><td class="mono">u32</td><td>帧头校验码，见下</td></tr>
+        <tr><td class="c-session">session_id</td><td class="num">12-19</td><td class="num">8</td><td class="mono">u64</td><td>会话 ID；与 UDP 通道同一取值域</td></tr>
+        <tr><td class="c-chunk">chunk_id</td><td class="num">20-23</td><td class="num">4</td><td class="mono">u32</td><td>逻辑位置（从 0 开始）</td></tr>
+        <tr><td class="c-len">payload_len</td><td class="num">24-25</td><td class="num">2</td><td class="mono">u16</td><td>载荷长度</td></tr>
+        <tr><td class="c-flags">flags</td><td class="num">26-27</td><td class="num">2</td><td class="mono">u16</td><td>标志位（取值见 08 章；bit6 = <code>FLAG_BIND</code>）</td></tr>
+        <tr><td class="c-payload">payload</td><td class="num">28..</td><td class="num">N</td><td class="mono">bytes</td><td>文件数据</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h3>帧头校验码（规范性）</h3>
+  <ul class="spec">
+    <li><code>header_crc32</code> 使用 <strong>CRC-32/ISO-HDLC</strong>
+      （与 08 章 <code>crc32</code>、06 章 <code>header_crc32</code> <strong>同一变体</strong>），
+      覆盖帧头中<strong>除 <code>header_crc32</code> 字段自身之外</strong>的 <strong>24 字节</strong>，
+      按下列顺序拼接：</li>
+  </ul>
+  <pre class="codeblock">magic(4) ‖ frame_len(4) ‖ session_id(8) ‖ chunk_id(4) ‖ payload_len(2) ‖ flags(2)</pre>
+  <ul class="spec">
+    <li>上式对应帧内的<strong>两段连续区间</strong>：字节 <code>0–7</code> 与字节 <code>12–27</code>；
+      实现可直接对这两段拼接后的 24 字节计算 CRC32。</li>
+    <li><code>magic</code> 在线路上的<strong>四个字节</strong>为 <code>4C 41 4E 57</code>（“LANW”，小端序），与控制帧一致。</li>
+    <li><strong>不携带载荷级 CRC32</strong>：TCP 提供字节流校验与可靠重传，
+      TCP 数据面帧<strong>不</strong>携带 <code>crc32</code> —— 载荷完整性由 TCP 自身保证。
+      帧头的 <code>header_crc32</code> <strong>不是</strong>载荷校验，而是<strong>帧同步</strong>手段。</li>
+  </ul>
+
+  <h3>帧长核算（规范性）</h3>
+  <pre class="codeblock">FRAME_HEADER_SIZE = 4 + 4 + 4 + 8 + 4 + 2 + 2 = 28 字节
+frame_len = 28 + payload_len</pre>
+  <ul class="spec">
+    <li><code>magic</code> <strong>必须</strong>为 <code>0x574E414C</code>；不匹配即判定<strong>失步</strong>（见下）。</li>
+    <li><code>frame_len</code> <strong>必须</strong> ≥ <strong>28</strong>。</li>
+    <li>接收方<strong>必须</strong>按 <code>frame_len</code> <strong>读满</strong>后再解析：
+      <strong>不得</strong>假设一帧一次 <code>recv</code> 到达；<strong>不得</strong>按换行或任何字节模式切分。</li>
+    <li><code>payload_len</code> <strong>必须</strong> ≤ 本会话协商的 <code>chunk_size</code>；
+      越界即按 <code>INVALID_PACKET</code> 关闭该 TCP 数据面连接。</li>
+  </ul>
+
+  <h3>失步处理（规范性）</h3>
+  <p>接收方<strong>必须</strong>按下列顺序校验帧头，<strong>任一</strong>不通过即判定<strong>失步</strong>：</p>
+  <ol class="spec">
+    <li><code>magic</code> == <code>0x574E414C</code>；</li>
+    <li><code>header_crc32</code> 校验通过；</li>
+    <li><code>frame_len</code> ∈ <code>[28, 28 + chunk_size]</code>。</li>
+  </ol>
+  <ul class="spec">
+    <li>失步<strong>必须</strong>导致：<strong>丢弃</strong>该连接上尚未解析的全部数据、<strong>关闭该 TCP 数据面连接</strong>，
+      并以 PROTOCOL 类错误码记录（<code>MAGIC_MISMATCH</code> / <code>HEADER_CRC_INVALID</code> /
+      <code>FRAME_LEN_INVALID</code>，见 19 章）。</li>
+    <li>失步后<strong>不得</strong>在该连接上继续解析任何帧，<strong>不得</strong>继续写入位图。</li>
+    <li>该会话<strong>必须</strong>按 13 章走恢复流程（由控制面重新裁决缺失块后重传）。
+      <strong>不得</strong>在失步的连接上「跳过一帧继续解析」——
+      被跳过的帧中<strong>可能</strong>含 <code>FLAG_BIND</code> 绑定帧或数据块，
+      继续解析会让接收方对「哪些块已收到」的认知与对端分叉。</li>
+    <li>数据面 TCP 通道的<strong>块级自愈</strong>能力来自位图与缺失裁决（见 12 章），而非帧内重同步。</li>
+  </ul>
+
+  <h3>与 06 章接收状态机的关系（规范性）</h3>
+  <p>数据面 TCP 通道<strong>必须</strong>采用与 06 章「接收状态机」<strong>相同</strong>的三态
+    （<code>SYNC</code> / <code>RESYNC</code> / <code>CLOSED</code>）与<strong>相同</strong>的三项校验顺序。
+    差异仅在于：</p>
+  <div class="card">
+    <table>
+      <thead><tr><th>项</th><th>控制面（06 章）</th><th>数据面 TCP（本章）</th></tr></thead>
+      <tbody>
+        <tr><td>帧体内容</td><td>消息体（定长区 + 变长区）</td><td>chunk 载荷</td></tr>
+        <tr><td><code>frame_len</code> 上界</td><td class="mono">max_frame_len（1 MiB）</td><td class="mono">28 + chunk_size</td></tr>
+        <tr><td>失步后的数据处置</td><td>丢弃未解析数据</td><td>丢弃未解析数据，且<strong>不得</strong>写入位图</td></tr>
+        <tr><td>恢复路径</td><td>13 章「断线重连」（<code>login</code> / <code>login_ack</code> 权威快照）</td><td>13 章恢复流程，由控制面重新裁决缺失块后重传</td></tr>
+        <tr><td>候选判据 / 扫描上限</td><td>见 06 章</td><td>同 06 章（同一 <code>resync_max_scan</code>）</td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ============ § 绑定帧（FLAG_BIND） ============ -->
+  <h3>绑定帧（<code>FLAG_BIND</code>）</h3>
+  <p>TCP 数据面连接<strong>不</strong>承载认证凭据，其权限<strong>必须</strong>通过绑定建立。</p>
+  <ul class="spec">
+    <li><strong>Client 恒为连接方</strong>：无论上传或下载，Server 在下发的 <code>tcp_port</code> 监听，
+      Client 主动连接后<strong>必须</strong>先发送一个<strong>绑定帧</strong>：
+      <code>flags</code> 置位 <code>FLAG_BIND</code>（bit6）、<strong>未</strong>置位 <code>FLAG_DATA</code>，
+      <code>payload_len</code> = <strong>0</strong>，<code>session_id</code> 为待绑定会话。
+      <ul>
+        <li>绑定帧<strong>必须</strong>是连接上的<strong>第一条</strong>数据面帧（<strong>首帧锚点</strong>）；
+          绑定完成前<strong>不得</strong>发送任何其他数据面帧。</li>
+        <li>连接方<strong>必须</strong>在绑定帧发出后<strong>保持连接打开</strong>，直到会话进入终态。</li>
+      </ul>
+    </li>
+    <li>Server <strong>必须</strong>校验收到的<strong>首帧</strong>：若首帧不是 <code>FLAG_BIND</code> 绑定帧，
+      或首帧的 <code>magic</code> / <code>header_crc32</code> / <code>frame_len</code> 校验不通过，
+      <strong>必须</strong>关闭该 TCP 数据面连接，且<strong>不得</strong>发送任何数据面帧。</li>
+    <li>Server <strong>必须</strong>校验：
+      <ol>
+        <li>该 <code>session_id</code> 存在且处于可传输状态（<code>NEGOTIATING</code> / <code>TRANSFERRING</code> / <code>PAUSED</code>）；</li>
+        <li>该会话的 <code>client_id</code> 与<strong>持有该会话的控制连接</strong>所绑定的 <code>device_id</code> 一致；</li>
+        <li>该 TCP 数据面连接的来源 IP 与该控制连接的对端 IP 一致。</li>
+      </ol>
+      任一项不满足即<strong>必须</strong>关闭该 TCP 数据面连接，且<strong>不得</strong>发送任何数据面帧。</li>
+    <li>绑定成功后，该 TCP 数据面连接<strong>只能</strong>承载<strong>该 <code>session_id</code></strong>；
+      收到其他 <code>session_id</code> 的帧<strong>必须</strong>按 <code>SESSION_ID_MISMATCH</code> 丢弃该帧。</li>
+    <li>同一会话<strong>已有</strong>活动的 TCP 数据面连接时，新的绑定<strong>必须</strong>替换旧连接
+      （旧连接<strong>必须</strong>被关闭）—— 重连语义因此是幂等的。</li>
+    <li><strong>多个会话</strong>可以各自建立独立的 TCP 数据面连接；<code>session_id</code> 用于区分。</li>
+  </ul>
+
+  <h3>与 UDP 通道的关系</h3>
+  <ul class="spec">
+    <li>两条通道的<strong>块语义完全一致</strong>：<code>chunk_id</code>、<code>chunk_size</code>、偏移映射
+      <code>offset = chunk_id × chunk_size</code>。</li>
+    <li>两条通道的<strong>可靠性机制一致</strong>：位图、缺失裁决、重传优先级、
+      文件级校验与原子提交（见 12 章、17 章）。</li>
+    <li>TCP 通道<strong>不</strong>使用 UDP 探测；其可用性由 <code>tcp_port</code> 是否为 0 表达
+      （<code>tcp_port</code> = 0 表示不支持 TCP 降级）。</li>
   </ul>
 
   <div class="note">

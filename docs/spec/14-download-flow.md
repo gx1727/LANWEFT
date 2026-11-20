@@ -35,23 +35,11 @@ Server 不得向未经 PROBE 确认的地址发送数据（见 20 章）。
 Client 的端口通常为**临时端口**，由 Server 从 PROBE 的源地址学到；
 socket 的生命周期见 07 章「接收方 socket 生命周期」。
 
-**数据面端口的优先级（规范性）**：Client **必须**按以下顺序取用**最新**的端口值：
-
-| 优先级 | 来源 | 生效时机 |
-|--------|------|----------|
-| 1（最高） | `login_ack` 的 `sessions[]` 快照记录中的 `udp_port` | **断线重连**后的权威快照 |
-| 2 | `resume_ack.udp_port` | **暂停后恢复**的应答 |
-| 3 | `udp_ready.udp_port` | 探测完成时（最新的探测结果） |
-| 4 | `download_accept.udp_port` | 参数协商时（初始值） |
-
-四者的 `udp_port` 均为 `u16`（见 06 章各消息的定长区布局）。
-
-四者不一致时**必须**取优先级最高者；端口变更**必须**通过上述消息显式下发，
-Client **不得**自行推断。
-
-> **权威 vs 增量**：优先级 1、2 是**权威快照**（整体替换本地会话状态，
-> 见 13 章），优先级 3、4 是同一连接内的**增量通知**。
-> 快照到达时**必须**以其覆盖本地保存的端口，不得与旧值并存。
+**数据面端口按生效时序更新（规范性，上传与下载相同）**：accept 或 offer 给出初始端口。
+重连立即作废旧连接的地址绑定；以成功快照为新起点，同一连接随后成功的
+`resume_ack` 替换此前端口。失败应答不建立绑定。Client 从可传输状态在当前端口
+重新 PROBE，Server 不得向旧绑定发数据；暂停或仅等待完成回执时不探测。
+`udp_ready` 只确认当前探测，不改变端口；无待决探测或端口不匹配的就绪通知必须忽略。
 
 ### 3. 数据传输
 
@@ -61,9 +49,8 @@ Server **必须**同时遵守连接级的 `connection_window`
 
 ### 4. 缺失重传
 
-Server 每 50ms 下发 `missing_chunks`（`mode=report`）裁决；
-Client 收到后按 11 章补发缺失块。
-收到 Client 的 `missing_chunks`（`mode=request`）时，Server **必须**在 50ms 内应答。
+Client 每 50ms 发送 `missing_chunks`（`mode=report`）；Server 按 11 章补发缺失块。
+收到 Server 的 `missing_chunks`（`mode=request`）时，Client **必须**在 50ms 内应答。
 
 `mode` 为 `enum8`（`0` = report、`1` = request）；
 `chunks` 为 `chunk_list`（`u32` 条数 + `u32` `chunk_id` 数组，**升序**），
@@ -82,10 +69,8 @@ Client 每 500ms 发布 `progress_update`（`received` / `total` 为 chunk 数�
 Client 检测位图全真 → 校验 hash → 原子重命名 → 发送 download_complete
 （**接收方发布完成消息**，见 06 章）
 
-**复核轮**：Client 校验 hash 失配时**必须**进入复核轮
-（清空位图 → 发布带复核轮标志的 `missing_chunks` → Server 全量重读重发），
-**不得**直接终止会话；复核轮后仍失配才以
-`session_abort`（`reason` = `FILE_HASH_MISMATCH`）终止（见 12 章）。
+Server 持久化完成回执后回复 `complete_ack`；断线交付见 13 章。
+Client 校验 hash 失配时先执行 12 章的摘要对帐，再按该章条件进入复核轮或终止。
 
 ## 与上传对称性
 

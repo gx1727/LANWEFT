@@ -16,7 +16,7 @@
 | Blake3 | 文件级内容哈希算法（见 08、12 章） |
 | 帧 | 控制通道的消息单元：`u32 magic` + `u32 frame_len` + `u32 header_crc32` + 定长帧头（**16 字节**）+ 二进制消息体（见 06 章） |
 | 失步 | desync：帧边界不再可信；判定后**必须**断连并按 13 章恢复（见 06 章） |
-| 权威快照 | 恢复时由 Server 下发的会话状态，接收方必须以其覆盖本地状态（见 13 章） |
+| 权威快照 | Server 下发的会话关联、参数与进度摘要，不覆盖接收方的位图或提交阶段（见 13 章） |
 
 ## 会话与数据
 
@@ -63,6 +63,7 @@
 | session_pause / session_abort | 双向 | 会话暂停 / 中止（`session_abort` 发布方受限，见 10 章） |
 | resume_session / resume_ack | C→S / S→C | 暂停后的会话恢复（恢复提示由**接收方**提供，见 13 章） |
 | upload_complete / download_complete | S→C / C→S | 传输完成（**完成消息一律由接收方发布**） |
+| complete_ack | C→S / S→C | 数据发送方确认已持久化完成回执 |
 | asset_recall / asset_recall_complete | C→S / S→C | 资产撤回请求与回执 |
 | ping / pong | 双向 | 心跳与应答（10 秒周期，30 秒空闲超时） |
 

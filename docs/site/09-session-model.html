@@ -38,7 +38,7 @@
         <tr><td class="c-type">direction</td><td class="mono">enum8</td><td><code>0</code> = <code>upload</code>、<code>1</code> = <code>download</code> —— <strong>接收方 / 发送方角色</strong></td></tr>
         <tr><td class="c-payload">file_hash</td><td class="mono">hash32</td><td>文件哈希（<strong>32 字节原始 Blake3 摘要</strong>）</td></tr>
         <tr><td class="c-payload">file_name</td><td class="mono">str</td><td>文件名</td></tr>
-        <tr><td class="c-len">size</td><td class="mono">u64</td><td>文件大小（字节）</td></tr>
+        <tr><td class="c-len">size</td><td class="mono">u64</td><td>文件大小（字节）；<strong>必须</strong>满足「文件大小上限」（见下）</td></tr>
         <tr><td class="c-len">mtime</td><td class="mono">u64</td><td>文件修改时间戳</td></tr>
         <tr><td class="c-flags">state</td><td class="mono">enum8</td><td>会话状态（见 10 章）</td></tr>
         <tr><td class="c-len">chunk_size</td><td class="mono">u32</td><td>Chunk 大小（字节）</td></tr>
@@ -104,8 +104,59 @@
     </div>
   </div>
 
+  <!-- ============ 文件大小上限 ============ -->
+  <h2>文件大小上限（规范性）</h2>
+  <p style="margin-top:0">
+    <code>chunk_count</code> 与 <code>chunk_id</code> 均为 <strong>u32</strong>（见 08 章），
+    因此单个文件的大小<strong>必须</strong>满足：
+  </p>
+<pre class="codeblock">chunk_count = ceil(size / chunk_size) ≤ 2³² − 1
+size       ≤ chunk_size × (2³² − 1)</pre>
+  <div class="card">
+    <table>
+      <thead><tr><th>约束</th><th>规范要求</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>上限随协商结果浮动</strong></td>
+          <td><code>chunk_size</code> 的<strong>建议</strong>取值范围为 1024–1350、<strong>上限 1400</strong>（见 08 章），
+            因此文件大小上限随协商结果落在 <strong>4 TiB − 1024 字节</strong>（<code>chunk_size</code> = 1024）
+            与 <strong>约 5.6 TB</strong>（<code>chunk_size</code> = 1400）之间。</td>
+        </tr>
+        <tr>
+          <td><strong>Client 声明上限</strong></td>
+          <td>Client <strong>必须</strong>在 <code>upload_start</code> / <code>download_start</code> 中声明的 <code>size</code>
+            <strong>不超过 4 TiB − 1024 字节</strong>（以最小 <code>chunk_size</code> 计算的<strong>全局</strong>上限，与本次协商结果无关）。</td>
+        </tr>
+        <tr>
+          <td><strong>Server 校验</strong></td>
+          <td>Server <strong>必须</strong>在接受会话前校验 <code>ceil(size / chunk_size) ≤ 2³² − 1</code>；
+            不满足时<strong>必须</strong>以 <code>session_abort</code>（<code>reason</code> = <code>FILE_TOO_LARGE</code>）拒绝该请求，
+            且<strong>不得</strong>创建会话（见 19 章）。</td>
+        </tr>
+        <tr>
+          <td><strong>下发自洽性</strong></td>
+          <td>Server <strong>必须</strong>在 <code>upload_accept</code> / <code>download_accept</code> 中下发的 <code>chunk_count</code>
+            与 <code>size</code> / <code>chunk_size</code> <strong>自洽</strong>；
+            Client <strong>必须</strong>核对 <code>chunk_count == ceil(size / chunk_size)</code>，
+            不一致即按 <code>SERIALIZATION_ERROR</code> 视为协议错误。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <strong>为何必须显式声明上限</strong>：<code>size</code> 以 u64 承载而 <code>chunk_count</code> / <code>chunk_id</code> 以 u32 承载，
+    若不校验则会出现「声明的大小可表示、块号却溢出」的静默不一致。
+    上限<strong>必须</strong>由两端<strong>共同</strong>校验，而非仅由一端假定。
+  </div>
+
   <!-- ============ 创建规则 ============ -->
   <h2>创建规则</h2>
+  <p style="margin-top:0">
+    Client 以 <code>upload_start</code> / <code>download_start</code> 发起会话请求（<code>session_id</code> 可为 0），
+    Server 裁决后以 <code>upload_accept</code> / <code>download_accept</code> 回填 <code>session_id</code> 与全套会话参数；
+    断线重连后的会话关联由 <code>login_ack</code> 的<strong>权威快照</strong>重建（见 06 章、13 章）。
+  </p>
   <div class="card">
     <table>
       <thead>
@@ -116,11 +167,18 @@
           <td class="num">1</td>
           <td><strong><code>session_id</code> 由 Server 生成</strong></td>
           <td>
-            Server <strong>必须</strong>保证在自身生命周期内 <code>session_id</code> 唯一；
-            冲突时<strong>必须</strong>重新生成而不是复用。<br>
-            u32 的空间有限，实现<strong>不得</strong>使用裸时间戳低 32 位
-            （秒级回绕 136 年、毫秒级回绕 49 天）。推荐使用「随机高位 + 递增低位」或 Snowflake（含机器位）等方式。<br>
-            冲突后果严重：<code>session_id</code> 同时是控制面关联键与 UDP 头字段（见 08 章），
+            Server <strong>必须</strong>保证 <code>session_id</code> 在<strong>跨进程重启</strong>后也<strong>不被复用</strong>，
+            且在同一时刻<strong>全局唯一</strong>；冲突时<strong>必须</strong>重新生成而不是复用。<br>
+            <code>session_id</code> 的位宽为 <strong>u64</strong>（见 06、08 章）：32 位空间在会话数达到百万量级时必然出现碰撞
+            （生日界：约 2³² 次分配即有 50% 碰撞概率），且跨重启复用会让<strong>迟到的旧数据包</strong>命中新会话（见 20 章「重放保护」）。<br>
+            <strong>生成方式（规范性）</strong>：Server <strong>必须</strong>采用<strong>时间有序</strong>的分配方式，
+            使「跨重启不复用」成为<strong>构造性保证</strong>而非依赖外部状态。推荐 Snowflake 式结构：
+            <code>| 1 位恒为 0 | 41 位毫秒时间戳 | 10 位机器位 | 12 位同毫秒计数器 |</code> ——
+            机器位首次启动时随机生成并<strong>必须持久化</strong>，计数器同毫秒内自增（上限 4095，溢出时<strong>必须</strong>等待下一毫秒），
+            时间戳部分<strong>必须</strong>使用单调不回退的毫秒时钟。<br>
+            实现<strong>可以</strong>采用其他方案，但<strong>必须</strong>同时满足：①同一时刻全局唯一；②跨进程重启不复用；
+            ③<strong>必须</strong>能区分「同一 Server 实例的不同进程」。<br>
+            冲突后果严重：<code>session_id</code> 同时是控制面关联键、UDP 头字段与 TCP 数据面帧字段（见 06、07、08 章），
             串号会导致跨会话数据污染。
           </td>
         </tr>
@@ -148,6 +206,42 @@
         </tr>
       </tbody>
     </table>
+  </div>
+
+  <!-- ============ 相关错误码 ============ -->
+  <h2>相关错误码的适用情形</h2>
+  <div class="card">
+    <table>
+      <thead><tr><th>错误码</th><th>适用情形</th><th>上线路位置</th></tr></thead>
+      <tbody>
+        <tr>
+          <td class="mono">FILE_NOT_FOUND</td>
+          <td>
+            请求的文件在 Server 上<strong>不存在或不可拉取</strong> —— 包括共享清单（catalog）中的条目
+            <strong>已被 Server 移除</strong>、而 Client 本地视图滞后的情形。
+            Server <strong>必须</strong>以 <code>session_abort</code>（<code>reason</code> = <code>FILE_NOT_FOUND</code>）拒绝该拉取请求。
+          </td>
+          <td><code>session_abort</code> · <code>reason</code></td>
+        </tr>
+        <tr>
+          <td class="mono">FILE_TOO_LARGE</td>
+          <td>
+            声明的文件大小超出该会话 <code>chunk_size</code> 可表示的上限
+            （即 <code>ceil(size / chunk_size) ≤ 2³² − 1</code> 不成立）。
+            Server <strong>必须</strong>以 <code>session_abort</code>（<code>reason</code> = <code>FILE_TOO_LARGE</code>）拒绝该请求，
+            且<strong>不得</strong>创建会话。
+          </td>
+          <td><code>session_abort</code> · <code>reason</code></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="note">
+    <strong>两者的区分</strong>：<code>FILE_NOT_FOUND</code> 说的是「<strong>内容不存在</strong>」，
+    <code>FILE_TOO_LARGE</code> 说的是「<strong>内容存在但声明的大小不可承载</strong>」——
+    前者由 <code>download_start</code> 的 <code>file_hash</code> 校验失败触发，后者由 <code>size</code> 的上界校验触发；
+    两者均以 <code>session_abort</code> 的 <code>reason</code> 字段上线路（取值见 19 章）。
   </div>
 
   <!-- ============ 持久化 ============ -->

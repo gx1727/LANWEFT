@@ -218,17 +218,19 @@
         <tr><td class="mono">NEGOTIATING</td><td class="mono">TRANSFERRING</td><td>接收侧</td><td><code>upload_accept</code> / <code>download_accept</code>（发送 accept 后进入常规传输）</td></tr>
         <tr><td class="mono">NEGOTIATING</td><td class="mono">TRANSFERRING</td><td>双方</td><td><strong>主动投递</strong>：<code>delivery_response</code>（接受投递）</td></tr>
         <tr><td class="mono">NEGOTIATING</td><td class="mono">VERIFY</td><td>接收侧</td><td>秒传：accept 携带 <code>file_exists = 1</code>（bool），跳过数据传输（<strong>仅上传方向</strong>）</td></tr>
-        <tr><td class="mono">NEGOTIATING</td><td class="mono">COMPLETED</td><td>发送侧</td><td>秒传：accept 携带 <code>file_exists = 1</code>（bool），不发送任何数据</td></tr>
+        <tr><td class="mono">NEGOTIATING</td><td class="mono">TRANSFERRING</td><td>发送侧</td><td>秒传：不发送数据，仅等待 <code>upload_complete</code>（持久化成功回执后才进入 COMPLETED）</td></tr>
         <tr><td class="mono">NEGOTIATING</td><td class="mono">ABORTED</td><td>双方</td><td><code>session_abort</code></td></tr>
         <tr><td class="mono">NEGOTIATING</td><td class="mono">ABORTED</td><td>发送侧</td><td><strong>主动投递</strong>：<code>delivery_response</code>（拒绝投递）</td></tr>
         <tr><td class="mono">TRANSFERRING</td><td class="mono">VERIFY</td><td>接收侧</td><td>位图全真，进入文件级校验</td></tr>
         <tr><td class="mono">TRANSFERRING</td><td class="mono">PAUSED</td><td>双方</td><td><code>session_pause</code></td></tr>
-        <tr><td class="mono">TRANSFERRING</td><td class="mono">COMPLETED</td><td>发送侧</td><td><code>upload_complete</code> / <code>download_complete</code></td></tr>
+        <tr><td class="mono">TRANSFERRING</td><td class="mono">COMPLETED</td><td>发送侧</td><td>持久化成功的 <code>upload_complete</code> / <code>download_complete</code>，回复 <code>complete_ack</code></td></tr>
+        <tr><td class="mono">TRANSFERRING</td><td class="mono">ABORTED</td><td>发送侧</td><td>持久化失败的完成回执，回复 <code>complete_ack</code></td></tr>
         <tr><td class="mono">TRANSFERRING</td><td class="mono">ABORTED</td><td>双方</td><td><code>session_abort</code></td></tr>
         <tr><td class="mono">PAUSED</td><td class="mono">TRANSFERRING</td><td>双方</td><td><code>resume_session</code>（发送侧发起）/ <code>resume_ack</code>（接收侧应答后）</td></tr>
         <tr><td class="mono">PAUSED</td><td class="mono">ABORTED</td><td>双方</td><td><code>session_abort</code></td></tr>
+        <tr><td class="mono">VERIFY</td><td class="mono">TRANSFERRING</td><td>接收侧</td><td><strong>恢复阶梯</strong>：文件级 Blake3 失配 —— 摘要对帐或复核轮（见 12 章）</td></tr>
         <tr><td class="mono">VERIFY</td><td class="mono">COMMIT</td><td>接收侧</td><td>文件级 Blake3 校验通过</td></tr>
-        <tr><td class="mono">VERIFY</td><td class="mono">ABORTED</td><td>双方</td><td><code>session_abort</code>（<code>reason</code> = <code>FILE_HASH_MISMATCH</code>）</td></tr>
+        <tr><td class="mono">VERIFY</td><td class="mono">ABORTED</td><td>接收侧</td><td><code>session_abort</code>（见下方「终止权」的接收侧终止原因）</td></tr>
         <tr><td class="mono">COMMIT</td><td class="mono">COMPLETED</td><td>接收侧</td><td>原子重命名完成，发布 <code>upload_complete</code> / <code>download_complete</code></td></tr>
         <tr><td class="mono">COMMIT</td><td class="mono">ABORTED</td><td>双方</td><td><code>session_abort</code></td></tr>
       </tbody>
@@ -247,7 +249,7 @@
         </tr>
         <tr>
           <td>秒传（<code>file_exists = 1</code>）</td>
-          <td class="mono">INIT → NEGOTIATING → COMPLETED</td>
+          <td class="mono">INIT → NEGOTIATING → TRANSFERRING → COMPLETED</td>
           <td class="mono">INIT → NEGOTIATING → VERIFY → COMMIT → COMPLETED</td>
         </tr>
         <tr>
@@ -287,12 +289,17 @@
     <li><strong><code>session_abort</code> 的发布方有两类</strong>：
       <ul>
         <li><strong>Server</strong> —— 可因任意原因终止会话（超时、ACL、状态非法、资源不足等）；</li>
-        <li><strong>接收侧</strong> —— <strong>仅限</strong>检测到不可恢复的数据完整性失败
-          （<code>reason</code> = <code>FILE_HASH_MISMATCH</code>），且<strong>必须已在复核轮之后</strong>。
-          这是接收侧唯一有权发起的终止（见 12 章「复核轮」）。</li>
+        <li><strong>非 Server 的接收侧</strong> —— 仅可使用下列终止原因：
+          <ul>
+            <li><code>FILE_HASH_MISMATCH</code> —— 复核轮后仍失配（见 12 章「复核轮」）；</li>
+            <li><code>SOURCE_FILE_MISMATCH</code> —— 根区间一致但请求摘要不符；</li>
+            <li><code>FILESYSTEM_ERROR</code> / <code>STORAGE_FULL</code> —— 读写或提交失败；</li>
+            <li><code>DATABASE_ERROR</code> —— 会话元数据或位图无法持久化。</li>
+          </ul>
+          本地存储失败<strong>必须</strong>立即报告，<strong>不得</strong>触发内容重传。</li>
       </ul>
     </li>
-    <li>发送侧<strong>不得</strong>主动发布 <code>session_abort</code>（除非它也是该会话的接收侧）。
+    <li>非 Server 的发送侧<strong>不得</strong>主动发布 <code>session_abort</code>。
       发送侧需要终止时，<strong>必须</strong>发布 <code>session_pause</code> 或等待 Server 的裁决。</li>
     <li><code>session_abort</code> 的 <code>reason</code> 以 <code>str</code> 承载 19 章的错误码<strong>符号名</strong>
       （如 <code>FILE_HASH_MISMATCH</code>），<strong>不得</strong>填写自由文本（见 06 章「session_abort」）。</li>
@@ -312,6 +319,8 @@
       <tbody>
         <tr><td>位图出现缺失</td><td><code>missing_chunks</code>（<code>mode=report</code>），携带缺失 chunk 列表</td></tr>
         <tr><td>位图全真 → VERIFY</td><td>无需单独消息；随后的 <code>upload_complete</code> / <code>download_complete</code> 隐含告知</td></tr>
+        <tr><td>VERIFY → TRANSFERRING（摘要对帐）</td><td>无需单独消息；随后的 <code>reconcile_request</code> 隐含告知</td></tr>
+        <tr><td>VERIFY → TRANSFERRING（复核轮）</td><td>无需单独消息；随后的 <code>missing_chunks</code>（<strong>复核轮标志</strong>）隐含告知</td></tr>
         <tr><td>VERIFY → COMMIT</td><td>无需单独消息</td></tr>
         <tr><td>COMMIT → COMPLETED</td><td><code>upload_complete</code>（上传方向）/ <code>download_complete</code>（下载方向）</td></tr>
       </tbody>
@@ -326,6 +335,12 @@
   </div>
 
   <ul class="spec">
+    <li><strong>恢复阶梯（规范性）</strong>：接收侧在 VERIFY 阶段检测到文件级失配时，
+      <strong>必须</strong>回到 TRANSFERRING 并进入<strong>恢复阶梯</strong>（摘要对帐 → 复核轮，见 12 章）；
+      摘要对帐由 <code>reconcile_request</code> / <code>reconcile_response</code> 承载
+      （请求恒由<strong>接收方</strong>发布、应答恒由<strong>发送方</strong>发布，见 12 章）；
+      发送侧无 VERIFY 状态，收到 <code>reconcile_request</code> 时<strong>必须</strong>应答，
+      收到带复核轮标志的裁决时<strong>必须</strong>全量重发。</li>
     <li><strong>数据面（UDP）只能更新位图</strong>，不得直接触发状态转移。
       位图变化是接收侧推进的<strong>输入</strong>，不是状态转移本身。</li>
     <li><strong>状态转换必须符合上述转移规则</strong>；任何实现都不得进入表外的状态组合。</li>
@@ -341,7 +356,8 @@
       校验<strong>不通过</strong>时<strong>不得</strong>置该标志，按常规传输路径下发 <code>file_exists</code> = <code>0</code>。
       （<code>file_exists</code> 是单向发布的消息字段，一旦上线即不可撤回 ——
       因此校验必须发生在发布之前。）</li>
-    <li>发送侧：NEGOTIATING → COMPLETED（<strong>不发送任何数据</strong>，直接等待完成通知）。</li>
+    <li>发送侧：NEGOTIATING → TRANSFERRING，仅等待回执，<strong>不发送数据</strong>；
+      持久化成功回执后才进入 COMPLETED。</li>
     <li>接收侧：NEGOTIATING → VERIFY → COMMIT → COMPLETED → 发布 <code>upload_complete</code>。</li>
   </ul>
 
@@ -374,10 +390,12 @@
       <thead><tr><th>消息</th><th>视角</th><th>状态效果</th></tr></thead>
       <tbody>
         <tr><td class="mono">upload_start / download_start</td><td>发送侧</td><td>INIT → NEGOTIATING</td></tr>
-        <tr><td class="mono">upload_accept / download_accept</td><td>发送侧</td><td>NEGOTIATING → TRANSFERRING（或秒传 → COMPLETED）</td></tr>
+        <tr><td class="mono">upload_accept / download_accept</td><td>发送侧</td><td>NEGOTIATING → TRANSFERRING；秒传只等待完成回执</td></tr>
+        <tr><td class="mono">complete_ack</td><td>数据发送方</td><td>确认已持久化接收方的完成回执（持久化成功后）</td></tr>
         <tr><td class="mono">missing_chunks（mode=report）</td><td>接收侧</td><td>维持 TRANSFERRING，触发补发</td></tr>
         <tr><td class="mono">session_pause</td><td>双方</td><td>TRANSFERRING ⇄ PAUSED</td></tr>
         <tr><td class="mono">resume_session / resume_ack</td><td>发送侧</td><td>PAUSED → TRANSFERRING（或恢复中断的会话）</td></tr>
+        <tr><td class="mono">reconcile_request / reconcile_response</td><td>接收侧发布请求<br><span class="c-muted">发送方发布应答</span></td><td>VERIFY → TRANSFERRING（恢复阶梯：摘要对帐）</td></tr>
         <tr><td class="mono">upload_complete / download_complete</td><td>发送侧</td><td>TRANSFERRING → COMPLETED</td></tr>
         <tr><td class="mono">session_abort</td><td>双方</td><td>任意状态 → ABORTED</td></tr>
       </tbody>

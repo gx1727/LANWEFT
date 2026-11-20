@@ -28,3 +28,5 @@ _site/
 
 # 临时截图目录
 .tmp-shot/
+
+.trae-html-share-packages/

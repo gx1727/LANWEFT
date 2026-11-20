@@ -135,10 +135,18 @@
       <tbody>
         <tr><td><code>missing_count</code> <strong>已知</strong></td><td><code>R = chunk_count − missing_count</code>；<code>S</code> 为已发<strong>不同</strong> chunk_id 数（重传不重复计数）；在途量 = <code>max(0, S − R)</code></td></tr>
         <tr><td><code>missing_count</code> <strong>未知</strong>（存在标志位为 0）</td><td><code>R</code> 无法求出 → <strong>保守退化</strong>：把裁决报告的缺失块<strong>全部视为仍未到达</strong>，在途量<strong>不得超过</strong> <code>window − len(chunks)</code>；<code>chunks</code> 为空列表时退化为 <code>window</code></td></tr>
-        <tr><td><strong>恢复后的基线</strong></td><td>会话重建后，发送方<strong>必须</strong>把 <code>S</code> 的基线重置为 <code>chunk_count − 权威快照的 missing_count</code>（即 <code>R</code>）；基线重置后 <code>S = R</code>，在途量为 0</td></tr>
-        <tr><td><strong>恢复后（连接重建）</strong></td><td>发送方<strong>必须</strong>丢弃恢复前的在途量估计，<strong>在收到权威快照之前不得发送新数据</strong></td></tr>
+        <tr><td><strong>恢复后的基线</strong></td><td>会话重建后，发送方<strong>必须</strong>把 <code>S</code> 的基线重置为 <code>chunk_count − 权威快照的 missing_count</code>（即 <code>R</code>）；基线重置后 <code>S = R</code>，在途量为 0。该基线的权威来源是 <code>login_ack.sessions[].missing_count</code>（<strong>断线重连</strong>）或 <code>resume_ack.missing_count</code>（<strong>暂停后恢复</strong>）</td></tr>
+        <tr><td><strong>恢复后（连接重建）</strong></td><td>发送方<strong>必须</strong>丢弃恢复前的在途量估计，<strong>在收到权威快照之前不得发送新数据</strong>；收到后按基线规则重建估计</td></tr>
       </tbody>
     </table>
+  </div>
+
+  <div class="note blue">
+    <strong>恢复后基线的权威来源（规范性）</strong>：恢复后的基线来自<strong>权威快照</strong> ——
+    断线重连时为 <code>login_ack.sessions[].missing_count</code>，暂停后恢复时为 <code>resume_ack.missing_count</code>。
+    会话重建后发送方<strong>必须</strong>丢弃恢复前的在途量估计，
+    <strong>在收到权威快照之前不得发送新数据</strong>；收到后按基线规则重建
+    （<code>S</code> 的基线 = <code>chunk_count − missing_count</code>，在途量归零）。
   </div>
 
   <h2>动态流控：AIMD（推荐性）</h2>
