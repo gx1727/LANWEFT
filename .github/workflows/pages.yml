@@ -7,8 +7,16 @@ on:
       - 'docs/site/**'
       - 'docs/spec/**'
       - 'scripts/build-site.sh'
+      - 'scripts/check-spec-consistency.py'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
+  pull_request:
+    paths:
+      - 'docs/site/**'
+      - 'docs/spec/**'
+      - 'scripts/**'
+      - 'README.md'
+      - '.github/workflows/pages.yml'
 
 permissions:
   contents: read
@@ -31,6 +39,9 @@ jobs:
         with:
           # 仓库尚未启用 Pages 时自动启用（等价于 Settings → Pages → Source = GitHub Actions）
           enablement: true
+
+      - name: Check spec consistency
+        run: python3 scripts/check-spec-consistency.py
 
       - name: Build site
         run: scripts/build-site.sh _site
