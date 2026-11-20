@@ -1,97 +1,330 @@
 {
-  "sess_cap":            {"chapter": "13", "pattern": "max_sessions_per_connection`?（(\\d+)"},
-  "resume_rec_bytes":    {"chapter": "13", "pattern": "变长区按顺序给出 `resume_count` 条 \\*\\*(\\d+) 字节定长\\*\\*记录"},
-  "snapshot_rec_bytes":  {"chapter": "13", "pattern": "每条 =\\s*\\*\\*(\\d+) 字节定长\\*\\*"},
-  "resume_list_max":     {"chapter": "13", "pattern": "`resume\\[\\]` 最大 \\d+ × \\d+ = \\*\\*([\\d,]+) 字节\\*\\*"},
-  "max_frame_len_13":    {"chapter": "13", "pattern": "`max_frame_len`（([\\d.]+ MiB)"},
-
-  "report_interval":     {"chapter": "14", "pattern": "Client 每 (\\d+ms) 发送 `missing_chunks`"},
-  "progress_interval":   {"chapter": "14", "pattern": "Client 每 (\\d+ms) 发布 `progress_update`"},
-  "reply_deadline":      {"chapter": "14", "pattern": "Client \\*\\*必须\\*\\*在 (\\d+ms) 内应答"},
-
-  "hash_bytes":          {"chapter": "17", "pattern": "\\*\\*(\\d+) 字节原始 Blake3 摘要\\*\\*"},
-
-  "missing_list_cap":    {"chapter": "18", "pattern": "chunk 条目\\*\\*不得超过 (\\d+) 条\\*\\*"},
-  "missing_list_bytes":  {"chapter": "18", "pattern": "= \\*\\*([\\d]+ KiB)\\*\\*"},
-  "max_frame_len_18":    {"chapter": "18", "pattern": "`max_frame_len` = ([\\d.]+ MiB)"},
-
-  "probe_payload_len":    {"chapter": "07", "pattern": "### PROBE 数据包.*?`payload_len` = \\*\\*(\\d+)\\*\\*"},
-  "probe_ack_payload_len":{"chapter": "07", "pattern": "### PROBE_ACK 数据包.*?`payload_len` = \\*\\*(\\d+)\\*\\*"},
-  "probe_ack_timeout":    {"chapter": "07", "pattern": "等待 PROBE_ACK 超时（建议 (\\d+s)）"},
-
-  "batch_gap_us":         {"chapter": "11", "pattern": "`batch_gap_us` 初值 = \\*\\*(\\d+) µs\\*\\*"},
-  "adjudicate_period_ms": {"chapter": "11", "pattern": "至少每 \\*\\*(\\d+) ms\\*\\* 下发一次"},
-  "adjudicate_request_ms":{"chapter": "11", "pattern": "已超过 \\*\\*(\\d+) ms\\*\\* 时"},
-  "progress_period_ms":   {"chapter": "11", "pattern": "约每 (\\d+)ms 收到一次"},
-
-  "c06_magic_value":  {"chapter": "06", "pattern": "固定 (0x[0-9A-F]+)"},
-  "c06_magic_bytes":  {"chapter": "06", "pattern": "为 `(4C 41 4E 57)`"},
-  "c06_hdr_size":     {"chapter": "06", "pattern": "FRAME_HEADER_SIZE`? = \\*\\*(\\d+) 字节\\*\\*"},
-  "c06_max_frame":    {"chapter": "06", "pattern": "≤ \\*\\*(\\d+ MiB)\\*\\*"},
-  "c06_resync_scan":  {"chapter": "06", "pattern": "`resync_max_scan` = \\*\\*(\\d+ [A-Za-z]+)\\*\\*"},
-  "c06_crc_bytes":    {"chapter": "06", "pattern": "的\\s*\\*\\*(\\d+) 字节\\*\\*，按下列顺序拼接"},
-  "c06_f_magic_off":      {"chapter": "06", "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+magic\\b"},
-  "c06_f_magic_size":     {"chapter": "06", "pattern": "(?m)^\\d+(?:-\\d+|\\.\\.)?\\s+(\\d+)\\s+magic\\b"},
-  "c06_f_frame_len_off":  {"chapter": "06", "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+frame_len\\b"},
-  "c06_f_frame_len_size": {"chapter": "06", "pattern": "(?m)^\\d+(?:-\\d+|\\.\\.)?\\s+(\\d+)\\s+frame_len\\b"},
-  "c06_f_crc_off":        {"chapter": "06", "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+header_crc32\\b"},
-  "c06_f_crc_size":       {"chapter": "06", "pattern": "(?m)^\\d+(?:-\\d+|\\.\\.)?\\s+(\\d+)\\s+header_crc32\\b"},
-  "c06_f_msg_type_off":   {"chapter": "06", "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+msg_type\\b"},
-  "c06_f_msg_type_size":  {"chapter": "06", "pattern": "(?m)^\\d+(?:-\\d+|\\.\\.)?\\s+(\\d+)\\s+msg_type\\b"},
-  "c06_f_flags_off":      {"chapter": "06", "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+flags\\b"},
-  "c06_f_flags_size":     {"chapter": "06", "pattern": "(?m)^\\d+(?:-\\d+|\\.\\.)?\\s+(\\d+)\\s+flags\\b"},
-  "c06_f_body_ver_off":   {"chapter": "06", "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+body_version\\b"},
-  "c06_f_body_ver_size":  {"chapter": "06", "pattern": "(?m)^\\d+(?:-\\d+|\\.\\.)?\\s+(\\d+)\\s+body_version\\b"},
-  "c06_f_reserved_off":   {"chapter": "06", "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+reserved\\b"},
-  "c06_f_reserved_size":  {"chapter": "06", "pattern": "(?m)^\\d+(?:-\\d+|\\.\\.)?\\s+(\\d+)\\s+reserved\\b"},
-  "c06_f_body_off":       {"chapter": "06", "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+body\\b"},
-
-  "c07_magic_value":  {"chapter": "07", "pattern": "固定 `(0x[0-9A-F]+)`"},
-  "c07_magic_bytes":  {"chapter": "07", "pattern": "为 `(4C 41 4E 57)`"},
-  "c07_hdr_size":     {"chapter": "07", "pattern": "FRAME_HEADER_SIZE = [^\\n]*?= (\\d+) 字节"},
-  "c07_crc_bytes":    {"chapter": "07", "pattern": "之外的 \\*\\*(\\d+) 字节\\*\\*"},
-  "c07_f_magic_off":      {"chapter": "07", "pattern": "\\| magic \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"},
-  "c07_f_magic_size":     {"chapter": "07", "pattern": "\\| magic \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"},
-  "c07_f_frame_len_off":  {"chapter": "07", "pattern": "\\| frame_len \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"},
-  "c07_f_frame_len_size": {"chapter": "07", "pattern": "\\| frame_len \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"},
-  "c07_f_crc_off":        {"chapter": "07", "pattern": "\\| header_crc32 \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"},
-  "c07_f_crc_size":       {"chapter": "07", "pattern": "\\| header_crc32 \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"},
-  "c07_f_sid_off":        {"chapter": "07", "pattern": "\\| session_id \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"},
-  "c07_f_sid_size":       {"chapter": "07", "pattern": "\\| session_id \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"},
-  "c07_f_cid_off":        {"chapter": "07", "pattern": "\\| chunk_id \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"},
-  "c07_f_cid_size":       {"chapter": "07", "pattern": "\\| chunk_id \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"},
-  "c07_f_plen_off":       {"chapter": "07", "pattern": "\\| payload_len \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"},
-  "c07_f_plen_size":      {"chapter": "07", "pattern": "\\| payload_len \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"},
-  "c07_f_flags_off":      {"chapter": "07", "pattern": "\\| flags \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"},
-  "c07_f_flags_size":     {"chapter": "07", "pattern": "\\| flags \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"},
-  "c07_f_payload_off":    {"chapter": "07", "pattern": "\\| payload \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"},
-
-  "c09_conn_idle":     {"chapter": "09", "pattern": "空闲超时（\\*\\*(\\d+) 秒\\*\\*"},
-  "c09_session_to":    {"chapter": "09", "pattern": "会话连续 \\*\\*(\\d+) 秒\\*\\*"},
-  "c09_max_sessions":  {"chapter": "09", "pattern": "max_sessions_per_connection`? = \\*\\*(\\d+)\\*\\*"},
-
-  "c11_window_default":  {"chapter": "11", "pattern": "\\| `window` \\|[^\\n]*规范默认值 (\\d+)"},
-  "c11_connwin_default": {"chapter": "11", "pattern": "\\| `connection_window` \\|[^\\n]*规范默认值 (\\d+)"},
-  "c11_burst_size":      {"chapter": "11", "pattern": "`burst_size` 初值 = \\*\\*min\\((\\d+),"},
-
-  "c12_arbitration_ms": {"chapter": "12", "pattern": "至少每 (\\d+)ms 下发一次"},
-  "c12_poll_ms":        {"chapter": "12", "pattern": "每 \\*\\*(\\d+) ms\\*\\* 至少索要一次裁决"},
-  "c12_session_to":     {"chapter": "12", "pattern": "会话活动超时（(\\d+) 秒）"},
-  "c12_crc_miss_prob":  {"chapter": "12", "pattern": "约为 (2⁻³²)"},
-
-  "version":              {"chapter": "26", "pattern": "当前为 \\*\\*`([^`]+)`\\*\\*"},
-  "cf_magic":             {"chapter": "26", "pattern": "u32 (magic) \\| u32 frame_len"},
-  "cf_frame_len":         {"chapter": "26", "pattern": "u32 (frame_len) \\| u32 header_crc32"},
-  "cf_header_crc32":      {"chapter": "26", "pattern": "u32 (header_crc32) \\| u8 msg_type"},
-  "cf_msg_type":          {"chapter": "26", "pattern": "u8 (msg_type) \\| u8 flags"},
-  "cf_flags":             {"chapter": "26", "pattern": "u8 (flags) \\| u8 body_version"},
-  "cf_body_version":      {"chapter": "26", "pattern": "u8 (body_version) \\| u8 reserved"},
-  "cf_reserved":          {"chapter": "26", "pattern": "u8 (reserved) \\| body"},
-  "cf_body":              {"chapter": "26", "pattern": "\\| (body)`"},
-
-  "c24_heartbeat_period":  {"chapter": "24", "pattern": "每 (\\d+ 秒) 一次"},
-  "c24_heartbeat_timeout": {"chapter": "24", "pattern": "\\*\\*(\\d+ 秒)\\*\\*无任何消息即关闭连接"},
-
-  "c26_v01": {"chapter": "26", "pattern": "\\| (v0\\.1) \\| 草案 \\|"},
-  "c26_v02": {"chapter": "26", "pattern": "\\| (v0\\.2) \\| 草案 \\|"}
+  "sess_cap": {
+    "chapter": "13",
+    "pattern": "max_sessions_per_connection`?\uff08(\\d+)"
+  },
+  "resume_rec_bytes": {
+    "chapter": "13",
+    "pattern": "\u53d8\u957f\u533a\u6309\u987a\u5e8f\u7ed9\u51fa `resume_count` \u6761 \\*\\*(\\d+) \u5b57\u8282\u5b9a\u957f\\*\\*\u8bb0\u5f55"
+  },
+  "snapshot_rec_bytes": {
+    "chapter": "13",
+    "pattern": "\u6bcf\u6761 =\\s*\\*\\*(\\d+) \u5b57\u8282\u5b9a\u957f\\*\\*"
+  },
+  "resume_list_max": {
+    "chapter": "13",
+    "pattern": "`resume\\[\\]` \u6700\u5927 \\d+ \u00d7 \\d+ = \\*\\*([\\d,]+) \u5b57\u8282\\*\\*"
+  },
+  "max_frame_len_13": {
+    "chapter": "13",
+    "pattern": "`max_frame_len`\uff08([\\d.]+ MiB)"
+  },
+  "report_interval": {
+    "chapter": "14",
+    "pattern": "Client \u6bcf (\\d+ms) \u53d1\u9001 `missing_chunks`"
+  },
+  "progress_interval": {
+    "chapter": "14",
+    "pattern": "Client \u6bcf (\\d+ms) \u53d1\u5e03 `progress_update`"
+  },
+  "reply_deadline": {
+    "chapter": "14",
+    "pattern": "Client \\*\\*\u5fc5\u987b\\*\\*\u5728 (\\d+ms) \u5185\u5e94\u7b54"
+  },
+  "hash_bytes": {
+    "chapter": "17",
+    "pattern": "\\*\\*(\\d+) \u5b57\u8282\u539f\u59cb Blake3 \u6458\u8981\\*\\*"
+  },
+  "missing_list_cap": {
+    "chapter": "18",
+    "pattern": "chunk \u6761\u76ee\\*\\*\u4e0d\u5f97\u8d85\u8fc7 (\\d+) \u6761\\*\\*"
+  },
+  "missing_list_bytes": {
+    "chapter": "18",
+    "pattern": "= \\*\\*([\\d]+ KiB)\\*\\*"
+  },
+  "max_frame_len_18": {
+    "chapter": "18",
+    "pattern": "`max_frame_len` = ([\\d.]+ MiB)"
+  },
+  "probe_payload_len": {
+    "chapter": "07",
+    "pattern": "### PROBE \u6570\u636e\u5305.*?`payload_len` = \\*\\*(\\d+)\\*\\*"
+  },
+  "probe_ack_payload_len": {
+    "chapter": "07",
+    "pattern": "### PROBE_ACK \u6570\u636e\u5305.*?`payload_len` = \\*\\*(\\d+)\\*\\*"
+  },
+  "probe_ack_timeout": {
+    "chapter": "07",
+    "pattern": "\u7b49\u5f85 PROBE_ACK \u8d85\u65f6\uff08\u5efa\u8bae (\\d+s)\uff09"
+  },
+  "batch_gap_us": {
+    "chapter": "11",
+    "pattern": "`batch_gap_us` \u521d\u503c = \\*\\*(\\d+) \u00b5s\\*\\*"
+  },
+  "adjudicate_period_ms": {
+    "chapter": "11",
+    "pattern": "\u81f3\u5c11\u6bcf \\*\\*(\\d+) ms\\*\\* \u4e0b\u53d1\u4e00\u6b21"
+  },
+  "adjudicate_request_ms": {
+    "chapter": "11",
+    "pattern": "\u5df2\u8d85\u8fc7 \\*\\*(\\d+) ms\\*\\* \u65f6"
+  },
+  "progress_period_ms": {
+    "chapter": "11",
+    "pattern": "\u7ea6\u6bcf (\\d+)ms \u6536\u5230\u4e00\u6b21"
+  },
+  "c06_magic_value": {
+    "chapter": "06",
+    "pattern": "\u56fa\u5b9a (0x[0-9A-F]+)"
+  },
+  "c06_magic_bytes": {
+    "chapter": "06",
+    "pattern": "\u4e3a `(4C 41 4E 57)`"
+  },
+  "c06_hdr_size": {
+    "chapter": "06",
+    "pattern": "FRAME_HEADER_SIZE`? = \\*\\*(\\d+) \u5b57\u8282\\*\\*"
+  },
+  "c06_max_frame": {
+    "chapter": "06",
+    "pattern": "\u2264 \\*\\*(\\d+ MiB)\\*\\*"
+  },
+  "c06_resync_scan": {
+    "chapter": "06",
+    "pattern": "`resync_max_scan` = \\*\\*(\\d+ [A-Za-z]+)\\*\\*"
+  },
+  "c06_crc_bytes": {
+    "chapter": "06",
+    "pattern": "\u7684\\s*\\*\\*(\\d+) \u5b57\u8282\\*\\*\uff0c\u6309\u4e0b\u5217\u987a\u5e8f\u62fc\u63a5"
+  },
+  "c06_f_magic_off": {
+    "chapter": "06",
+    "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+magic\\b"
+  },
+  "c06_f_magic_size": {
+    "chapter": "06",
+    "pattern": "(?m)^\\d+(?:-\\d+|\\.\\.)?\\s+(\\d+)\\s+magic\\b"
+  },
+  "c06_f_frame_len_off": {
+    "chapter": "06",
+    "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+frame_len\\b"
+  },
+  "c06_f_frame_len_size": {
+    "chapter": "06",
+    "pattern": "(?m)^\\d+(?:-\\d+|\\.\\.)?\\s+(\\d+)\\s+frame_len\\b"
+  },
+  "c06_f_crc_off": {
+    "chapter": "06",
+    "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+header_crc32\\b"
+  },
+  "c06_f_crc_size": {
+    "chapter": "06",
+    "pattern": "(?m)^\\d+(?:-\\d+|\\.\\.)?\\s+(\\d+)\\s+header_crc32\\b"
+  },
+  "c06_f_msg_type_off": {
+    "chapter": "06",
+    "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+msg_type\\b"
+  },
+  "c06_f_msg_type_size": {
+    "chapter": "06",
+    "pattern": "(?m)^\\d+(?:-\\d+|\\.\\.)?\\s+(\\d+)\\s+msg_type\\b"
+  },
+  "c06_f_flags_off": {
+    "chapter": "06",
+    "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+flags\\b"
+  },
+  "c06_f_flags_size": {
+    "chapter": "06",
+    "pattern": "(?m)^\\d+(?:-\\d+|\\.\\.)?\\s+(\\d+)\\s+flags\\b"
+  },
+  "c06_f_body_ver_off": {
+    "chapter": "06",
+    "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+body_version\\b"
+  },
+  "c06_f_body_ver_size": {
+    "chapter": "06",
+    "pattern": "(?m)^\\d+(?:-\\d+|\\.\\.)?\\s+(\\d+)\\s+body_version\\b"
+  },
+  "c06_f_reserved_off": {
+    "chapter": "06",
+    "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+reserved\\b"
+  },
+  "c06_f_reserved_size": {
+    "chapter": "06",
+    "pattern": "(?m)^\\d+(?:-\\d+|\\.\\.)?\\s+(\\d+)\\s+reserved\\b"
+  },
+  "c06_f_body_off": {
+    "chapter": "06",
+    "pattern": "(?m)^(\\d+(?:-\\d+|\\.\\.)?)\\s+\\S+\\s+body\\b"
+  },
+  "c07_magic_value": {
+    "chapter": "07",
+    "pattern": "\u56fa\u5b9a `(0x[0-9A-F]+)`"
+  },
+  "c07_magic_bytes": {
+    "chapter": "07",
+    "pattern": "\u4e3a `(4C 41 4E 57)`"
+  },
+  "c07_hdr_size": {
+    "chapter": "07",
+    "pattern": "FRAME_HEADER_SIZE = [^\\n]*?= (\\d+) \u5b57\u8282"
+  },
+  "c07_crc_bytes": {
+    "chapter": "07",
+    "pattern": "\u4e4b\u5916\u7684 \\*\\*(\\d+) \u5b57\u8282\\*\\*"
+  },
+  "c07_f_magic_off": {
+    "chapter": "07",
+    "pattern": "\\| magic \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"
+  },
+  "c07_f_magic_size": {
+    "chapter": "07",
+    "pattern": "\\| magic \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"
+  },
+  "c07_f_frame_len_off": {
+    "chapter": "07",
+    "pattern": "\\| frame_len \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"
+  },
+  "c07_f_frame_len_size": {
+    "chapter": "07",
+    "pattern": "\\| frame_len \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"
+  },
+  "c07_f_crc_off": {
+    "chapter": "07",
+    "pattern": "\\| header_crc32 \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"
+  },
+  "c07_f_crc_size": {
+    "chapter": "07",
+    "pattern": "\\| header_crc32 \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"
+  },
+  "c07_f_sid_off": {
+    "chapter": "07",
+    "pattern": "\\| session_id \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"
+  },
+  "c07_f_sid_size": {
+    "chapter": "07",
+    "pattern": "\\| session_id \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"
+  },
+  "c07_f_cid_off": {
+    "chapter": "07",
+    "pattern": "\\| chunk_id \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"
+  },
+  "c07_f_cid_size": {
+    "chapter": "07",
+    "pattern": "\\| chunk_id \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"
+  },
+  "c07_f_plen_off": {
+    "chapter": "07",
+    "pattern": "\\| payload_len \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"
+  },
+  "c07_f_plen_size": {
+    "chapter": "07",
+    "pattern": "\\| payload_len \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"
+  },
+  "c07_f_flags_off": {
+    "chapter": "07",
+    "pattern": "\\| flags \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"
+  },
+  "c07_f_flags_size": {
+    "chapter": "07",
+    "pattern": "\\| flags \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"
+  },
+  "c07_f_payload_off": {
+    "chapter": "07",
+    "pattern": "\\| payload \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"
+  },
+  "c09_conn_idle": {
+    "chapter": "09",
+    "pattern": "\u7a7a\u95f2\u8d85\u65f6\uff08\\*\\*(\\d+) \u79d2\\*\\*"
+  },
+  "c09_session_to": {
+    "chapter": "09",
+    "pattern": "\u4f1a\u8bdd\u8fde\u7eed \\*\\*(\\d+) \u79d2\\*\\*"
+  },
+  "c09_max_sessions": {
+    "chapter": "09",
+    "pattern": "max_sessions_per_connection`? = \\*\\*(\\d+)\\*\\*"
+  },
+  "c11_window_default": {
+    "chapter": "11",
+    "pattern": "\\| `window` \\|[^\\n]*\u89c4\u8303\u9ed8\u8ba4\u503c (\\d+)"
+  },
+  "c11_connwin_default": {
+    "chapter": "11",
+    "pattern": "\\| `connection_window` \\|[^\\n]*\u89c4\u8303\u9ed8\u8ba4\u503c (\\d+)"
+  },
+  "c11_burst_size": {
+    "chapter": "11",
+    "pattern": "`burst_size` \u521d\u503c = \\*\\*min\\((\\d+),"
+  },
+  "c12_arbitration_ms": {
+    "chapter": "12",
+    "pattern": "\u81f3\u5c11\u6bcf (\\d+)ms \u4e0b\u53d1\u4e00\u6b21"
+  },
+  "c12_poll_ms": {
+    "chapter": "12",
+    "pattern": "\u6bcf \\*\\*(\\d+) ms\\*\\* \u81f3\u5c11\u7d22\u8981\u4e00\u6b21\u88c1\u51b3"
+  },
+  "c12_session_to": {
+    "chapter": "12",
+    "pattern": "\u4f1a\u8bdd\u6d3b\u52a8\u8d85\u65f6\uff08(\\d+) \u79d2\uff09"
+  },
+  "c12_crc_miss_prob": {
+    "chapter": "12",
+    "pattern": "\u7ea6\u4e3a (2\u207b\u00b3\u00b2)"
+  },
+  "version": {
+    "chapter": "26",
+    "pattern": "\u5f53\u524d\u4e3a \\*\\*`([^`]+)`\\*\\*"
+  },
+  "cf_magic": {
+    "chapter": "26",
+    "pattern": "u32 (magic) \\| u32 frame_len"
+  },
+  "cf_frame_len": {
+    "chapter": "26",
+    "pattern": "u32 (frame_len) \\| u32 header_crc32"
+  },
+  "cf_header_crc32": {
+    "chapter": "26",
+    "pattern": "u32 (header_crc32) \\| u8 msg_type"
+  },
+  "cf_msg_type": {
+    "chapter": "26",
+    "pattern": "u8 (msg_type) \\| u8 flags"
+  },
+  "cf_flags": {
+    "chapter": "26",
+    "pattern": "u8 (flags) \\| u8 body_version"
+  },
+  "cf_body_version": {
+    "chapter": "26",
+    "pattern": "u8 (body_version) \\| u8 reserved"
+  },
+  "cf_reserved": {
+    "chapter": "26",
+    "pattern": "u8 (reserved) \\| body"
+  },
+  "cf_body": {
+    "chapter": "26",
+    "pattern": "\\| (body)`"
+  },
+  "c24_heartbeat_period": {
+    "chapter": "24",
+    "pattern": "\u6bcf (\\d+) \u79d2"
+  },
+  "c24_heartbeat_timeout": {
+    "chapter": "24",
+    "pattern": "\\*\\*(\\d+ \u79d2)\\*\\*\u65e0\u4efb\u4f55\u6d88\u606f\u5373\u5173\u95ed\u8fde\u63a5"
+  },
+  "c26_v01": {
+    "chapter": "26",
+    "pattern": "\\| (v0\\.1) \\| \u8349\u6848 \\|"
+  },
+  "c26_v02": {
+    "chapter": "26",
+    "pattern": "\\| (v0\\.2) \\| \u8349\u6848 \\|"
+  }
 }

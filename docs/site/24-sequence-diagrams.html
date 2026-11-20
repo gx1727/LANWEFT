@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>24 端到端时序图 (End-to-End Sequence) — LANWEFT</title>
+<title>24 端到端时序（TCP + UDP） — LANWEFT</title>
 <link rel="stylesheet" href="style.css">
 <style>
   .seq-wrap{
@@ -38,7 +38,6 @@
   .bg-chip{fill:#f2f4f8;stroke:#e2e6ee}
   .hl{fill:#eef3ff;stroke:#cfdcfb}
   .phase-bg{fill:#fafbfc}
-  table.sym td:first-child{white-space:nowrap}
 </style>
 </head>
 <body>
@@ -51,25 +50,367 @@
     <a href="../spec/24-sequence-diagrams.md">规范源文</a>
   </nav>
 
-  <h1>端到端时序图 (End-to-End Sequence)</h1>
+  <h1>24 端到端时序（TCP + UDP）</h1>
 
+  <!-- ============ 本章要点（导读文案，手写片段） ============ -->
+    <div class="note blue">
+    <strong>本章要点</strong>：控制面走 TCP 长连接，数据面走 UDP。<code>login</code> <strong>必须</strong>是连接上的
+    <strong>第一条</strong>消息，<code>login_ack.sessions</code> 是<strong>权威快照</strong>。
+    接收方<strong>必须</strong>周期性下发缺失裁决（即使列表为空），它是发送方推进的<strong>唯一依据</strong>；
+    发送方 1000 ms 未收到裁决时<strong>必须</strong>主动索要。
+    文件级失配走<strong>恢复阶梯</strong>：①摘要对帐（零内容流量定位差异区间）→ ②复核轮（全量重传，至多一次）→ ③中止。
+    主动投递方向恒为 <strong>download</strong>，Server <strong>必须</strong>等到 <code>UDP_PROBE</code> 才可推送；
+    共享清单的通知<strong>不保证送达</strong>，拉取路径复用既有下载流程。
+  </div>
+
+
+  <!-- ============ 主时序图：控制面 TCP + 数据面 UDP（搬自原页面） ============ -->
   <div class="toolbar">
-    <div class="seg" id="dir">
-      <button data-dir="upload" class="active">上传方向 · Client → Server</button>
-      <button data-dir="download">下载方向 · Server → Client</button>
-    </div>
-    <label class="chk"><input type="checkbox" id="states" checked> 显示状态标注</label>
-    <span style="font-size:12.5px;color:var(--ink-2)">
-      实线 = 控制面 TCP 帧 · 虚线 = 数据面 UDP 包 · 灰框 = 说明 · 胶囊 = 状态转移
-    </span>
+  <div class="seg" id="dir">
+    <button data-dir="upload" class="active">上传方向 · Client → Server</button>
+    <button data-dir="download">下载方向 · Server → Client</button>
   </div>
+  <label class="chk"><input type="checkbox" id="states" checked> 显示状态标注</label>
+  <span style="font-size:12.5px;color:var(--ink-2)">
+    实线 = 控制面 TCP 帧 · 虚线 = 数据面 UDP 包 · 灰框 = 说明 · 胶囊 = 状态转移
+  </span>
+</div>
 
-  <div class="seq-wrap">
-    <svg id="seq" viewBox="0 0 1000 1200" role="img" aria-label="端到端时序图"></svg>
-  </div>
+<div class="seq-wrap">
+  <svg id="seq" viewBox="0 0 1000 1200" role="img" aria-label="端到端时序图"></svg>
+</div>
+
+<script>
+(function(){
+  const HB_PERIOD = '10';
+  const HB_TIMEOUT = '30 秒';
+  const PROBE_LEN = '8';
+  const PROBE_ACK_LEN = '9';
+  const PROBE_TIMEOUT = '2s';
+  const BATCH_GAP = '2000';
+  const REPORT = '50ms';
+  const REQUEST = '1000';
+  const PROGRESS = '500ms';
+
+  const LANE = {
+    C:{x:250, label:'Client', sub:''},
+    S:{x:860, label:'Server', sub:''}
+  };
+  const W = 1160;
+
+  /* ---------- 上传方向：Client = 发送侧，Server = 接收侧 ---------- */
+  const UPLOAD = [
+    {sep:'① 控制连接建立（TCP 长连接）'},
+    {from:'C', to:'S', type:'conn', label:'TCP connect'},
+    {from:'C', to:'S', type:'tcp', label:'login {proto_major/minor/patch, device_id, token, resume[]}'},
+    {from:'S', to:'S', type:'self', label:'校验认证与协议版本（21 章）'},
+    {from:'S', to:'C', type:'tcp', label:'login_ack {result, code, proto_major/minor/patch, sessions[] 权威快照}'},
+
+    {sep:'①-2 心跳（长连接保活）'},
+    {from:'C', to:'S', type:'tcp', label:'ping {ts}'},
+    {from:'S', to:'C', type:'tcp', label:'pong {ts}'},
+    {note:'双向必须每 '+HB_PERIOD+' 一次；'+HB_TIMEOUT+' 无任何消息即关闭连接（见 06 章）'},
+
+    {sep:'② 会话建立'},
+    {from:'C', to:'S', type:'tcp', label:'upload_start {size, mtime, file_hash, file_name}',
+      chip:{side:'C', text:'Client: INIT → NEGOTIATING'}, chip2:{side:'S', text:'Server: INIT → NEGOTIATING'}},
+    {from:'S', to:'S', type:'self', label:'既有 file_hash 校验（秒传判定）'},
+    {from:'S', to:'C', type:'tcp', label:'upload_accept {session_id, chunk_count, window, connection_window, chunk_size, udp_port, tcp_port, file_exists}',
+      chip:{side:'C', text:'Client: NEGOTIATING → TRANSFERRING'}, chip2:{side:'S', text:'Server: NEGOTIATING → TRANSFERRING'}},
+    {note:'若 file_exists 为真：发送侧直接 NEGOTIATING → COMPLETED；接收侧 NEGOTIATING → VERIFY → COMMIT → COMPLETED（秒传不产生位图）'},
+
+    {sep:'③ UDP 可用性探测（数据面）'},
+    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {payload_len='+PROBE_LEN+', session_id}'},
+    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {payload_len='+PROBE_ACK_LEN+'}'},
+    {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
+    {note:'等待 PROBE_ACK 超时（建议 '+PROBE_TIMEOUT+'）→ 回退数据面 TCP；是否支持降级由 tcp_port 表达（见 07 章）'},
+
+    {sep:'④ 数据传输（数据面 UDP，无逐包 ACK）'},
+    {from:'C', to:'S', type:'udp', label:'chunk #0 … #N（批量 burst_size，批间隔 batch_gap_us = '+BATCH_GAP+'µs）',
+      chip:{side:'C', text:'Client: 发送侧，仅更新「在途量」估计'}, chip2:{side:'S', text:'Server: 接收侧'}},
+    {from:'S', to:'S', type:'self', label:'校验头 + crc32 → 随机写盘 → 标记位图'},
+
+    {sep:'⑤ 缺失裁决与重传（可靠性由接收方裁决提供）'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, chunks=[]} —— 空列表也必须下发'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, chunks=[…]} —— 报告自己尚未收到的块'},
+    {from:'C', to:'S', type:'udp', label:'重传缺失 chunk（重传优先级高于新数据）'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=request} —— '+REQUEST+' ms 未收到裁决时索要'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report} —— '+REPORT+' 内应答'},
+    {from:'S', to:'C', type:'tcp', label:'progress_update {received, total} —— 约 '+PROGRESS+'，供发送侧估算丢包率并驱动 AIMD'},
+
+    {sep:'⑥ 校验与提交（完成消息由接收方发布）'},
+    {from:'S', to:'S', type:'self', label:'位图全真 → VERIFY：文件级 Blake3 校验',
+      chip:{side:'S', text:'Server: TRANSFERRING → VERIFY'}},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {flags.bit1=复核轮, chunks=[]} —— 文件级失配时',
+      chip:{side:'S', text:'Server: VERIFY → TRANSFERRING（清空位图）'}},
+    {from:'C', to:'S', type:'udp', label:'全量重发（重新读取源文件，chunk #0 … #N）'},
+    {from:'S', to:'S', type:'self', label:'复核轮后重新校验文件级 Blake3（至多一次）'},
+    {from:'S', to:'S', type:'self', label:'COMMIT：原子重命名'},
+    {from:'S', to:'C', type:'tcp', label:'upload_complete {result, code, file_hash, asset_id}',
+      chip:{side:'C', text:'Client: TRANSFERRING → COMPLETED'}, chip2:{side:'S', text:'Server: COMMIT → COMPLETED'}},
+    {from:'C', to:'S', type:'tcp', label:'complete_ack —— 发送方持久化结果后回复'},
+
+    {sep:'⑥-2 摘要对帐（文件级失配时，恢复阶梯第 ① 级）'},
+    {from:'S', to:'C', type:'tcp', label:'reconcile_request {ranges=[根区间]}', chip:{side:'S', text:'接收方发起'}},
+    {from:'C', to:'S', type:'tcp', label:'reconcile_response {digests[]}', chip:{side:'C', text:'发送方返回该区间摘要'}},
+    {from:'S', to:'S', type:'self', label:'双方逐层二分比对（每层一次往返）'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, 可疑块} —— 复用既有裁决机制'},
+    {note:'根区间摘要一致 → 源文件与请求的 file_hash 不符 → session_abort(SOURCE_FILE_MISMATCH)；对帐后仍失配 → 进入复核轮'},
+
+    {sep:'⑦ 中断与恢复'},
+    {note:'路径一 · 断线重连（连接重建）：走 login 的恢复列表 + login_ack 的权威快照'},
+    {from:'C', to:'S', type:'conn', label:'TCP connect（重建）'},
+    {from:'C', to:'S', type:'tcp', label:'login {…, resume[]{session_id, next_chunk_id, missing_count}}'},
+    {from:'S', to:'C', type:'tcp', label:'login_ack {…, sessions[]{权威快照：位图 / 续传位置 / 数据面端口}}'},
+    {note:'路径二 · 暂停后恢复（连接存活）：走 resume_session / resume_ack'},
+    {from:'C', to:'S', type:'tcp', label:'session_pause → resume_session {session_id, …}',
+      chip:{side:'C', text:'双方: TRANSFERRING → PAUSED'}},
+    {from:'S', to:'C', type:'tcp', label:'resume_ack {result, next_chunk_id, missing_count, udp_port, connection_window}',
+      chip:{side:'S', text:'双方: PAUSED → TRANSFERRING'}}
+  ];
+
+  /* ---------- 下载方向：Server = 发送侧，Client = 接收侧 ---------- */
+  const DOWNLOAD = [
+    {sep:'① 控制连接建立（TCP 长连接）'},
+    {from:'C', to:'S', type:'conn', label:'TCP connect'},
+    {from:'C', to:'S', type:'tcp', label:'login {proto_major/minor/patch, device_id, token, resume[]}'},
+    {from:'S', to:'S', type:'self', label:'校验认证与协议版本（21 章）'},
+    {from:'S', to:'C', type:'tcp', label:'login_ack {result, code, proto_major/minor/patch, sessions[] 权威快照}'},
+
+    {sep:'①-2 心跳（长连接保活）'},
+    {from:'S', to:'C', type:'tcp', label:'ping {ts}'},
+    {from:'C', to:'S', type:'tcp', label:'pong {ts}'},
+    {note:'双向必须每 '+HB_PERIOD+' 一次；'+HB_TIMEOUT+' 无任何消息即关闭连接（见 06 章）'},
+
+    {sep:'② 会话建立'},
+    {from:'C', to:'S', type:'tcp', label:'download_start {size, chunk_size, file_hash, file_name}',
+      chip:{side:'C', text:'Client: INIT → NEGOTIATING'}, chip2:{side:'S', text:'Server: INIT → NEGOTIATING'}},
+    {from:'S', to:'C', type:'tcp', label:'download_accept {session_id, chunk_count, window, connection_window, chunk_size, udp_port, tcp_port}',
+      chip:{side:'C', text:'Client: NEGOTIATING → TRANSFERRING'}, chip2:{side:'S', text:'Server: NEGOTIATING → TRANSFERRING'}},
+
+    {sep:'③ UDP 可用性探测（数据面）'},
+    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {payload_len='+PROBE_LEN+', session_id}'},
+    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {payload_len='+PROBE_ACK_LEN+'}'},
+    {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
+    {note:'Server 以 PROBE 报文的源地址:端口作为该会话的对端数据面地址；udp_ready 只确认当前探测，不改变端口（见 14 章）'},
+
+    {sep:'④ 数据传输（数据面 UDP，方向与上传相反）'},
+    {from:'S', to:'C', type:'udp', label:'chunk #0 … #N（Server 批量发送，burst_size / batch_gap_us）',
+      chip:{side:'S', text:'Server: 发送侧'}, chip2:{side:'C', text:'Client: 接收侧'}},
+    {from:'C', to:'C', type:'self', label:'校验头 + crc32 → 随机写盘 → 标记位图'},
+
+    {sep:'⑤ 缺失裁决与重传（裁决方恒为接收方）'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report, chunks=[]} —— 空列表也必须下发'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report, chunks=[…]} —— Client 报告自己尚未收到的块'},
+    {from:'S', to:'C', type:'udp', label:'Server 重传缺失 chunk（优先级高于新数据）'},
+    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=request} —— '+REQUEST+' ms 未收到裁决时索要'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report} —— '+REPORT+' 内应答'},
+    {from:'C', to:'S', type:'tcp', label:'progress_update {received, total} —— 约 '+PROGRESS+'，由接收方 Client 发布'},
+
+    {sep:'⑥ 校验与提交（完成消息由接收方 Client 发布）'},
+    {from:'C', to:'C', type:'self', label:'位图全真 → VERIFY：文件级 Blake3 校验',
+      chip:{side:'C', text:'Client: TRANSFERRING → VERIFY'}},
+    {from:'C', to:'C', type:'self', label:'COMMIT：原子重命名'},
+    {from:'C', to:'S', type:'tcp', label:'download_complete {result, code, file_hash}',
+      chip:{side:'C', text:'Client: COMMIT → COMPLETED'}, chip2:{side:'S', text:'Server: TRANSFERRING → COMPLETED'}},
+    {from:'S', to:'C', type:'tcp', label:'complete_ack —— 发送方持久化结果后回复'},
+
+    {sep:'⑥-2 摘要对帐（文件级失配时，恢复阶梯第 ① 级）'},
+    {from:'C', to:'S', type:'tcp', label:'reconcile_request {ranges=[根区间]}', chip:{side:'C', text:'接收方发起'}},
+    {from:'S', to:'C', type:'tcp', label:'reconcile_response {digests[]}', chip:{side:'S', text:'发送方返回该区间摘要'}},
+    {from:'C', to:'C', type:'self', label:'双方逐层二分比对（每层一次往返）'},
+    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report, 可疑块} —— 复用既有裁决机制'},
+    {note:'根区间摘要一致 → 源文件与请求的 file_hash 不符 → session_abort(SOURCE_FILE_MISMATCH)；对帐后仍失配 → 进入复核轮'},
+
+    {sep:'⑦ 中断与恢复'},
+    {note:'路径一 · 断线重连：恢复提示由 Client（接收方）提供 —— Server 没有 Client 的位图'},
+    {from:'C', to:'S', type:'conn', label:'TCP connect（重建）'},
+    {from:'C', to:'S', type:'tcp', label:'login {…, resume[]{session_id, next_chunk_id, missing_count}}（必须携带）'},
+    {from:'S', to:'C', type:'tcp', label:'login_ack {…, sessions[]{权威快照：位图 / 续传位置 / 数据面端口}}'},
+    {note:'路径二 · 暂停后恢复：resume_session 恒由 Client 发起'},
+    {from:'C', to:'S', type:'tcp', label:'session_pause → resume_session {session_id, …}'},
+    {from:'S', to:'C', type:'tcp', label:'resume_ack {result, next_chunk_id, missing_count, udp_port, connection_window}',
+      chip:{side:'C', text:'双方: PAUSED → TRANSFERRING'}}
+  ];
+
+  /* ---------- SVG 渲染 ---------- */
+  const NS = 'http://www.w3.org/2000/svg';
+  function el(name, attrs, text){
+    const n = document.createElementNS(NS, name);
+    for(const k in attrs) n.setAttribute(k, attrs[k]);
+    if(text != null) n.textContent = text;
+    return n;
+  }
+
+  /* 估算文本宽度：中日韩字符按 13px，其余按 7px */
+  function textWidth(s){
+    let w = 0;
+    for(const ch of String(s)) w += (ch.charCodeAt(0) > 255 ? 13 : 7);
+    return w;
+  }
+  /* 按像素宽度折行 */
+  function wrap(text, maxWidth){
+    const s = String(text);
+    if(textWidth(s) <= maxWidth) return [s];
+    const lines = [];
+    let cur = '', curW = 0;
+    for(const ch of s){
+      const w = (ch.charCodeAt(0) > 255 ? 13 : 7);
+      if(curW + w > maxWidth && cur.length){
+        lines.push(cur); cur = ''; curW = 0;
+      }
+      cur += ch; curW += w;
+    }
+    if(cur) lines.push(cur);
+    return lines;
+  }
+
+  const ARROW = {
+    tcp:  {cls:'a-tcp',  head:'arrow-tcp'},
+    udp:  {cls:'a-udp',  head:'arrow-udp'},
+    conn: {cls:'a-conn', head:'arrow-conn'}
+  };
+
+  function render(seq, showStates, laneSubs){
+    const svg = document.getElementById('seq');
+    while(svg.firstChild) svg.removeChild(svg.firstChild);
+
+    const defs = el('defs');
+    ['tcp','udp','conn'].forEach(function(k){
+      const m = el('marker', {id:'mk-'+k, viewBox:'0 0 10 10', refX:'9', refY:'5',
+        markerWidth:'7', markerHeight:'7', orient:'auto-start-reverse'});
+      m.appendChild(el('path', {d:'M 0 0 L 10 5 L 0 10 z', fill:ARROW[k].head}));
+      defs.appendChild(m);
+    });
+    svg.appendChild(defs);
+
+    let y = 54;
+    const lanes = ['C','S'];
+
+    lanes.forEach(function(id){
+      const L = LANE[id];
+      svg.appendChild(el('rect', {x:L.x-118, y:14, width:236, height:44, rx:12,
+        fill:'#fff', stroke:'#d8dde6'}));
+      svg.appendChild(el('text', {x:L.x, y:36, 'text-anchor':'middle', class:'lane-title'}, L.label));
+      const sub = laneSubs[id];
+      if(sub) svg.appendChild(el('text', {x:L.x, y:52, 'text-anchor':'middle', class:'lane-sub'}, sub));
+    });
+
+    seq.forEach(function(it){
+      if(it.sep){
+        y += 26;
+        svg.appendChild(el('line', {x1:40, y1:y, x2:W-40, y2:y, stroke:'#e2e6ee', 'stroke-width':1}));
+        svg.appendChild(el('text', {x:40, y:y-8, class:'sep-t'}, it.sep));
+        y += 22;
+        return;
+      }
+
+      if(it.note){
+        const lines = wrap(it.note, W - 200);
+        const h = 14 + lines.length * 19;
+        svg.appendChild(el('rect', {x:80, y:y, width:W-160, height:h, rx:8, class:'bg-note'}));
+        lines.forEach(function(ln, i){
+          svg.appendChild(el('text', {x:96, y:y+22+i*19, class:'note-t'}, ln));
+        });
+        y += h + 18;
+        return;
+      }
+
+      const L1 = LANE[it.from], L2 = LANE[it.to];
+      const lineY = y;
+
+      let chipH = 0;
+      const isSelf = (it.from === it.to);
+      const mid = isSelf ? L1.x : (L1.x + L2.x)/2;
+
+      if(it.from === it.to){
+        const x = L1.x, w = 34, r = 11;
+        const d = `M ${x},${lineY} h ${w-12} a ${r},${r} 0 0 1 ${r},${r} v ${24} a ${r},${r} 0 0 1 ${-r},${r} h ${-(w-12)}`;
+        svg.appendChild(el('path', {d:d, class:'a-tcp', 'marker-end':'url(#mk-tcp)'}));
+        const tx = x + w + 18;
+        const lines = wrap(it.label, 420);
+        lines.forEach(function(ln, i){
+          svg.appendChild(el('text', {x:tx, y:lineY+16+i*17, 'text-anchor':'start', class:'msg-t'}, ln));
+        });
+        if(showStates && it.chip){
+          drawChip(svg, it.chip, lineY + 56, x);
+          chipH = 24;
+          if(it.chip2){ drawChip(svg, it.chip2, lineY + 80, x); chipH = 48; }
+        }
+        y += 46 + chipH + 14;
+        return;
+      }
+
+      const a = ARROW[it.type] || ARROW.tcp;
+      svg.appendChild(el('line', {x1:L1.x, y1:lineY, x2:L2.x, y2:lineY, class:a.cls,
+        'marker-end':'url(#mk-'+(it.type||'tcp')+')'}));
+      const lines = wrap(it.label, 540);
+      if(showStates && it.chip){
+        drawChip(svg, it.chip, lineY + 16, mid);
+        chipH = 22;
+        if(it.chip2){ drawChip(svg, it.chip2, lineY + 40, mid); chipH = 46; }
+      }
+      lines.forEach(function(ln, i){
+        const ty = lineY - 12 - (lines.length - 1 - i) * 16;
+        svg.appendChild(el('text', {x:mid, y:ty, 'text-anchor':'middle', class:'msg-t'}, ln));
+      });
+      y += 34 + lines.length * 4 + chipH + 14;
+    });
+
+    const bottom = y + 10;
+    lanes.forEach(function(id){
+      const L = LANE[id];
+      svg.appendChild(el('line', {x1:L.x, y1:66, x2:L.x, y2:bottom, class:'lifeline'}));
+    });
+    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + bottom);
+  }
+
+  function drawChip(svg, chip, y, centerX){
+    const text = chip.text;
+    const approx = textWidth(text) + 26;
+    const x = centerX - approx/2;
+    const g = el('g');
+    g.appendChild(el('rect', {x:x, y:y, width:approx, height:19, rx:9.5, class:'bg-chip'}));
+    g.appendChild(el('text', {x:x+13, y:y+13.5, class:'chip-t'}, text));
+    svg.appendChild(g);
+  }
+
+  const SUBS = {
+    upload:   {C:'发送侧 (upload)', S:'接收侧 (upload)'},
+    download: {C:'接收侧 (download)', S:'发送侧 (download)'}
+  };
+
+  let dir = 'upload';
+  function paint(){
+    const showStates = document.getElementById('states').checked;
+    const seq = (dir === 'upload' ? UPLOAD : DOWNLOAD);
+    render(seq, showStates, SUBS[dir]);
+  }
+
+  function setDir(d){
+    dir = (d === 'download') ? 'download' : 'upload';
+    Array.prototype.forEach.call(document.querySelectorAll('#dir button'), function(b){
+      b.classList.toggle('active', b.dataset.dir === dir);
+    });
+    paint();
+  }
+
+  document.getElementById('dir').addEventListener('click', function(e){
+    const b = e.target.closest('button');
+    if(!b) return;
+    setDir(b.dataset.dir);
+  });
+  document.getElementById('states').addEventListener('change', paint);
+
+  const params = new URLSearchParams(location.search);
+  if(params.get('states') === '0') document.getElementById('states').checked = false;
+  setDir(params.get('dir') || 'upload');
+})();
+</script>
+
 
   <!-- ============ 补充时序：摘要对帐 / 复核轮 / 主动投递 / 共享清单 ============ -->
-  <h2>补充时序：摘要对帐 · 复核轮 · 主动投递 · 共享清单与拉取</h2>
+    <h2>补充时序：摘要对帐 · 复核轮 · 主动投递 · 共享清单与拉取</h2>
 
   <div class="legend">
     <span><span class="swatch" style="background:var(--b-type)"></span>控制面消息（发布方所在列）</span>
@@ -119,10 +460,13 @@
       <div class="cell ruler-title">发送方</div>
 
       <div class="cell f-type">→ missing_chunks {mode=report, flags.bit1=复核轮, chunks=[]}</div>
+      <div class="cell f-muted">识别复核轮标志，准备全量重发</div>
+
       <div class="cell f-muted">清空位图（临时文件保留）→ 重置顺序流与在途量基线</div>
+      <div class="cell f-muted">重新读取源文件，从 chunk_id = 0 起全量重发</div>
 
       <div class="cell f-muted">乱序写盘并标记位图</div>
-      <div class="cell f-type">← 重新读取源文件，从 chunk_id = 0 起全量重发</div>
+      <div class="cell f-type">← 全量数据流（UDP / TCP 数据面）</div>
 
       <div class="cell f-digest">重新校验文件级 Blake3</div>
       <div class="cell f-muted">对同一会话最多响应一次复核轮</div>
@@ -142,11 +486,14 @@
       <div class="cell f-muted">（Client 未发起请求）</div>
       <div class="cell f-muted">生成 session_id 与全套会话参数，创建会话（NEGOTIATING）</div>
 
-      <div class="cell f-muted">接收并决策（策略 / 配额 / 用户）—— 可以拒绝</div>
-      <div class="cell f-type">← delivery_offer {session_id, 参数, file_hash, file_name}</div>
+      <div class="cell f-type">← delivery_offer {session_id, 全套会话参数, file_hash, file_name}</div>
+      <div class="cell f-muted">创建会话后等待接收方决策</div>
 
-      <div class="cell f-type">→ delivery_response {result=success}（或 result=fail + code）</div>
+      <div class="cell f-muted">接收方决策（策略 / 配额 / 用户）—— 可以拒绝</div>
       <div class="cell f-muted">收到接受后，仍须等待该会话的 UDP_PROBE</div>
+
+      <div class="cell f-type">→ delivery_response {result=success}（result=fail + code 即拒绝）</div>
+      <div class="cell f-muted">拒绝是正常协议结果；重复投递必须被幂等忽略</div>
 
       <div class="cell f-type">→ UDP PROBE（从接收方数据面 socket 发出）</div>
       <div class="cell f-type">← UDP PROBE_ACK（从 Server 数据面端口返回，打通 NAT 映射）</div>
@@ -160,7 +507,7 @@
   </div>
   <div class="caption">
     Server <strong>必须</strong>等到 PROBE 才可推送（20 章）；方向恒为 <strong>download</strong>，
-    完成消息恒由接收方发布。
+    完成消息恒由接收方发布；传输过程与普通下载<strong>完全一致</strong>。
   </div>
 
   <!-- ============ 共享清单与拉取时序 ============ -->
@@ -197,422 +544,211 @@
     拉取路径<strong>不引入任何新机制</strong> —— 与普通下载完全一致。
   </div>
 
-  <!-- ============ 断线互操作验收条件 ============ -->
-  <h3>断线互操作验收条件</h3>
-  <div class="card">
-    <table>
-      <thead><tr><th>断线点</th><th>重连后的可观察结果</th></tr></thead>
-      <tbody>
-        <tr>
-          <td>上传已提交，Client 未收到 <code>upload_complete</code></td>
-          <td>Server 重发同一结果和 <code>asset_id</code>；素材记录仍只有一条，不重传文件</td>
-        </tr>
-        <tr>
-          <td>下载已提交，Server 未收到 <code>download_complete</code></td>
-          <td>Client 不恢复数据面；登录后重发原回执，Server 记录后应答</td>
-        </tr>
-        <tr>
-          <td>完成结果已记录，但 <code>complete_ack</code> 未到达接收方</td>
-          <td>再次交付只产生确认，不重复提交、建记录或触发完成业务</td>
-        </tr>
-      </tbody>
-    </table>
+
+  <!-- ============ 导读性说明（搬自原页面） ============ -->
+    <div class="note">
+    <strong>两个视角的状态序列不同</strong>：接收侧经过 <code>VERIFY</code> / <code>COMMIT</code>，发送侧不经过；
+    发送侧的 <code>TRANSFERRING → COMPLETED</code> 与接收侧的 <code>TRANSFERRING → VERIFY → COMMIT → COMPLETED</code> 对应<strong>同一次完成</strong>。
+    状态机与合法转移以 10 章为准。
   </div>
-  <div class="caption">数据发送方持久化结果后回复 <code>complete_ack</code>（见 13 章）。</div>
 
-  <div class="cols" style="margin-top:30px">
-    <section>
-      <h2 style="margin-top:0">阶段与规范要点</h2>
-      <div class="card">
-        <table>
-          <thead><tr><th>阶段</th><th>规范要点</th></tr></thead>
-          <tbody>
-            <tr><td class="mono">① 控制连接建立</td><td><code>login</code> 必须是连接上的<strong>第一条</strong>消息；Server 之前的一切消息必须丢弃。<code>login_ack.sessions</code> 是<strong>权威快照</strong>。</td></tr>
-            <tr><td class="mono">② 会话建立</td><td>Server 下发 <code>session_id</code> / <code>chunk_count</code> / <code>window</code> / <code>chunk_size</code> / <code>udp_port</code> / <code>tcp_port</code>；<code>file_exists = 1</code> 即走<strong>秒传</strong>路径。</td></tr>
-            <tr><td class="mono">③ UDP 探测</td><td>PROBE 与 PROBE_ACK 共用 <code>flags.bit3</code>，以 <code>payload_len</code> 区分（8 / 9）；Server 必须以 PROBE 的源地址:端口作为对端数据面地址。</td></tr>
-            <tr><td class="mono">④ 数据传输</td><td>无逐包 ACK；批量发送（<code>burst_size</code>，间隔 <code>batch_gap_us</code> 初值 2000 µs）；数据面<strong>不得</strong>改变状态机。</td></tr>
-            <tr><td class="mono">⑤ 缺失裁决</td><td>接收方<strong>至少每 50 ms</strong> 下发 <code>missing_chunks</code>(report)，<strong>空列表也必须下发</strong>；发送方 1000 ms 未收到裁决须发 <code>mode=request</code> 索要。</td></tr>
-            <tr><td class="mono">⑥ 校验与提交</td><td>位图全真 → <code>VERIFY</code>（Blake3）→ <code>COMMIT</code>（原子重命名）→ 发布完成消息；<strong>完成消息一律由接收方发布</strong>。</td></tr>
-            <tr><td class="mono">⑦ 中断与恢复</td><td>断线重连走 <code>login</code> 恢复列表 + <code>login_ack</code> 权威快照；暂停后恢复走 <code>resume_session</code> / <code>resume_ack</code>；两者都使会话回到<strong>可传输状态</strong>；断线重连后<strong>各视角各自回到断线前状态</strong> —— <code>PAUSED</code> 保持 <code>PAUSED</code>，<code>VERIFY</code> / <code>COMMIT</code> 的接收侧回到原状态。</td></tr>
-          </tbody>
-        </table>
-      </div>
-    </section>
 
-    <section>
-      <h2 style="margin-top:0">上传 / 下载对称性</h2>
-      <div class="card">
-        <table class="sym">
-          <thead><tr><th>阶段</th><th>上传 (C→S)</th><th>下载 (S→C)</th></tr></thead>
-          <tbody>
-            <tr><td>会话建立</td><td class="mono">upload_start</td><td class="mono">download_start</td></tr>
-            <tr><td>参数下发</td><td class="mono">upload_accept</td><td class="mono">download_accept</td></tr>
-            <tr><td>数据方向</td><td>Client → Server</td><td>Server → Client</td></tr>
-            <tr><td>缺失报告</td><td>Server → Client</td><td>Client → Server</td></tr>
-            <tr><td>缺失索要</td><td>Client → Server</td><td>Server → Client</td></tr>
-            <tr><td>进度上报</td><td>Server（接收方）</td><td>Client（接收方）</td></tr>
-            <tr><td>完成通知</td><td class="mono">upload_complete（Server）</td><td class="mono">download_complete（Client）</td></tr>
-            <tr><td>恢复提示来源</td><td>Server 自有位图</td><td>Client 自有位图（必须携带）</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <h2>状态机（10 章）</h2>
-      <div class="card">
-        <table>
-          <tbody>
-            <tr><td class="mono">INIT → NEGOTIATING</td><td class="mono">upload_start / download_start</td></tr>
-            <tr><td class="mono">NEGOTIATING → TRANSFERRING</td><td class="mono">upload_accept / download_accept</td></tr>
-            <tr><td class="mono">NEGOTIATING → COMPLETED</td><td>秒传（<code>file_exists = 1</code>）</td></tr>
-            <tr><td class="mono">TRANSFERRING → VERIFY</td><td>位图全真（<strong>仅接收侧</strong>）</td></tr>
-            <tr><td class="mono">TRANSFERRING ⇄ PAUSED</td><td class="mono">session_pause / resume_session</td></tr>
-            <tr><td class="mono">VERIFY → COMMIT → COMPLETED</td><td>Blake3 通过 → 原子重命名（<strong>仅接收侧</strong>）</td></tr>
-            <tr><td class="mono">任意 → ABORTED</td><td class="mono">session_abort（终态，无出边）</td></tr>
-          </tbody>
-        </table>
-      </div>
-
-      <div class="note">
-        <strong>两个视角的状态序列不同</strong>：接收侧经过 <code>VERIFY</code> / <code>COMMIT</code>，发送侧不经过；
-        发送侧的 <code>TRANSFERRING → COMPLETED</code> 与接收侧的 <code>TRANSFERRING → VERIFY → COMMIT → COMPLETED</code> 对应<strong>同一次完成</strong>。
-      </div>
-    </section>
-  </div>
+  <!-- ============ 规范正文（源文自动渲染） ============ -->
+  <h2>时序流程</h2>
+<h3>控制连接建立</h3>
+<pre class="codeblock"><code>Client                                        Server
+  |------------ TCP connect ------------------&gt;|
+  |--- login {proto_major/minor/patch,         |
+  |           device_id, token, resume[]} ----&gt;|
+  |                                            |  校验认证（21 章）
+  |&lt;-- login_ack {result, code,                |
+  |             proto_major/minor/patch,       |
+  |             sessions[]} ------------------&gt;|
+  |                                            |
+  |&lt;=========== 会话控制消息（长连接）==========&gt;|
+</code></pre>
+<ul>
+<li><code>login</code> <strong>必须</strong>是连接上的<strong>第一条</strong>消息；Server <strong>必须</strong>丢弃此前的任何消息。</li>
+<li><code>login_ack.sessions</code> 是<strong>权威快照</strong>（见 13 章）。</li>
+<li>图中 <code>{...}</code> 为<strong>消息体字段名的列举</strong>，不表示线上表示形式；
+  控制帧为二进制定长布局，各字段的偏移与大小见 06 章。</li>
+</ul>
+<h3>心跳</h3>
+<pre class="codeblock"><code>  |--- ping {ts} -----------------------------&gt;|   每 10 秒
+  |&lt;-- pong {ts} ------------------------------|
+</code></pre>
+<ul>
+<li>双向<strong>必须</strong>每 10 秒一次；<strong>30 秒</strong>无任何消息即关闭连接（见 06 章）。</li>
+</ul>
+<h3>会话建立</h3>
+<p>upload_start → upload_accept（含会话参数与数据面端口）</p>
+<h3>UDP 探测</h3>
+<p>UDP_PROBE → UDP_PROBE_ACK → udp_ready</p>
+<h3>数据传输</h3>
+<p>Client 连续发送 UDP chunk；Server 乱序随机写盘</p>
+<h3>缺失统计与重传</h3>
+<p>接收方每 50ms 下发 <code>missing_chunks</code>（<code>mode=report</code>）裁决；
+发送方按裁决重传缺失块（重传优先级高于新数据）</p>
+<p><strong>裁决循环是发送方推进的唯一依据（规范性）</strong>：接收方<strong>必须</strong>周期性下发裁决，
+<strong>即使缺失列表为空</strong>（空 <code>chunk_list</code> = 「可以继续推进」）。
+发送方在 1000ms 内未收到任何裁决时，<strong>必须</strong>发布
+<code>missing_chunks</code>（<code>mode=request</code>）主动索要。</p>
+<blockquote>
+<p><strong>立即裁决（推荐性）</strong>：接收方<strong>可以</strong>在检测到空洞的即刻下发裁决，
+不必等待 50ms 周期（见 06 章「missing_chunks」）。</p>
+</blockquote>
+<h3>校验与提交</h3>
+<p>接收方校验 hash、原子重命名，发布完成消息
+（上传方向 <code>upload_complete</code>，下载方向 <code>download_complete</code>）</p>
+<p>数据发送方持久化结果后回复 <code>complete_ack</code>。以下为断线互操作验收条件（见 13 章）：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>断线点</th>
+<th>重连后的可观察结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>上传已提交，Client 未收到 <code>upload_complete</code></td>
+<td>Server 重发同一结果和 <code>asset_id</code>；素材记录仍只有一条，不重传文件</td>
+</tr>
+<tr>
+<td>下载已提交，Server 未收到 <code>download_complete</code></td>
+<td>Client 不恢复数据面；登录后重发原回执，Server 记录后应答</td>
+</tr>
+<tr>
+<td>完成结果已记录，但 <code>complete_ack</code> 未到达接收方</td>
+<td>再次交付只产生确认，不重复提交、建记录或触发完成业务</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>互操作边界用例</strong>（上传与下载共用的数据规则须在两个方向验证）：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>输入或事件</th>
+<th>必须观察到的结果</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>下载已提交，Server 未收到回执，离线超过 60 秒再登录</td>
+<td>超时只释放传输资源，结果仍未知；Server 接受原成功回执并确认，不重开传输</td>
+</tr>
+<tr>
+<td>定点修复切到代号 1，或全量复核切到 2；旧代 DATA 先于新代抵达</td>
+<td>旧包不写盘、不标位；新代正确块仍能写入并通过最终哈希</td>
+</tr>
+<tr>
+<td>复核已收 60/100 块时断线</td>
+<td>恢复报告为代号 2、<code>missing_count=40</code>；发送方 <code>S=R=60</code>，不再清位重启整轮</td>
+</tr>
+<tr>
+<td>投递的 <code>chunk_count</code> 与文件大小不符</td>
+<td>Client 拒绝并诊断 <code>SERIALIZATION_ERROR</code>；Server 以 <code>DELIVERY_DECLINED</code> 终止</td>
+</tr>
+<tr>
+<td>重连快照给出端口 A，随后暂停恢复给出 B</td>
+<td>从 B 重新探测；迟到的 A 就绪通知无效，双方不再用旧绑定发 DATA</td>
+</tr>
+<tr>
+<td><code>size=2500, chunk_size=1200</code></td>
+<td>块 0/1/2 长度只能为 1200/1200/100；UDP 和 TCP 对非末短块均不写盘、不标位</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>摘要对帐（文件级失配时，恢复阶梯第 ① 级）</strong></p>
+<pre class="codeblock"><code>  |--- reconcile_request {ranges=[根区间]} --&gt;|   接收方发起
+  |&lt;-- reconcile_response {digests[]} --------|   发送方返回该区间的摘要
+  |                                            |   接收方用临时文件同区间摘要比对
+  |--- reconcile_request {ranges=[左半,右半]}&gt;|   逐层二分，每层一次往返
+  |&lt;-- reconcile_response {digests[]} --------|
+  |                                            |   可疑块 → 清零位图
+  |--- missing_chunks {mode=report, 可疑块} -&gt;|   复用既有裁决机制定点补发
+  |=============== 定点补发 =================|
+</code></pre>
+<ul>
+<li>根区间摘要<strong>一致</strong> → 双方内容相同 → 请求的 <code>file_hash</code> 有误 →
+  <code>session_abort(SOURCE_FILE_MISMATCH)</code>，不再进入复核轮</li>
+<li>对帐后仍失配 → 进入复核轮（恢复阶梯第 ② 级）</li>
+</ul>
+<p><strong>复核轮（文件级失配时）</strong></p>
+<pre class="codeblock"><code>  |--- missing_chunks {mode=report,          |   接收方清空位图，
+  |    flags.bit1=复核轮, chunks=[]} -------&gt;|   要求全量重发
+  |                                            |
+  |&lt;=============== 全量重发 =================|   发送方重新读取源文件
+  |                                            |
+  |                                            |   重新校验文件级 Blake3
+</code></pre>
+<ul>
+<li>复核轮<strong>至多一次</strong>；复核轮后仍失配才 <code>session_abort(FILE_HASH_MISMATCH)</code>
+  （见 12 章）。</li>
+</ul>
+<h3>中断与恢复</h3>
+<p><strong>路径一：断线重连（连接重建）</strong></p>
+<pre class="codeblock"><code>Client                                        Server
+  |------------ TCP connect ------------------&gt;|
+  |--- login { ..., resume[]{session_id,       |
+  |           next_chunk_id, missing_count}} -&gt;|
+  |&lt;-- login_ack { ..., sessions[]{快照...}}   |
+  |                                            |
+  |=============== 继续传输 ==================&gt;|
+</code></pre>
+<p><strong>路径二：暂停后恢复（连接存活）</strong></p>
+<pre class="codeblock"><code>  |--- resume_session {session_id, ...} ------&gt;|
+  |&lt;-- resume_ack {result, next_chunk_id,      |
+  |              missing_count, udp_port} -----|
+</code></pre>
+<p>两条路径的语义一致：都返回<strong>接收方</strong>的权威续传位置与数据面端口，
+都使会话回到<strong>可传输状态</strong>（见 13 章）。
+断线重连后<strong>各视角各自回到断线前状态</strong> —— <code>PAUSED</code> 保持 <code>PAUSED</code>，
+<code>VERIFY</code> / <code>COMMIT</code> 的接收侧回到原状态（见 13 章「待恢复会话的判定」）。</p>
+<h3>主动投递（Server → Client，无客户端请求）</h3>
+<pre class="codeblock"><code>Client                                        Server
+  |                                            |  Server 生成 session_id 与全套会话参数
+  |&lt;-- delivery_offer {session_id, 参数, -------|  创建会话（NEGOTIATING）
+  |    file_hash, file_name}                    |
+  |                                            |
+  |    接收方决策（策略 / 配额 / 用户）          |
+  |--- delivery_response {result=success} -----&gt;|  接受
+  |    （result=fail + code 即拒绝）             |
+  |                                            |
+  |-- UDP: PROBE (从接收方数据面 socket) ------&gt;|  Server 在此学到接收方地址
+  |&lt;-- UDP: PROBE_ACK (从 Server 数据面端口) ---|  打通 NAT 映射
+  |&lt;========== UDP 数据面推送 ==================|
+  |--- download_complete ----------------------&gt;|  接收方发布完成消息
+</code></pre>
+<ul>
+<li>Server <strong>必须</strong>等到 PROBE 才可推送（20 章）</li>
+<li>方向恒为 <strong>download</strong>：完成消息恒由接收方发布</li>
+<li>传输过程与普通下载<strong>完全一致</strong>（位图 / 裁决 / 恢复 / 提交全部复用）</li>
+</ul>
+<h3>共享清单与拉取（预置素材）</h3>
+<pre class="codeblock"><code>Client                                        Server
+  |--- material_list {since_seq=0} -----------&gt;|   查询共享清单
+  |&lt;-- material_list_ack {entries[], 末批} ----|   分批返回，seq 单调递增
+  |                                            |
+  |    （Server 预置新素材时可主动通知）        |
+  |&lt;-- material_available {entries[]} ---------|   至少一次，可能丢失
+  |                                            |
+  |--- download_start {file_hash, ...} ------&gt;|   复用既有下载流程
+  |&lt;-- download_accept {session_id, ...} ------|   数据面 / 位图 / 裁决全部复用
+  |&lt;=========== UDP 数据面传输 ================|
+  |--- download_complete ----------------------&gt;|   接收方发布完成消息
+</code></pre>
+<ul>
+<li>通知<strong>不保证送达</strong>：Client <strong>必须</strong>另行查询 <code>material_list</code>。</li>
+<li>拉取路径<strong>不引入任何新机制</strong> —— 与普通下载完全一致。</li>
+</ul>
+<h3>下载对称</h3>
+<p>控制面一致，仅 UDP 方向互换；完成消息改由 Client 发布；
+<code>progress_update</code> 的发布方同样改为接收方（Client）；
+恢复提示改由 Client 提供（下载方向的接收方是 Client）。</p>
+<h2>状态机</h2>
+<p>状态机与合法转移以 10-state-machine 为准</p>
 
   <footer>LANWEFT · 规范文档可视化 · 对应 <a href="../spec/24-sequence-diagrams.md">docs/spec/24-sequence-diagrams.md</a></footer>
 </div>
-
-<script>
-(function(){
-  const LANE = {
-    C:{x:250, label:'Client', sub:''},
-    S:{x:860, label:'Server', sub:''}
-  };
-  const W = 1160;
-
-  /* ---------- 上传方向：Client = 发送侧，Server = 接收侧 ---------- */
-  const UPLOAD = [
-    {sep:'① 控制连接建立（TCP 长连接）'},
-    {from:'C', to:'S', type:'conn', label:'TCP connect'},
-    {from:'C', to:'S', type:'tcp', label:'login {proto_major/minor/patch, device_id, token, resume[]}'},
-    {from:'S', to:'S', type:'self', label:'校验认证与协议版本（21 章）'},
-    {from:'S', to:'C', type:'tcp', label:'login_ack {result, code, proto_*, sessions[] 权威快照}'},
-
-    {sep:'② 会话建立'},
-    {from:'C', to:'S', type:'tcp', label:'upload_start {session_id=0, size, mtime, file_hash, file_name}',
-      chip:{side:'C', text:'Client: INIT → NEGOTIATING'}, chip2:{side:'S', text:'Server: INIT → NEGOTIATING'}},
-    {from:'S', to:'S', type:'self', label:'既有 file_hash 校验（秒传判定）'},
-    {from:'S', to:'C', type:'tcp', label:'upload_accept {session_id(u64), chunk_count, window, connection_window, chunk_size, udp_port, tcp_port, file_exists}',
-      chip:{side:'C', text:'Client: NEGOTIATING → TRANSFERRING'}, chip2:{side:'S', text:'Server: NEGOTIATING → TRANSFERRING'}},
-    {note:'若 file_exists = 1：发送侧直接 NEGOTIATING → COMPLETED；接收侧 NEGOTIATING → VERIFY → COMMIT → COMPLETED（秒传不产生位图）'},
-
-    {sep:'③ UDP 可用性探测（数据面）'},
-    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {flags.bit3=1, payload_len=8, session_id(u64)}'},
-    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {flags.bit3=1, payload_len=9, status=0}'},
-    {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
-    {note:'等待 PROBE_ACK 超时（建议 2s）→ 回退数据面 TCP；tcp_port = 0 表示不支持降级，即判定传输不可用'},
-
-    {sep:'④ 数据传输（数据面 UDP，无逐包 ACK）'},
-    {from:'C', to:'S', type:'udp', label:'chunk #0 … #N（批量 burst_size，批间隔 batch_gap_us = 2000µs）',
-      chip:{side:'C', text:'Client: 发送侧，仅更新「在途量」估计'}, chip2:{side:'S', text:'Server: 接收侧'}},
-    {from:'S', to:'S', type:'self', label:'校验头 + crc32 → 随机写盘 → 标记位图'},
-
-    {sep:'⑤ 缺失裁决与重传（可靠性由接收方裁决提供）'},
-    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, chunks=[]} —— 空列表也必须下发'},
-    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, chunks=[…]} —— 报告自己尚未收到的块'},
-    {from:'C', to:'S', type:'udp', label:'重传缺失 chunk（重传优先级高于新数据）'},
-    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=request} —— 1000ms 未收到裁决时索要'},
-    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report} —— 50ms 内应答'},
-    {from:'S', to:'C', type:'tcp', label:'progress_update {received, total} —— 约 500ms，供发送侧估算丢包率并驱动 AIMD'},
-
-    {sep:'⑥ 校验与提交（完成消息由接收方发布）'},
-    {from:'S', to:'S', type:'self', label:'位图全真 → VERIFY：文件级 Blake3 校验',
-      chip:{side:'S', text:'Server: TRANSFERRING → VERIFY'}},
-    {from:'S', to:'C', type:'tcp', label:'missing_chunks {flags.bit1=复核轮, chunks=[]} —— 文件级失配时',
-      chip:{side:'S', text:'Server: VERIFY → TRANSFERRING（清空位图）'}},
-    {from:'C', to:'S', type:'udp', label:'全量重发（重新读取源文件，chunk #0 … #N）'},
-    {from:'S', to:'S', type:'self', label:'复核轮后重新校验文件级 Blake3（至多一次）'},
-    {from:'S', to:'S', type:'self', label:'COMMIT：原子重命名'},
-    {from:'S', to:'C', type:'tcp', label:'upload_complete {result, code, file_hash, asset_id}',
-      chip:{side:'C', text:'Client: TRANSFERRING → COMPLETED'}, chip2:{side:'S', text:'Server: COMMIT → COMPLETED'}},
-
-    {sep:'⑥-2 摘要对帐（文件级失配时，恢复阶梯第 ① 级）'},
-    {from:'S', to:'C', type:'tcp', label:'reconcile_request {ranges=[根区间]}', chip:{side:'S', text:'接收方发起'}},
-    {from:'C', to:'S', type:'tcp', label:'reconcile_response {digests[]}', chip:{side:'C', text:'发送方返回该区间摘要'}},
-    {from:'S', to:'S', type:'self', label:'双方逐层二分比对（每层一次往返）'},
-    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, 可疑块} —— 复用既有裁决机制'},
-    {note:'根区间摘要一致 → 源文件与请求的 file_hash 不符 → session_abort(SOURCE_FILE_MISMATCH)；对帐后仍失配 → 进入复核轮'},
-
-    {sep:'⑦ 中断与恢复'},
-    {note:'路径一 · 断线重连（连接重建）：走 login 的恢复列表 + login_ack 的权威快照'},
-    {from:'C', to:'S', type:'conn', label:'TCP connect（重建）'},
-    {from:'C', to:'S', type:'tcp', label:'login {…, resume[]{session_id(u64), next_chunk_id, missing_count}}'},
-    {from:'S', to:'C', type:'tcp', label:'login_ack {…, sessions[]{权威快照：位图 / 续传位置 / 数据面端口}}'},
-    {note:'路径二 · 暂停后恢复（连接存活）：走 resume_session / resume_ack'},
-    {from:'C', to:'S', type:'tcp', label:'session_pause → resume_session {session_id, …}',
-      chip:{side:'C', text:'双方: TRANSFERRING → PAUSED'}},
-    {from:'S', to:'C', type:'tcp', label:'resume_ack {result, next_chunk_id, missing_count, udp_port, connection_window}',
-      chip:{side:'S', text:'双方: PAUSED → TRANSFERRING'}}
-  ];
-
-  /* ---------- 下载方向：Server = 发送侧，Client = 接收侧 ---------- */
-  const DOWNLOAD = [
-    {sep:'① 控制连接建立（TCP 长连接）'},
-    {from:'C', to:'S', type:'conn', label:'TCP connect'},
-    {from:'C', to:'S', type:'tcp', label:'login {proto_major/minor/patch, device_id, token, resume[]}'},
-    {from:'S', to:'S', type:'self', label:'校验认证与协议版本（21 章）'},
-    {from:'S', to:'C', type:'tcp', label:'login_ack {result, code, proto_*, sessions[] 权威快照}'},
-
-    {sep:'② 会话建立'},
-    {from:'C', to:'S', type:'tcp', label:'download_start {session_id=0, size, chunk_size, file_hash, file_name}',
-      chip:{side:'C', text:'Client: INIT → NEGOTIATING'}, chip2:{side:'S', text:'Server: INIT → NEGOTIATING'}},
-    {from:'S', to:'C', type:'tcp', label:'download_accept {session_id(u64), chunk_count, window, connection_window, chunk_size, udp_port, tcp_port}',
-      chip:{side:'C', text:'Client: NEGOTIATING → TRANSFERRING'}, chip2:{side:'S', text:'Server: NEGOTIATING → TRANSFERRING'}},
-
-    {sep:'③ UDP 可用性探测（数据面）'},
-    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {flags.bit3=1, payload_len=8, session_id(u64)}'},
-    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {flags.bit3=1, payload_len=9, status=0}'},
-    {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
-    {note:'Server 以 PROBE 报文的源地址:端口作为该会话的对端数据面地址；Client 端口取用优先级：login_ack 快照 > resume_ack > udp_ready > download_accept'},
-
-    {sep:'④ 数据传输（数据面 UDP，方向与上传相反）'},
-    {from:'S', to:'C', type:'udp', label:'chunk #0 … #N（Server 批量发送，burst_size / batch_gap_us）',
-      chip:{side:'S', text:'Server: 发送侧'}, chip2:{side:'C', text:'Client: 接收侧'}},
-    {from:'C', to:'C', type:'self', label:'校验头 + crc32 → 随机写盘 → 标记位图'},
-
-    {sep:'⑤ 缺失裁决与重传（裁决方恒为接收方）'},
-    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report, chunks=[]} —— 空列表也必须下发'},
-    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report, chunks=[…]} —— Client 报告自己尚未收到的块'},
-    {from:'S', to:'C', type:'udp', label:'Server 重传缺失 chunk（优先级高于新数据）'},
-    {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=request} —— 1000ms 未收到裁决时索要'},
-    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report} —— 50ms 内应答'},
-    {from:'C', to:'S', type:'tcp', label:'progress_update {received, total} —— 约 500ms，由接收方 Client 发布'},
-
-    {sep:'⑥ 校验与提交（完成消息由接收方 Client 发布）'},
-    {from:'C', to:'C', type:'self', label:'位图全真 → VERIFY：文件级 Blake3 校验',
-      chip:{side:'C', text:'Client: TRANSFERRING → VERIFY'}},
-    {from:'C', to:'C', type:'self', label:'COMMIT：原子重命名'},
-    {from:'C', to:'S', type:'tcp', label:'download_complete {result, code, file_hash}',
-      chip:{side:'C', text:'Client: COMMIT → COMPLETED'}, chip2:{side:'S', text:'Server: TRANSFERRING → COMPLETED'}},
-
-    {sep:'⑥-2 摘要对帐（文件级失配时，恢复阶梯第 ① 级）'},
-    {from:'C', to:'S', type:'tcp', label:'reconcile_request {ranges=[根区间]}', chip:{side:'C', text:'接收方发起'}},
-    {from:'S', to:'C', type:'tcp', label:'reconcile_response {digests[]}', chip:{side:'S', text:'发送方返回该区间摘要'}},
-    {from:'C', to:'C', type:'self', label:'双方逐层二分比对（每层一次往返）'},
-    {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report, 可疑块} —— 复用既有裁决机制'},
-    {note:'根区间摘要一致 → 源文件与请求的 file_hash 不符 → session_abort(SOURCE_FILE_MISMATCH)；对帐后仍失配 → 进入复核轮'},
-
-    {sep:'⑦ 中断与恢复'},
-    {note:'路径一 · 断线重连：恢复提示由 Client（接收方）提供 —— Server 没有 Client 的位图'},
-    {from:'C', to:'S', type:'conn', label:'TCP connect（重建）'},
-    {from:'C', to:'S', type:'tcp', label:'login {…, resume[]{session_id, next_chunk_id, missing_count}}（必须携带）'},
-    {from:'S', to:'C', type:'tcp', label:'login_ack {…, sessions[]{权威快照：位图 / 续传位置 / 数据面端口}}'},
-    {note:'路径二 · 暂停后恢复：resume_session 恒由 Client 发起'},
-    {from:'C', to:'S', type:'tcp', label:'session_pause → resume_session {session_id, …}'},
-    {from:'S', to:'C', type:'tcp', label:'resume_ack {result, next_chunk_id, missing_count, udp_port, connection_window}',
-      chip:{side:'C', text:'双方: PAUSED → TRANSFERRING'}}
-  ];
-
-  /* ---------- SVG 渲染 ---------- */
-  const NS = 'http://www.w3.org/2000/svg';
-  function el(name, attrs, text){
-    const n = document.createElementNS(NS, name);
-    for(const k in attrs) n.setAttribute(k, attrs[k]);
-    if(text != null) n.textContent = text;
-    return n;
-  }
-  function esc(s){ return s.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;'); }
-  /* 把 **粗体** 标记解析为 tspan */
-  function rich(parent, text, cls, x, y, anchor){
-    const parts = String(text).split(/\*\*/);
-    parts.forEach(function(p,i){
-      if(!p) return;
-      const t = el('tspan', {'font-weight': i%2 ? '700' : 'normal'}, p);
-      parent.appendChild(t);
-    });
-    if(anchor) parent.setAttribute('text-anchor', anchor);
-    parent.setAttribute('x', x); parent.setAttribute('y', y);
-    if(cls) parent.setAttribute('class', cls);
-  }
-
-  const ARROW = {
-    tcp:  {cls:'a-tcp',  head:'arrow-tcp'},
-    udp:  {cls:'a-udp',  head:'arrow-udp'},
-    conn: {cls:'a-conn', head:'arrow-conn'}
-  };
-
-  /* 估算文本宽度：中日韩字符按 13px，其余按 7px */
-  function textWidth(s){
-    let w = 0;
-    for(const ch of s) w += (ch.charCodeAt(0) > 255 ? 13 : 7);
-    return w;
-  }
-  /* 按像素宽度折行（保留 ** 粗体标记的宽度忽略） */
-  function wrap(text, maxWidth){
-    const clean = String(text).replace(/\*\*/g, '');
-    if(textWidth(clean) <= maxWidth) return [text];
-    const lines = [];
-    let cur = '', curW = 0, bold = false;
-    const tokens = String(text).split(/(\*\*)/);
-    for(const tk of tokens){
-      if(tk === '**'){ bold = !bold; continue; }
-      for(const ch of tk){
-        const w = (ch.charCodeAt(0) > 255 ? 13 : 7);
-        if(curW + w > maxWidth && cur.length){
-          lines.push(cur); cur = ''; curW = 0;
-        }
-        cur += ch; curW += w;
-      }
-    }
-    if(cur) lines.push(cur);
-    return lines;
-  }
-
-  function render(seq, showStates, laneSubs){
-    const svg = document.getElementById('seq');
-    while(svg.firstChild) svg.removeChild(svg.firstChild);
-
-    const defs = el('defs');
-    ['tcp','udp','conn'].forEach(function(k){
-      const m = el('marker', {id:'mk-'+k, viewBox:'0 0 10 10', refX:'9', refY:'5',
-        markerWidth:'7', markerHeight:'7', orient:'auto-start-reverse'});
-      m.appendChild(el('path', {d:'M 0 0 L 10 5 L 0 10 z', fill:ARROW[k].head}));
-      defs.appendChild(m);
-    });
-    svg.appendChild(defs);
-
-    let y = 54;
-    const lanes = ['C','S'];
-
-    /* 泳道标题 */
-    lanes.forEach(function(id){
-      const L = LANE[id];
-      svg.appendChild(el('rect', {x:L.x-118, y:14, width:236, height:44, rx:12,
-        fill:'#fff', stroke:'#d8dde6'}));
-      svg.appendChild(el('text', {x:L.x, y:36, 'text-anchor':'middle', class:'lane-title'}, L.label));
-      const sub = laneSubs[id];
-      if(sub) svg.appendChild(el('text', {x:L.x, y:52, 'text-anchor':'middle', class:'lane-sub'}, sub));
-    });
-
-    seq.forEach(function(it){
-      if(it.sep){
-        y += 26;
-        svg.appendChild(el('line', {x1:40, y1:y, x2:W-40, y2:y, stroke:'#e2e6ee', 'stroke-width':1}));
-        svg.appendChild(el('text', {x:40, y:y-8, class:'sep-t'}, it.sep));
-        y += 22;
-        return;
-      }
-
-      if(it.note){
-        const lines = wrap(it.note, W - 200);
-        const h = 14 + lines.length * 19;
-        svg.appendChild(el('rect', {x:80, y:y, width:W-160, height:h, rx:8, class:'bg-note'}));
-        lines.forEach(function(ln, i){
-          const t = el('text', {x:96, y:y+22+i*19, class:'note-t'});
-          rich(t, ln, 'note-t', 96, y+22+i*19);
-          svg.appendChild(t);
-        });
-        y += h + 18;
-        return;
-      }
-
-      const L1 = LANE[it.from], L2 = LANE[it.to];
-      const lineY = y;
-
-      /* 状态胶囊（可关闭） */
-      let chipH = 0;
-      const isSelf = (it.from === it.to);
-      const mid = isSelf ? L1.x : (L1.x + L2.x)/2;
-
-      if(it.from === it.to){
-        const x = L1.x, w = 34, r = 11;
-        const d = `M ${x},${lineY} h ${w-12} a ${r},${r} 0 0 1 ${r},${r} v ${24} a ${r},${r} 0 0 1 ${-r},${r} h ${-(w-12)}`;
-        svg.appendChild(el('path', {d:d, class:'a-tcp', 'marker-end':'url(#mk-tcp)'}));
-        const tx = x + w + 18;
-        const lines = wrap(it.label, 420);
-        lines.forEach(function(ln, i){
-          const t = el('text', {x:tx, y:lineY+16+i*17, 'text-anchor':'start', class:'msg-t'});
-          rich(t, ln, 'msg-t', tx, lineY+16+i*17, 'start');
-          svg.appendChild(t);
-        });
-        if(showStates && it.chip){
-          drawChip(svg, it.chip, lineY + 56, x);
-          chipH = 24;
-          if(it.chip2){ drawChip(svg, it.chip2, lineY + 80, x); chipH = 48; }
-        }
-        y += 46 + chipH + 14;
-        return;
-      }
-
-      const a = ARROW[it.type] || ARROW.tcp;
-      svg.appendChild(el('line', {x1:L1.x, y1:lineY, x2:L2.x, y2:lineY, class:a.cls,
-        'marker-end':'url(#mk-'+(it.type||'tcp')+')'}));
-      const lines = wrap(it.label, 540);
-      if(showStates && it.chip){
-        drawChip(svg, it.chip, lineY + 16, mid);
-        chipH = 22;
-        if(it.chip2){ drawChip(svg, it.chip2, lineY + 40, mid); chipH = 46; }
-      }
-      lines.forEach(function(ln, i){
-        const t = el('text', {x:mid, y:lineY-12-(lines.length-1-i)*16, 'text-anchor':'middle', class:'msg-t'});
-        rich(t, ln, 'msg-t', mid, lineY-12-(lines.length-1-i)*16, 'middle');
-        svg.appendChild(t);
-      });
-      y += 34 + lines.length * 4 + chipH + 14;
-    });
-
-    /* 泳道线 */
-    const bottom = y + 10;
-    lanes.forEach(function(id){
-      const L = LANE[id];
-      svg.appendChild(el('line', {x1:L.x, y1:66, x2:L.x, y2:bottom, class:'lifeline'}));
-    });
-    svg.setAttribute('viewBox', '0 0 ' + W + ' ' + bottom);
-  }
-
-  function drawChip(svg, chip, y, centerX){
-    const text = chip.text;
-    const approx = textWidth(text.replace(/\*\*/g,'')) + 26;
-    const x = centerX - approx/2;
-    const g = el('g');
-    g.appendChild(el('rect', {x:x, y:y, width:approx, height:19, rx:9.5, class:'bg-chip'}));
-    const t = el('text', {x:x+13, y:y+13.5, class:'chip-t'});
-    rich(t, text, 'chip-t', x+13, y+13.5);
-    g.appendChild(t);
-    svg.appendChild(g);
-  }
-
-  const SUBS = {
-    upload:   {C:'发送侧 (upload)', S:'接收侧 (upload)'},
-    download: {C:'接收侧 (download)', S:'发送侧 (download)'}
-  };
-
-  let dir = 'upload';
-  function paint(){
-    const showStates = document.getElementById('states').checked;
-    const seq = (dir === 'upload' ? UPLOAD : DOWNLOAD);
-    render(seq, showStates, SUBS[dir]);
-  }
-
-  function setDir(d){
-    dir = (d === 'download') ? 'download' : 'upload';
-    Array.prototype.forEach.call(document.querySelectorAll('#dir button'), function(b){
-      b.classList.toggle('active', b.dataset.dir === dir);
-    });
-    paint();
-  }
-
-  document.getElementById('dir').addEventListener('click', function(e){
-    const b = e.target.closest('button');
-    if(!b) return;
-    setDir(b.dataset.dir);
-  });
-  document.getElementById('states').addEventListener('change', paint);
-
-  const params = new URLSearchParams(location.search);
-  if(params.get('states') === '0') document.getElementById('states').checked = false;
-  setDir(params.get('dir') || 'upload');
-})();
-</script>
 </body>
 </html>
