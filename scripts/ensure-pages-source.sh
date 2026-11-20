@@ -70,19 +70,19 @@ if [ "$BT" = "workflow" ]; then
   exit 0
 fi
 
-echo "==> 2/3 尝试直接 PATCH 为 workflow"
-code=$(curl -s -o /tmp/pages-patch.json -w '%{http_code}' -X PATCH "${AUTH[@]}" "${API}/pages" \
+echo "==> 2/3 尝试直接更新为 workflow（PUT /pages，body_type=workflow）"
+code=$(curl -s -o /tmp/pages-patch.json -w '%{http_code}' -X PUT "${AUTH[@]}" "${API}/pages" \
       -d '{"build_type":"workflow"}')
-echo "    PATCH HTTP ${code}"
+echo "    PUT HTTP ${code}"
 if [ "$code" != "200" ] && [ "$code" != "204" ]; then
   show /tmp/pages-patch.json
   if [ "${ALLOW_RECREATE:-0}" != "1" ]; then
-    echo "==> PATCH 未生效，且未开启 ALLOW_RECREATE —— 不做破坏性重建"
+    echo "==> 更新未生效，且未开启 ALLOW_RECREATE —— 不做破坏性重建"
     echo "    请到 Settings → Pages 把 Source 改成「GitHub Actions」；"
     echo "    或显式执行：ALLOW_RECREATE=1 GITHUB_TOKEN=<PAT> scripts/ensure-pages-source.sh"
     exit 1
   fi
-  echo "==> PATCH 不可用，改为重建站点（DELETE → POST build_type=workflow）"
+  echo "==> 直接更新不可用，改为重建站点（DELETE → POST build_type=workflow）"
   dcode=$(curl -s -o /tmp/pages-del.json -w '%{http_code}' -X DELETE "${AUTH[@]}" "${API}/pages")
   echo "    DELETE HTTP ${dcode}"
   for i in 1 2 3 4 5 6 7 8 9 10; do
