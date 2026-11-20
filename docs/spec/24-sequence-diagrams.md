@@ -117,6 +117,25 @@ Client                                        Server
 两条路径的语义一致：都返回**接收方**的权威续传位置与数据面端口，
 都使双方回到 `TRANSFERRING`（见 13 章）。
 
+### 共享清单与拉取（预置素材）
+
+```
+Client                                        Server
+  |--- material_list {since_seq=0} ----------->|   查询共享清单
+  |<-- material_list_ack {entries[], 末批} ----|   分批返回，seq 单调递增
+  |                                            |
+  |    （Server 预置新素材时可主动通知）        |
+  |<-- material_available {entries[]} ---------|   至少一次，可能丢失
+  |                                            |
+  |--- download_start {file_hash, ...} ------>|   复用既有下载流程
+  |<-- download_accept {session_id, ...} ------|   数据面 / 位图 / 裁决全部复用
+  |<=========== UDP 数据面传输 ================|
+  |--- download_complete ---------------------->|   接收方发布完成消息
+```
+
+- 通知**不保证送达**：Client **必须**另行查询 `material_list`。
+- 拉取路径**不引入任何新机制** —— 与普通下载完全一致。
+
 ### 下载对称
 
 控制面一致，仅 UDP 方向互换；完成消息改由 Client 发布；

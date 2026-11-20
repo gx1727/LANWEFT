@@ -37,6 +37,9 @@
 | udp_ready | UDP 可用性就绪通知 |
 | file_hash | 文件哈希，**32 字节原始 Blake3 摘要**（hash32，非十六进制串） |
 | asset_id | 素材记录标识（Server 分配） |
+| 私有 / 预置素材记录 | 客户端上传产生（归属该 device_id）/ Server 创建（所有已认证设备可拉取）；见 09 章 |
+| 共享清单 | Server 侧全部预置素材记录的集合；`material_list` 查询、`material_available` 通知（见 09 章） |
+| material_available / material_list / material_list_ack | 共享清单变更通知 / 清单查询 / 查询应答（见 06 章） |
 | window | 滑动窗口大小（**会话级在途上限**，Server 下发，Client 不得修改） |
 | connection_window | **连接级**在途上限；同一控制连接上所有会话的在途量之和的上限（见 11 章） |
 | 复核轮 | 文件级失配后接收方要求发送方重新读取源文件并全量重发的恢复过程，**至多一次**（见 12 章） |

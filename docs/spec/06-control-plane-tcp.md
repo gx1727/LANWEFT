@@ -188,13 +188,20 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | `0x13` | pong | 双向 | 心跳应答 |
 | `0x14` | reconcile_request | 双向 | 摘要对帐请求（**发布方恒为接收方**） |
 | `0x15` | reconcile_response | 双向 | 摘要对帐应答（**发布方恒为发送方**） |
-| `0x00`、`0x16`–`0xFF` | — | — | **保留**，接收方必须按「未识别消息必须忽略」处理 |
+| `0x16` | material_available | Server→Client | 共享清单变更通知（预置素材） |
+| `0x17` | material_list | Client→Server | 查询共享清单（预置素材） |
+| `0x18` | material_list_ack | Server→Client | 共享清单查询应答 |
+| `0x00`、`0x19`–`0xFF` | — | — | **保留**，接收方必须按「未识别消息必须忽略」处理 |
 
 > **方向标注约定**：标记为「双向」的消息，其**发布方由会话方向决定**：
 > `missing_chunks`（`mode=report`）与 `progress_update` 由**接收方**发布；
 > `session_pause` 双方均可发布；`mode=request` 的 `missing_chunks` 由**发送方**发布。
 > 见 10 章「视角定义」。
 
+> **共享清单消息的发布方（规范性）**：`material_available` 与 `material_list_ack`
+> 恒由 **Server** 发布，`material_list` 恒由 **Client** 发布
+> （见 09 章「预置素材与共享清单」）。
+>
 > **摘要对帐消息的发布方（规范性）**：`reconcile_request` 恒由**接收方**发布，
 > `reconcile_response` 恒由**发送方**发布。
 > 上传方向为 Server → Client；下载方向为 Client → Server（见 12 章）。
@@ -365,7 +372,7 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | 20 | 4 | chunk_size | u32 | 协商确定的 chunk 大小；Client **必须**用它核算 `chunk_count` |
 | 24 | 2 | udp_port | u16 | 数据面 UDP 端口；Server 向该端口推送 chunk，Client **必须**以它作为数据面端口 |
 | 26 | 2 | tcp_port | u16 | **数据面** TCP 降级通道端口；**0 表示不支持 TCP 降级**。**不是**控制面端口 |
-| 28 | 1 | file_exists | bool | 秒传标志；下载方向**必须**为 0（真） |
+| 28 | 1 | file_exists | bool | 秒传标志；下载方向**必须**为 0（假） |
 | 29 | 3 | reserved | — | 保留 |
 
 **变长区（顺序固定）**
@@ -731,6 +738,83 @@ Client 可用 `file_hash` 单独定位，也可用 `asset_id` 精确定位到某
 - `flags.bit1`（请求超限）置位时同样**不**返回摘要。
 - **发布方恒为发送方**（见「消息与方向」）。
 
+### 素材条目记录（共享清单用）
+
+共享清单的每个条目由**定长区 + 变长区**组成，
+在 `material_available` 与 `material_list_ack` 中**共用**同一格式。
+
+**条目定长区（32 字节）**
+
+| 偏移 | 大小 | 字段 | 类型 | 说明 |
+|------|------|------|------|------|
+| 0 | 8 | seq | u64 | 单调递增序号；Client 的增量水位与分页游标 |
+| 8 | 8 | size | u64 | 文件大小（字节） |
+| 16 | 8 | mtime | u64 | 文件修改时间戳（UTC 秒） |
+| 24 | 2 | name_len | u16 | `file_name` 字节数（UTF-8，不含 NUL） |
+| 26 | 2 | asset_id_len | u16 | `asset_id` 字节数（UTF-8，不含 NUL） |
+| 28 | 4 | reserved | — | 保留 |
+
+紧随定长区之后依次是：`file_hash`（`hash32`，32 字节）、
+`file_name`（`name_len` 字节）、`asset_id`（`asset_id_len` 字节）。
+
+- `seq` **必须**在 Server 侧**全局单调递增**且**不复用**（见 09 章）。
+- `asset_id` 长度**必须**为 0 或大于 0（空串表示无素材记录标识）。
+
+### material_available（`0x16`）
+
+**定长区（8 字节）**
+
+| 偏移 | 大小 | 字段 | 类型 | 说明 |
+|------|------|------|------|------|
+| 0 | 4 | count | u32 | 本条消息携带的条目数 |
+| 4 | 1 | flags | u8 | bit0 = **末条**（本次通知的条目到此为止）；bit1-7 保留 |
+| 5 | 3 | reserved | — | 保留 |
+
+**变长区（顺序固定）**
+
+1. `entries[]`：`count` 条素材条目记录（格式见「素材条目记录」）。
+
+- **发布方恒为 Server**。
+- 本消息是**至少一次**的提示，**不保证送达**；Client **不得**仅凭通知
+  维护完整清单，**必须**另行查询 `material_list`（见 09 章「发现」）。
+
+### material_list（`0x17`）
+
+**定长区（16 字节）**
+
+| 偏移 | 大小 | 字段 | 类型 | 说明 |
+|------|------|------|------|------|
+| 0 | 8 | since_seq | u64 | `0` = 全量；否则只要 `seq > since_seq` 的条目 |
+| 8 | 4 | max_count | u32 | 本次期望的条目数上限；`0` = 规范默认 256 |
+| 12 | 4 | reserved | — | 保留 |
+
+- **发布方恒为 Client**。
+- 本消息**不得**创建任何传输会话（见 09 章「发现」）。
+
+### material_list_ack（`0x18`）
+
+**定长区（16 字节）**
+
+| 偏移 | 大小 | 字段 | 类型 | 说明 |
+|------|------|------|------|------|
+| 0 | 8 | max_seq | u64 | Server 侧当前的最大 `seq` |
+| 8 | 4 | count | u32 | 本批条目数 |
+| 12 | 1 | flags | u8 | bit0 = **末批**（没有更多条目了）；bit1-7 保留 |
+| 13 | 3 | reserved | — | 保留 |
+
+**变长区（顺序固定）**
+
+1. `entries[]`：`count` 条素材条目记录（格式见「素材条目记录」）。
+
+- **发布方恒为 Server**。
+- **分页（规范性）**：若 `flags.bit0` = 0，Client **必须**以本批**最后一个**条目的
+  `seq` 作为 `since_seq` 再次查询，直到 `flags.bit0` = 1。
+- **增量（规范性）**：Client **可以**用已知的最大 `seq` 作为 `since_seq`，
+  只取新增条目；Server **必须**只返回 `seq > since_seq` 的条目。
+- **水位的取法（规范性）**：Client **必须**以**最后收到的条目**的 `seq`
+  作为下一次查询的 `since_seq`；**不得**使用本应答的 `max_seq`
+  —— `max_seq` 可能超前于本批已返回的条目，用它作水位会**跳过**条目。
+
 ### ping（`0x12`）/ pong（`0x13`）
 
 **定长区（8 字节）**
@@ -779,7 +863,10 @@ Client 可用 `file_hash` 单独定位，也可用 `asset_id` 精确定位到某
 13. **摘要对帐消息**：`reconcile_request` 恒由**接收方**发布，
     `reconcile_response` 恒由**发送方**发布；每会话的摘要对帐**至多一次**
     （见 12 章「上限」）
-14. **待决请求唯一**：Client 在同一控制连接上同一时刻**必须**只保留一个待决的
+14. **共享清单消息**：`material_available` 与 `material_list_ack` 恒由 **Server**
+    发布，`material_list` 恒由 **Client** 发布；清单查询**不得**创建传输会话
+    （见 09 章）
+15. **待决请求唯一**：Client 在同一控制连接上同一时刻**必须**只保留一个待决的
     `upload_start` / `download_start`；因此 Server 对该请求的拒绝
     （以 `session_abort` 表达，见 19 章 `FILE_TOO_LARGE`）**必须**能被 Client 唯一归属
 

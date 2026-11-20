@@ -216,6 +216,32 @@
   </ul>
 
   <div class="note">
+    <h2>预置素材与共享清单</h2>
+    <div class="card">
+      <table>
+        <thead><tr><th>类别</th><th>创建者</th><th>归属</th><th>可拉取者</th><th>可撤回者</th></tr></thead>
+        <tbody>
+          <tr>
+            <td><strong>私有素材记录</strong></td><td>客户端上传</td><td>上传方的 <code>device_id</code></td>
+            <td>仅归属方</td><td>归属方（<code>asset_recall</code>）</td>
+          </tr>
+          <tr>
+            <td><strong>预置素材记录</strong></td><td>Server</td><td>Server</td>
+            <td><strong>所有已认证设备</strong></td><td>仅 Server</td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+    <ul class="spec">
+      <li>两类素材记录<strong>互不相交</strong>：私有素材记录不得出现在共享清单中</li>
+      <li><strong>发现</strong>：Client 用 <code>material_list</code> 查询（<code>since_seq</code> 兼作增量水位与分页游标）；
+        Server <strong>可以</strong>用 <code>material_available</code> 通知变更 —— 通知是<strong>至少一次</strong>的，
+        可能丢失，Client <strong>不得</strong>仅凭通知维护完整清单</li>
+      <li><strong>拉取</strong>：用<strong>既有</strong> <code>download_start</code> 走普通下载流程 ——
+        数据面 / 位图 / 裁决 / 恢复<strong>全部复用</strong>，不引入新的传输路径</li>
+      <li>Client <strong>不得</strong>对预置素材记录发布 <code>asset_recall</code>（越权 → <code>ACL_DENY</code>）</li>
+    </ul>
+
     <strong>本章与其它章的关系</strong>：会话状态与推进规则见 10 章；窗口与发送节奏见 11 章；
     断线恢复路径见 13 章；数据面端口与地址绑定见 07 章；<code>session_id</code> 在 UDP 包头中的位置见 08 章。
     常见实现陷阱：用裸时间戳低 32 位生成 <code>session_id</code>（回绕后跨会话串号）。

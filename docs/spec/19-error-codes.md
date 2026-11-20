@@ -35,6 +35,8 @@
 
 - `SESSION_NOT_FOUND`：会话不存在或已终止
 - `SESSION_ABORTED`：会话被服务端终止
+- `FILE_NOT_FOUND`：请求的文件在 Server 上不存在或不可拉取
+  （含共享清单条目已被移除的情形）；Server **必须**以 `session_abort` 拒绝
 - `INVALID_STATE`：当前状态不允许该操作
 
 ### TRANSPORT
