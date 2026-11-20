@@ -29,7 +29,13 @@ import os
 import re
 import sys
 
-import markdown
+try:
+    import markdown
+except ImportError:  # 缺依赖时给出可执行的提示，而不是一坨 traceback
+    sys.stderr.write(
+        "[render-site] 缺少 Python-Markdown。安装：\n"
+        "    pip install -r scripts/requirements.txt\n")
+    raise SystemExit(1)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SPEC = os.path.join(ROOT, "docs", "spec")
