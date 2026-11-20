@@ -6,8 +6,8 @@ on:
     paths:
       - 'docs/site/**'
       - 'docs/spec/**'
-      - 'scripts/build-site.sh'
-      - 'scripts/check-spec-consistency.py'
+      - 'scripts/**'
+      - 'README.md'
       - '.github/workflows/pages.yml'
   workflow_dispatch:
   pull_request:
@@ -23,8 +23,9 @@ permissions:
   pages: write
   id-token: write
 
+# PR 校验与正式部署用不同的并发组：PR 不会取消 / 覆盖 main 的发布
 concurrency:
-  group: pages
+  group: pages-${{ github.event_name }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
@@ -56,6 +57,8 @@ jobs:
 
   deploy:
     needs: build
+    # PR 只做构建校验，不发布到 Pages
+    if: github.event_name != 'pull_request'
     runs-on: ubuntu-latest
     environment:
       name: github-pages

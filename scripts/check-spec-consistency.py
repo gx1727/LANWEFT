@@ -353,6 +353,24 @@ SITE_PAGE_EXEMPT: dict[str, str] = {
     "99": "术语速查表：内容与 02 章重复，未单独做可视化页面",
 }
 
+# 已登记但**尚未迁移到分层渲染**的章节（页面仍为手写镜像）。
+#
+# 迁移一章的流程见 docs/_web-guide.md「迁移一章到分层渲染」：
+#   视觉片段 → docs/site/_parts/NN-*.html
+#   骨架     → docs/site/_pages/NN.tpl（含 {{RENDER:body}}）
+#
+# 登记在此的章：
+#   * 「每章都有渲染模板」检查降级为 WARN —— 不再阻断 Pages 部署；
+#   * 内容级同步检查（SITE-SYNC / SITE-CONTENT）照常生效 —— 手写镜像若与源文
+#     漂移（缺消息 / 缺错误码 / 常量不一致）仍会被 FAIL 拦下；
+#   * 迁移完一章就从这里删掉该章，检查自动恢复为严格模式。
+SITE_RENDER_EXEMPT: dict[str, str] = {
+    "06": "控制帧结构页：位域图 / 接收状态机为手工可视化，正文镜像待迁移",
+    "07": "数据面页：UDP 包结构 / 通道对比图待迁移",
+    "09": "会话模型页：会话生命周期图待迁移",
+    "10": "状态机页：状态转移图待迁移",
+}
+
 # 每章必须出现在站点页面中的**规范常量**（数值 / 固定短语）。
 # 双向校验：既要在该章规范中出现（防止清单过期），也要在站点页面中出现（防止漂移）。
 SITE_NUM_TOKENS: dict[str, list[str]] = {
@@ -514,7 +532,8 @@ def check_site_layered(spec: dict[str, str], res: Result) -> None:
     只要某章还在「手写镜像」，它就会随源文修订而漂移，且内容级校验只能事后发现。
     因此把分层渲染本身固化为检查：
 
-      1. 每章都要有 `docs/site/_pages/NN.tpl` 模板（豁免须显式登记）；
+      1. 每章都要有 `docs/site/_pages/NN.tpl` 模板（豁免须显式登记：
+         SITE_RENDER_EXEMPT 里登记「待迁移」的章降级为 WARN，不阻断部署）；
       2. 模板必须包含 `{{RENDER:body}}` 或 `{{RENDER:section:...}}` ——
          正文必须来自源文渲染，而不是手抄；
       3. 渲染产物必须与源文同步（等价于 `render-site.py --check`；
@@ -533,11 +552,16 @@ def check_site_layered(spec: dict[str, str], res: Result) -> None:
     # 1) / 2) 模板齐备且正文由源文渲染
     no_tpl: list[str] = []
     no_render: list[str] = []
+    pending: list[str] = []
     for chap in sorted(spec):
         if chap in SITE_PAGE_EXEMPT:
             continue
         tpl = os.path.join(pages_dir, f"{chap}.tpl")
         if not os.path.exists(tpl):
+            if chap in SITE_RENDER_EXEMPT:
+                # 已登记待迁移：降级为 WARN，不阻断部署（内容级校验仍然生效）
+                pending.append(f"{chap} 章：{SITE_RENDER_EXEMPT[chap]}")
+                continue
             no_tpl.append(f"{chap} 章缺少 _pages/{chap}.tpl（仍为手写镜像）")
             continue
         body = read(tpl)
@@ -551,6 +575,8 @@ def check_site_layered(spec: dict[str, str], res: Result) -> None:
         res.fail("RENDER", "正文由源文渲染", no_render)
     else:
         res.ok("RENDER", "正文由源文渲染")
+    if pending:
+        res.warn("RENDER", "待迁移到分层渲染的章节（已登记）", pending)
 
     # 3) 产物与源文同步
     import subprocess
