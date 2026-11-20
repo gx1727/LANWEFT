@@ -50,6 +50,15 @@ jobs:
           # 仓库尚未启用 Pages 时自动启用（等价于 Settings → Pages → Source = GitHub Actions）
           enablement: true
 
+      - name: Ensure Pages source is GitHub Actions
+        # Source 若被改成「Deploy from a branch」，GitHub 会改用内置 Jekyll 构建
+        # 发布仓库根目录，本工作流的部署虽然成功，线上却是 Jekyll 站点。
+        # 这里把 Source 拉回「GitHub Actions」。
+        continue-on-error: true
+        run: scripts/ensure-pages-source.sh "${{ github.repository }}"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Check spec consistency
         run: python3 scripts/check-spec-consistency.py
 
