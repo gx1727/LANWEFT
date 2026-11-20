@@ -26,9 +26,14 @@ Client 发送 download_start → Server 返回 download_accept（含 `session_id
 
 ### 2. UDP 探测
 
-Client 发送 UDP_PROBE → Server 返回 UDP_PROBE_ACK → Server 发送 udp_ready
+Client **必须**先打开数据面 socket，再从该 socket 发出 UDP_PROBE
+→ Server 返回 UDP_PROBE_ACK → Server 发送 udp_ready
 
 Server 以 PROBE 报文的**源地址:端口**作为该会话的对端数据面地址。
+下载方向的**接收方是 Client**，因此 Client 的数据面 socket 是**强制**的：
+Server 不得向未经 PROBE 确认的地址发送数据（见 20 章）。
+Client 的端口通常为**临时端口**，由 Server 从 PROBE 的源地址学到；
+socket 的生命周期见 07 章「接收方 socket 生命周期」。
 
 **数据面端口的优先级（规范性）**：Client **必须**按以下顺序取用**最新**的端口值：
 
