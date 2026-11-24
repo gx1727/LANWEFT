@@ -116,7 +116,8 @@ UDP 报文长度已给出总长。接收方**必须**按 `L = 数据报总长 �
 | bit3 | FLAG_PROBE | 0x0008 | 探测包标志；PROBE 与 PROBE_ACK 共用，以**载荷长度**（由报文总长反推）区分（8 / 9） |
 | bit4-5 | DATA_GENERATION | 0x0030 | DATA 修复代号：`(flags >> 4) & 3`，0 初传、1 摘要对帐后的定点修复、2 全量复核；3 非法。非 DATA 帧必须为 0 |
 | bit6 | FLAG_BIND | 0x0040 | **仅用于 TCP 数据面帧**的绑定帧（见 07 章）；UDP 包**必须**为 0 |
-| bit7-15 | RESERVED | 0x0000 | 保留位；接收方**必须**忽略未知标志位 |
+| bit7 | FLAG_PEER_PROBE | 0x0080 | **C↔C 直连探测**；UDP 包**必须**同时满足 `FLAG_DATA` = 0；PROBE / PROBE_ACK 载荷长度 24 / 25（见 07 章） |
+| bit8-15 | RESERVED | 0x0000 | 保留位；接收方**必须**忽略未知标志位 |
 
 ## 数据包示例
 

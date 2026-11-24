@@ -41,6 +41,13 @@
   且**必须**校验 `session_id`（u64）与本会话一致；DATA 的修复代号也必须匹配。
   同一代内的重复由位图幂等性兜底
   （重复 chunk 静默丢弃）
+- **C↔C peer（规范性）**：`direction = peer` 的直连数据面**没有** C↔C 的 `login`；
+  身份与授权来自双方与 Server 的既有登录 + share grant（见 21 章）。
+  - 直连：`transfer_token` 用于 peer PROBE；接收方绑定并只接受确认端点。
+    Stage 1 的数据包仍只有 CRC32（**不是**认证）；Stage 2 **必须**加 keyed MAC。
+  - R2 中转：S 转发**明文**载荷；若要求端到端机密，需 C1↔C2 之间做 AEAD。
+  - R1：S 完整存储文件，按 Server 侧数据保护。
+  - PROBE 可劫持、地址可伪造的既有风险同样适用于 peer；token 只提高门槛。
 - **`session_id` 的唯一性是重放保护的前提（规范性）**：
   `session_id` **必须**跨 Server 进程重启**不复用**（见 09 章「创建规则」）——
   否则重启前仍在网络中飞行的数据包会命中重启后新建的会话，

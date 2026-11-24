@@ -38,10 +38,29 @@
 
 ## 会话与方向
 
-- `direction`（enum8）：会话方向，`0` = `upload`、`1` = `download` —— **决定接收方与发送方的身份**
-  （见 06 章、09 章、10 章「视角定义」）
+- `direction`（enum8）：会话方向，`0` = `upload`、`1` = `download`、`2` = `peer`
+  —— **决定接收方与发送方的身份**（见 06 章、09 章、10 章「视角定义」）
+  - `upload` / `download` 相对 **Server**；
+  - `peer` 表示 **C↔C**：`sender_device_id` 与 `receiver_device_id` 都是 Client，
+    数据传输不经过 Server（直连或 R2 中转）；控制消息仍经 Server 中继。
 - **接收方**：持有位图与临时文件的一方；完成消息由它发布，缺失裁决由它发起
-- **发送方**：发送数据的一方；上传方向为 Client，下载方向为 Server
+- **发送方**：发送数据的一方；上传方向为 Client，下载方向为 Server，peer 方向为
+  `sender_device_id` 指向的 Client
+
+## C↔C peer 传输
+
+- `peer_start` / `peer_offer` / `peer_response` / `peer_accept`：C↔C 传输的握手消息，
+  **全部经 Server**（没有 C↔C 的 `login`，见 06 章）
+- `peer_relay_plan`：预选中转（R1）计划，返回 C1→S upload 与 S→C2 download 两段会话
+- `peer_complete`：peer 会话的完成消息，**恒由接收方发布**，经 Server 中继
+- `transport`（enum8）：`0` = `direct`（C1→C2 直连）、`1` = `relay_r2`（S 转发；Stage 2）；
+  R1 **不是** peer 会话的 transport，而是两段既有会话
+- `transfer_token`（token16）：Server 为 peer 传输签发的一次性令牌；
+  Stage 1 用于 peer PROBE 与端点确认，Stage 2 用于数据面 keyed MAC
+- **share grant**：`(sender_device_id, receiver_device_id, file_hash, expiry)`，
+  由 Server 维护；peer 传输必须在授权范围内
+- `sender_device_id` / `receiver_device_id`：peer 会话的两个 Client；
+  二者都必须在线且各自绑定一条控制连接
 
 ## 状态与控制
 

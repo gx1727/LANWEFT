@@ -27,6 +27,20 @@
 > `PAUSED` 保持 `PAUSED`，`VERIFY` / `COMMIT` 的接收侧回到 `VERIFY` / `COMMIT`
 > （发送侧**没有**这两个状态，回到 `TRANSFERRING`）。
 
+## C↔C peer 会话的恢复（Stage 1）
+
+- peer 会话横跨两条控制连接；**任一端断开**，Server **必须**通知另一端并把会话置为中断。
+  两端分别经各自的 `login` 恢复（**没有** C↔C login）。
+- 每个设备的 `resume[]` **必须**只包含它在其中担任 sender 或 receiver 的 peer 会话；
+  `login_ack.sessions[]` 的 `state`/参数按该设备视角返回。
+- 恢复后数据端点可能变化：Server **必须**在成功 `login` 后，对每个恢复的 peer 会话
+  **重发** `peer_accept`（含最新端点与 `transfer_token`）；双方**必须**重新 peer PROBE。
+  接收方的位图/临时文件**必须**保留，续传起点仍是第一个缺失 symbol。
+- R1 的中转由两段既有会话组成：分别按 upload/download 恢复；
+  `transfer_id` 关联两段结果。
+- 断线重连**不得**把 peer 会话降级为同方向的 upload/download；拓扑/角色不变，
+  只重新建立端点与信用基线。
+
 ## 断线重连（连接重建）
 
 ### 通用规则（规范性）

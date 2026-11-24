@@ -16,6 +16,9 @@
 缺失列表为空时**不承担**周期性推进职责，活性由 11 章判据第 4 条的 **1000 ms**
 索要机制保证。详见 11 章。
 
+**`direction = peer`**：上述机制完全复用；接收方/发送方的消息由 Server 在两条控制
+连接间中继。R1 是两段既有 upload/download，各自独立适用本章。
+
 `missing_chunks` 的 `mode` 为 `enum8`（`0` = report、`1` = request）；
 `chunks` 为完全缺失块列表（`u32` 条数 + `u32` `chunk_id` 数组，**升序**），
 `partial[]` 为部分缺失块列表（每条 `chunk_id` + `u64` `received_mask`，bit=1 表示已收到；

@@ -187,6 +187,43 @@ Client                                        Server
 `progress_update` 的发布方同样改为接收方（Client）；
 恢复提示改由 Client 提供（下载方向的接收方是 Client）。
 
+### C↔C peer（直连，Stage 1）
+
+```
+C1（发送方）              S                    C2（接收方）
+  |--- peer_start ------>|                      |
+  |                      |--- peer_offer ------>|
+  |                      |<-- peer_response ----|   接受时含数据端口
+  |<-- peer_accept ------|------ peer_accept -->|   含对端端点 / token
+  |-- peer PROBE (UDP, transfer_token) -------->|
+  |<------------- PROBE_ACK --------------------|
+  |=============== 直连数据 C1 → C2 ===========|
+  |                      |<-- missing_chunks ---|   控制经 S 中继
+  |<-- missing_chunks ---|                      |
+  |                      |<-- peer_complete ----|
+  |<-- peer_complete ----|                      |
+  |--- complete_ack ---->|------ complete_ack ->|
+```
+
+- 拉（C2 发起）：C2 `peer_start`（`mode = pull`）→ S `peer_offer` 给 C1 →
+  C1 `peer_response` → S `peer_accept` 双方；后续相同。
+- **没有 C↔C 的 `login`**：两端各自保持与 S 的既有 `login` 控制连接。
+- 缺失/信用/进度/完成全部经 S 中继；数据面不经 S。
+
+### C↔C peer（R1 预选中转，Stage 1）
+
+```
+C1 --- peer_start ---> S --- peer_offer ---> C2
+C1 <-- peer_relay_plan --- S --- peer_relay_plan --> C2
+C1 <-- upload_accept ---- S ---- download_accept --> C2
+C1 ===== upload =======> S ===== download =======> C2     （S 存储）
+S publishes upload_complete -> C1；C2 publishes download_complete -> S
+```
+
+- R1 是**两段既有会话**，由一个 `transfer_id` 关联；不建立 `direction = peer` 数据面。
+- Server **必须**建立临时中转素材/授权，使 C2 能合法下载；完成后回收。
+- 直连 PROBE 失败时由 Server 决定走 R1（或 Stage 2 的 R2）。
+
 ## 状态机
 
 状态机与合法转移以 10-state-machine 为准

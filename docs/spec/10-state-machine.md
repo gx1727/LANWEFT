@@ -33,10 +33,10 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
 
 同一个会话在**发送侧**与**接收侧**各自持有一份状态视图：
 
-| 视角 | 定义 | 上传方向 | 下载方向 |
-|------|------|----------|----------|
-| **发送侧** | 发送数据的一方 | Client | Server |
-| **接收侧** | 持有位图与临时文件的一方 | Server | Client |
+| 视角 | 定义 | 上传方向 | 下载方向 | peer 方向 |
+|------|------|----------|----------|-----------|
+| **发送侧** | 发送数据的一方 | Client | Server | `sender_device_id` |
+| **接收侧** | 持有位图与临时文件的一方 | Server | Client | `receiver_device_id` |
 
 - **接收侧**使用全部状态（INIT / NEGOTIATING / TRANSFERRING / PAUSED / VERIFY / COMMIT / COMPLETED / ABORTED）。
 - **发送侧**只使用 INIT / NEGOTIATING / TRANSFERRING / PAUSED / COMPLETED / ABORTED ——
@@ -50,21 +50,24 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
 
 | 从状态 | 到状态 | 视角 | 触发 |
 |--------|--------|------|------|
-| INIT | NEGOTIATING | 发送侧 | upload_start / download_start |
-| INIT | NEGOTIATING | 接收侧 | upload_start / download_start（收到传输请求） |
+| INIT | NEGOTIATING | 发送侧 | upload_start / download_start / **peer_start**（发起方发送） |
+| INIT | NEGOTIATING | 接收侧 | upload_start / download_start / **peer_start**（发起方接收）/ **peer_offer** |
 | INIT | NEGOTIATING | 发送侧 | **delivery_offer**（发出投递提议，见 09 章） |
 | INIT | NEGOTIATING | 接收侧 | **delivery_offer**（收到投递提议） |
+| INIT | NEGOTIATING | 发送侧 | **peer_offer**（收到接收方发起的提议） |
 | INIT | ABORTED | 双方 | session_abort |
-| NEGOTIATING | TRANSFERRING | 发送侧 | upload_accept / download_accept |
-| NEGOTIATING | TRANSFERRING | 接收侧 | upload_accept / download_accept（发送 accept 后进入常规传输） |
+| NEGOTIATING | TRANSFERRING | 发送侧 | upload_accept / download_accept / **peer_accept** |
+| NEGOTIATING | TRANSFERRING | 接收侧 | upload_accept / download_accept / **peer_accept**（发送 accept 后进入常规传输） |
 | NEGOTIATING | TRANSFERRING | 双方 | **delivery_response**（接受投递，见 09 章） |
+| NEGOTIATING | TRANSFERRING | 双方 | **peer_relay_plan** 后的标准 upload_accept / download_accept（R1） |
 | NEGOTIATING | VERIFY | 接收侧 | 秒传：accept 携带 file_exists = 1（bool），跳过数据传输 |
 | NEGOTIATING | TRANSFERRING | 发送侧 | 秒传：不发送数据，仅等待 `upload_complete` |
 | NEGOTIATING | ABORTED | 双方 | session_abort |
 | NEGOTIATING | ABORTED | 发送侧 | **delivery_response**（拒绝投递，见 09 章） |
+| NEGOTIATING | ABORTED | 双方 | **peer_response**（拒绝 peer 传输） |
 | TRANSFERRING | VERIFY | 接收侧 | 位图全真，进入文件级校验 |
 | TRANSFERRING | PAUSED | 双方 | session_pause |
-| TRANSFERRING | COMPLETED | 发送侧 | 持久化成功的 upload_complete / download_complete，回复 complete_ack |
+| TRANSFERRING | COMPLETED | 发送侧 | 持久化成功的 upload_complete / download_complete / **peer_complete**，回复 complete_ack |
 | TRANSFERRING | ABORTED | 发送侧 | 持久化失败的完成回执，回复 complete_ack |
 | TRANSFERRING | ABORTED | 双方 | session_abort |
 | PAUSED | TRANSFERRING | 双方 | Client 发 resume_session；Server 接受并回 resume_ack |
@@ -72,7 +75,7 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
 | VERIFY | COMMIT | 接收侧 | 文件级 Blake3 校验通过 |
 | VERIFY | TRANSFERRING | 接收侧 | **恢复阶梯**：文件级 Blake3 失配 —— 摘要对帐或复核轮（见 12 章） |
 | VERIFY | ABORTED | 接收侧 | session_abort（见下方终止权） |
-| COMMIT | COMPLETED | 接收侧 | 原子重命名完成，发布 upload_complete / download_complete |
+| COMMIT | COMPLETED | 接收侧 | 原子重命名完成，发布 upload_complete / download_complete / **peer_complete** |
 | COMMIT | ABORTED | 双方 | session_abort |
 
 **ABORTED 是终态（规范性）**：没有出边，也不存在 `ABORTED → ABORTED`。

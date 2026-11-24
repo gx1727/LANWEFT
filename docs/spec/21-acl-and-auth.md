@@ -31,9 +31,12 @@
 
 跨 `device_id` 的隔离由以下四层承担：
 
-1. **连接级**：一条控制连接只承载一个 `device_id`（见 06 章「会话与连接的关系」）。
-   跨 `device_id` 的会话在协议层**无法表达**。
+1. **连接级**：一条控制连接只承载一个 `device_id`。
+   跨 `device_id` 的会话**默认无法表达**；**peer 会话是唯一例外**：
+   它显式绑定两个 `device_id`，由 Server 通过 share grant 授权（见「C↔C peer 授权」）。
 2. **Server 级**：Server **必须**校验会话的 `device_id` 与连接绑定一致；
+   对 peer 会话，**必须**校验 `sender_device_id` 与 `receiver_device_id`
+   各自与对应控制连接绑定一致。
    不一致**必须**以 `session_abort`（`reason` = `ACL_DENY`）拒绝。
 3. **资源级**：素材记录（`asset_id`）的所有权由 Server 维护；
    `asset_recall` **必须**校验发起方的 `device_id` 对该记录的所有权，
@@ -42,6 +45,20 @@
    **所有已认证设备**都可以列举（`material_list`）与拉取（`download_start`），
    但**不得**撤回 —— 对预置素材记录发布 `asset_recall`
    **必须**以 `ACL_DENY` 拒绝（见 09 章「预置素材与共享清单」）。
+
+## C↔C peer 授权（规范性）
+
+- peer 会话是**唯一跨两个 `device_id` 的会话类型**：`sender_device_id` 与
+  `receiver_device_id` 都必须各自绑定一条已认证控制连接；Server **必须**同时校验两者。
+- **share grant**：`(sender_device_id, receiver_device_id, file_hash, expiry)`，
+  由 Server 维护。`peer_start` / `peer_offer` **必须**落在该 grant 内，否则 `ACL_DENY`。
+- 接收方**可以**拒绝；拒绝经 `peer_response`（`result` = fail，
+  `code` = `PEER_DECLINED`）表达，Server 以 `session_abort` 终止。
+- **没有 C↔C 的 `login`**：peer 身份完全复用双方与 Server 的既有认证；
+  数据面使用 Server 签发的 `transfer_token` 做端点确认（Stage 1）。
+- R1 的中转素材/授权**必须**绑定 `transfer_id` 与 grant，完成后回收；
+  **不得**让接收方凭 `file_hash` 越权访问其他私有素材。
+- 私有素材归属不因 peer 传输改变；Server 侧归属仍按上传 `device_id`。
 
 ## 传输安全（规范性）
 

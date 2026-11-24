@@ -155,6 +155,8 @@
 <code>missing_chunks</code>（<code>mode=report</code>）以便补发。
 缺失列表为空时<strong>不承担</strong>周期性推进职责，活性由 11 章判据第 4 条的 <strong>1000 ms</strong>
 索要机制保证。详见 11 章。</p>
+<p><strong><code>direction = peer</code></strong>：上述机制完全复用；接收方/发送方的消息由 Server 在两条控制
+连接间中继。R1 是两段既有 upload/download，各自独立适用本章。</p>
 <p><code>missing_chunks</code> 的 <code>mode</code> 为 <code>enum8</code>（<code>0</code> = report、<code>1</code> = request）；
 <code>chunks</code> 为完全缺失块列表（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>），
 <code>partial[]</code> 为部分缺失块列表（每条 <code>chunk_id</code> + <code>u64</code> <code>received_mask</code>，bit=1 表示已收到；

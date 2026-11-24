@@ -445,6 +445,11 @@
 <tbody>
 <tr>
 <td>—</td>
+<td><strong>C↔C peer 传输（Stage 1：直连 + R1 预选中转）</strong>：新增 <code>direction = peer</code> 与 <code>peer_start</code> / <code>peer_offer</code> / <code>peer_response</code> / <code>peer_accept</code> / <code>peer_relay_plan</code> / <code>peer_complete</code>；两端复用与 Server 的既有 <code>login</code>，<strong>无 C↔C login</strong>；Server 做 share grant 授权、控制消息中继与会话仲裁；数据面直连（peer PROBE + <code>transfer_token</code> + 源地址绑定），直连失败走 R1（C1→S upload + S→C2 download，临时中转素材）。新增错误码 <code>PEER_DECLINED</code> / <code>PEER_UNREACHABLE</code> / <code>PEER_RELAY_UNAVAILABLE</code> / <code>PEER_TOKEN_INVALID</code>；数据面 <code>FLAG_PEER_PROBE</code>。Stage 2 预留 <code>relay_r2</code> 与中途切换。<strong>版本号不变</strong></td>
+<td>00、01、02、06、07、08、09、10、11、12、13、19、20、21、24、26、99、site</td>
+</tr>
+<tr>
+<td>—</td>
 <td><strong>统一掩码语义</strong>：块内位图与 <code>missing_chunks.partial[]</code> 统一为「<strong>bit=1 已收到</strong>」，字段 <code>missing_mask</code> 更名为 <code>received_mask</code>；发送方以 <code>missing = full_mask ^ received_mask</code> 求缺失，并校验 <code>received_mask</code> 非零、非满、无越界位（<code>bit ≥ S_chunk</code> 即 <code>SERIALIZATION_ERROR</code>）。避免「已收到 / 缺失」两套相反语义导致实现错误。<strong>版本号不变</strong>（变更以本记录为准）</td>
 <td>02、06、12、14、18、26、99、site</td>
 </tr>

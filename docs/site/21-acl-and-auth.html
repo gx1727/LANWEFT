@@ -135,9 +135,12 @@
 <h2>访问控制（规范性）</h2>
 <p>跨 <code>device_id</code> 的隔离由以下四层承担：</p>
 <ol>
-<li><strong>连接级</strong>：一条控制连接只承载一个 <code>device_id</code>（见 06 章「会话与连接的关系」）。
-   跨 <code>device_id</code> 的会话在协议层<strong>无法表达</strong>。</li>
+<li><strong>连接级</strong>：一条控制连接只承载一个 <code>device_id</code>。
+   跨 <code>device_id</code> 的会话<strong>默认无法表达</strong>；<strong>peer 会话是唯一例外</strong>：
+   它显式绑定两个 <code>device_id</code>，由 Server 通过 share grant 授权（见「C↔C peer 授权」）。</li>
 <li><strong>Server 级</strong>：Server <strong>必须</strong>校验会话的 <code>device_id</code> 与连接绑定一致；
+   对 peer 会话，<strong>必须</strong>校验 <code>sender_device_id</code> 与 <code>receiver_device_id</code>
+   各自与对应控制连接绑定一致。
    不一致<strong>必须</strong>以 <code>session_abort</code>（<code>reason</code> = <code>ACL_DENY</code>）拒绝。</li>
 <li><strong>资源级</strong>：素材记录（<code>asset_id</code>）的所有权由 Server 维护；
    <code>asset_recall</code> <strong>必须</strong>校验发起方的 <code>device_id</code> 对该记录的所有权，
@@ -147,6 +150,20 @@
    但<strong>不得</strong>撤回 —— 对预置素材记录发布 <code>asset_recall</code>
    <strong>必须</strong>以 <code>ACL_DENY</code> 拒绝（见 09 章「预置素材与共享清单」）。</li>
 </ol>
+<h2>C↔C peer 授权（规范性）</h2>
+<ul>
+<li>peer 会话是<strong>唯一跨两个 <code>device_id</code> 的会话类型</strong>：<code>sender_device_id</code> 与
+  <code>receiver_device_id</code> 都必须各自绑定一条已认证控制连接；Server <strong>必须</strong>同时校验两者。</li>
+<li><strong>share grant</strong>：<code>(sender_device_id, receiver_device_id, file_hash, expiry)</code>，
+  由 Server 维护。<code>peer_start</code> / <code>peer_offer</code> <strong>必须</strong>落在该 grant 内，否则 <code>ACL_DENY</code>。</li>
+<li>接收方<strong>可以</strong>拒绝；拒绝经 <code>peer_response</code>（<code>result</code> = fail，
+  <code>code</code> = <code>PEER_DECLINED</code>）表达，Server 以 <code>session_abort</code> 终止。</li>
+<li><strong>没有 C↔C 的 <code>login</code></strong>：peer 身份完全复用双方与 Server 的既有认证；
+  数据面使用 Server 签发的 <code>transfer_token</code> 做端点确认（Stage 1）。</li>
+<li>R1 的中转素材/授权<strong>必须</strong>绑定 <code>transfer_id</code> 与 grant，完成后回收；
+  <strong>不得</strong>让接收方凭 <code>file_hash</code> 越权访问其他私有素材。</li>
+<li>私有素材归属不因 peer 传输改变；Server 侧归属仍按上传 <code>device_id</code>。</li>
+</ul>
 <h2>传输安全（规范性）</h2>
 <ul>
 <li>控制通道<strong>必须</strong>支持 TLS；<strong>应当</strong>启用。</li>

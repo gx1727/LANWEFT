@@ -96,6 +96,7 @@
 <th>定义</th>
 <th>上传方向</th>
 <th>下载方向</th>
+<th>peer 方向</th>
 </tr>
 </thead>
 <tbody>
@@ -104,17 +105,19 @@
 <td>发送数据的一方</td>
 <td>Client</td>
 <td>Server</td>
+<td><code>sender_device_id</code></td>
 </tr>
 <tr>
 <td>接收侧</td>
 <td>持有位图与临时文件的一方</td>
 <td>Server</td>
 <td>Client</td>
+<td><code>receiver_device_id</code></td>
 </tr>
 </tbody>
 </table></div>
 <ul>
-<li>完成消息一律由<strong>接收方</strong>发布</li>
+<li>完成消息一律由<strong>接收方</strong>发布（<code>peer_complete</code> 由接收方经 Server 中继）</li>
 <li>缺失报告一律由<strong>接收方</strong>发起</li>
 <li>Server 拥有一般会话终止权；非 Server 接收方的终止原因限于 10 章「终止权」。</li>
 </ul>

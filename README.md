@@ -31,6 +31,7 @@
 | 两级单位 | **逻辑块** `chunk_size`（`symbol_size` 的整数倍，`1 ≤ S ≤ 64`，默认 **64800**）+ **线缆/修复单位** `symbol_size`（常量 **1200**）；数据报承载 `K` 个 symbol，头带 `chunk_symbol`，`K`/长度由传输层反推；块内用 `u64` symbol 掩码判定收全；`K` 上限分「不分片」与「信任模式（可到 54，显式允许 IP 分片）」两档 |
 | 素材共享 | Server 可**预置素材**构成**共享清单**；Client 查询 + 收通知后，用**既有** `download_start` 拉取（数据面全部复用） |
 | 主动投递 | Server 可**主动投递**文件给在线 Client（`delivery_offer` → `delivery_response`）；方向恒为 download，传输流程全部复用 |
+| C↔C | 两端复用与 Server 的既有登录；Server 做授权/控制中继/状态仲裁，**无 C↔C login**；数据优先直连，直连不可用走服务端中转（R1 预选中转 / R2 会话内中转） |
 | 恢复 | 断线重连走 `login` 的**恢复列表** → `login_ack` 的**权威快照**；续传起点是**第一个缺失块**（非 `max_received_id + 1`） |
 | 身份 | 握手认证，一条连接绑定唯一 `device_id`；在线状态 = 连接存续 |
 

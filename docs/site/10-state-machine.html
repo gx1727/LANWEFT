@@ -222,6 +222,7 @@
 <th>定义</th>
 <th>上传方向</th>
 <th>下载方向</th>
+<th>peer 方向</th>
 </tr>
 </thead>
 <tbody>
@@ -230,12 +231,14 @@
 <td>发送数据的一方</td>
 <td>Client</td>
 <td>Server</td>
+<td><code>sender_device_id</code></td>
 </tr>
 <tr>
 <td><strong>接收侧</strong></td>
 <td>持有位图与临时文件的一方</td>
 <td>Server</td>
 <td>Client</td>
+<td><code>receiver_device_id</code></td>
 </tr>
 </tbody>
 </table></div>
@@ -262,13 +265,13 @@
 <td>INIT</td>
 <td>NEGOTIATING</td>
 <td>发送侧</td>
-<td>upload_start / download_start</td>
+<td>upload_start / download_start / <strong>peer_start</strong>（发起方发送）</td>
 </tr>
 <tr>
 <td>INIT</td>
 <td>NEGOTIATING</td>
 <td>接收侧</td>
-<td>upload_start / download_start（收到传输请求）</td>
+<td>upload_start / download_start / <strong>peer_start</strong>（发起方接收）/ <strong>peer_offer</strong></td>
 </tr>
 <tr>
 <td>INIT</td>
@@ -284,6 +287,12 @@
 </tr>
 <tr>
 <td>INIT</td>
+<td>NEGOTIATING</td>
+<td>发送侧</td>
+<td><strong>peer_offer</strong>（收到接收方发起的提议）</td>
+</tr>
+<tr>
+<td>INIT</td>
 <td>ABORTED</td>
 <td>双方</td>
 <td>session_abort</td>
@@ -292,19 +301,25 @@
 <td>NEGOTIATING</td>
 <td>TRANSFERRING</td>
 <td>发送侧</td>
-<td>upload_accept / download_accept</td>
+<td>upload_accept / download_accept / <strong>peer_accept</strong></td>
 </tr>
 <tr>
 <td>NEGOTIATING</td>
 <td>TRANSFERRING</td>
 <td>接收侧</td>
-<td>upload_accept / download_accept（发送 accept 后进入常规传输）</td>
+<td>upload_accept / download_accept / <strong>peer_accept</strong>（发送 accept 后进入常规传输）</td>
 </tr>
 <tr>
 <td>NEGOTIATING</td>
 <td>TRANSFERRING</td>
 <td>双方</td>
 <td><strong>delivery_response</strong>（接受投递，见 09 章）</td>
+</tr>
+<tr>
+<td>NEGOTIATING</td>
+<td>TRANSFERRING</td>
+<td>双方</td>
+<td><strong>peer_relay_plan</strong> 后的标准 upload_accept / download_accept（R1）</td>
 </tr>
 <tr>
 <td>NEGOTIATING</td>
@@ -331,6 +346,12 @@
 <td><strong>delivery_response</strong>（拒绝投递，见 09 章）</td>
 </tr>
 <tr>
+<td>NEGOTIATING</td>
+<td>ABORTED</td>
+<td>双方</td>
+<td><strong>peer_response</strong>（拒绝 peer 传输）</td>
+</tr>
+<tr>
 <td>TRANSFERRING</td>
 <td>VERIFY</td>
 <td>接收侧</td>
@@ -346,7 +367,7 @@
 <td>TRANSFERRING</td>
 <td>COMPLETED</td>
 <td>发送侧</td>
-<td>持久化成功的 upload_complete / download_complete，回复 complete_ack</td>
+<td>持久化成功的 upload_complete / download_complete / <strong>peer_complete</strong>，回复 complete_ack</td>
 </tr>
 <tr>
 <td>TRANSFERRING</td>
@@ -394,7 +415,7 @@
 <td>COMMIT</td>
 <td>COMPLETED</td>
 <td>接收侧</td>
-<td>原子重命名完成，发布 upload_complete / download_complete</td>
+<td>原子重命名完成，发布 upload_complete / download_complete / <strong>peer_complete</strong></td>
 </tr>
 <tr>
 <td>COMMIT</td>

@@ -209,6 +209,19 @@
     <strong>未</strong>置位的包。<code>FLAG_DATA</code> 包一律按数据路径处理，
     <strong>不得</strong>用载荷长度判别类型（数据报的 <code>K × symbol_size</code> 可能恰好为 8 或 9 字节）。</li>
 </ul>
+<h3>C↔C peer PROBE（规范性）</h3>
+<p>仅用于 <code>direction = peer</code> 的<strong>直连</strong>：发送方向接收方声明的数据端点发送探测。</p>
+<ul>
+<li><code>flags.bit7 = 1</code>（<code>FLAG_PEER_PROBE</code>）、<code>flags.bit0 = 0</code>；<code>chunk_id = 0</code>、<code>chunk_symbol = 0</code>。</li>
+<li><strong>PROBE</strong> 载荷 = <code>session_id</code>（u64，8 字节）‖ <code>transfer_token</code>（16 字节），<code>L = 24</code>。</li>
+<li><strong>PROBE_ACK</strong> 载荷 = 上述 24 字节 ‖ 1 字节状态（0=成功，1=失败），<code>L = 25</code>。</li>
+<li>接收方<strong>必须</strong>校验 <code>transfer_token</code> 与 <code>session_id</code>，并从<strong>同一数据面端口</strong>回 ACK；
+  校验失败按 <code>PEER_TOKEN_INVALID</code> 丢弃（见 19 章）。</li>
+<li>接收方<strong>必须</strong>把 PROBE 的<strong>源地址:端口</strong>绑定为该会话的发送方端点；
+  之后<strong>只接受来自该端点</strong>的数据包。发送方<strong>必须</strong>只接受来自接收方端点的 ACK。</li>
+<li>端点由 Server 经 <code>peer_accept</code> 下发（见 06 章）；PROBE 不改变端口。</li>
+<li><strong>R1 预选中转不使用 peer PROBE</strong>：它沿用标准 upload/download 的 PROBE 与端点规则。</li>
+</ul>
 <h3>端口与地址绑定（规范性）</h3>
 <ul>
 <li>Server 的数据面 socket <strong>必须</strong>绑定 accept 消息中下发的 <code>udp_port</code>。</li>
@@ -433,8 +446,9 @@ Server 不得向未经 PROBE 确认的地址发送数据（见 20 章），
 <h3>绑定帧（FLAG_BIND）</h3>
 <p>TCP 数据面连接<strong>不</strong>承载认证凭据，其权限<strong>必须</strong>通过绑定建立。</p>
 <ul>
-<li><strong>Client 恒为连接方</strong>：无论上传或下载，Server 在下发的 <code>tcp_port</code> 监听，Client 主动连接后，
-  <strong>必须</strong>先发送一个<strong>绑定帧</strong>：
+<li><strong>连接方向</strong>：upload/download 中 <strong>Server 监听、Client 连接</strong>；
+  <code>direction = peer</code> 中由<strong>接收方</strong>（<code>receiver_device_id</code>）监听 <code>tcp_port</code>、
+  <strong>发送方</strong>连接。无论哪种，连接方<strong>必须</strong>先发送一个<strong>绑定帧</strong>：
   <code>flags</code> 置位 <code>FLAG_BIND</code>（bit6）、<strong>未</strong>置位 <code>FLAG_DATA</code>，
   载荷长度 <code>L = 0</code>、<code>chunk_symbol</code> = 0，<code>session_id</code> 为待绑定会话。</li>
 <li>绑定帧<strong>必须</strong>是连接上的<strong>第一条</strong>数据面帧（<strong>首帧锚点</strong>）；
@@ -450,6 +464,13 @@ Server 不得向未经 PROBE 确认的地址发送数据（见 20 章），
   任一项不满足即<strong>必须</strong>关闭该 TCP 数据面连接，且<strong>不得</strong>发送任何数据面帧。</li>
 <li>绑定成功后，该 TCP 数据面连接<strong>只能</strong>承载<strong>该 <code>session_id</code></strong>；
   收到其他 <code>session_id</code> 的帧<strong>必须</strong>按 <code>SESSION_ID_MISMATCH</code> 丢弃该帧。</li>
+<li><strong>peer 模式（规范性）</strong>：<code>direction = peer</code> 时，接收方监听、发送方连接。
+  接收方<strong>必须</strong>校验：
+  1. 该 <code>session_id</code> 存在且属于该 peer 会话；
+  2. 发送方身份 = 会话的 <code>sender_device_id</code>（来自 <code>peer_accept</code> / 控制面）；
+  3. TCP 连接来源 IP 与 <code>peer_accept</code> 下发的对端端点一致。
+  peer <strong>没有</strong> C↔C 控制连接，因此<strong>不得</strong>套用「与控制连接绑定」的 Server 校验。
+  Stage 1 只做源地址 + <code>session_id</code> 绑定；每包 keyed MAC 属 Stage 2。</li>
 <li>同一会话<strong>已有</strong>活动的 TCP 数据面连接时，新的绑定<strong>必须</strong>替换旧连接
   （旧连接<strong>必须</strong>被关闭）—— 重连语义因此是幂等的。</li>
 <li><strong>多个会话</strong>可以各自建立独立的 TCP 数据面连接；<code>session_id</code> 用于区分。</li>

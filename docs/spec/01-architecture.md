@@ -26,13 +26,14 @@
 
 协议区分两个角色视角（详见 10 章「视角定义」）：
 
-| 视角 | 定义 | 上传方向 | 下载方向 |
-|------|------|----------|----------|
-| **发送侧** | 发送数据的一方 | Client | Server |
-| **接收侧** | 持有位图与临时文件的一方 | Server | Client |
+| 视角 | 定义 | 上传方向 | 下载方向 | peer 方向 |
+|------|------|----------|----------|-----------|
+| **发送侧** | 发送数据的一方 | Client | Server | `sender_device_id` |
+| **接收侧** | 持有位图与临时文件的一方 | Server | Client | `receiver_device_id` |
 
 - **完成消息一律由接收方发布**：`upload_complete` 由 Server 发布，
-  `download_complete` 由 Client 发布。
+  `download_complete` 由 Client 发布，`peer_complete` 由 `receiver_device_id` 发布
+  （经 Server 中继）。
 - **缺失报告一律由接收方发起**：`missing_chunks`（`mode=report`）由接收方下发，
   发送方据此补发。
 

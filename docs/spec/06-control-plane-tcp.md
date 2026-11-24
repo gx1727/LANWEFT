@@ -311,6 +311,7 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | `enum8` | `u8`，取值见「枚举」 |
 | `str` | `u16` 长度 + UTF-8 字节（**不含**结尾 NUL）；长度 `0` 表示**无值**（null） |
 | `hash32` | **32 字节原始 Blake3 摘要**（非十六进制串） |
+| `token16` | 16 字节原始令牌（不透明；见 09、20 章） |
 | `chunk_list` | `u32` 条数 + 条数 × `u32` `chunk_id`（**必须**升序） |
 | `record[]` | `u16` 条数 + 条数 × 定长记录（记录布局见表） |
 
@@ -330,7 +331,11 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | 枚举 | 取值 |
 |------|------|
 | `result` | `0` = fail，`1` = success |
-| `direction` | `0` = upload，`1` = download |
+| `direction` | `0` = upload，`1` = download，`2` = peer |
+| `peer_mode` | `0` = push（发起方发送），`1` = pull（发起方接收） |
+| `peer_role` | `0` = sender，`1` = receiver |
+| `transport` | `0` = direct，`1` = relay_r2（Stage 2；Stage 1 仅 direct） |
+| `transport_pref` | `0` = auto，`1` = direct，`2` = relay |
 | `state` | `0` INIT、`1` NEGOTIATING、`2` TRANSFERRING、`3` PAUSED、`4` VERIFY、`5` COMMIT、`6` COMPLETED、`7` ABORTED（见 10 章） |
 | `missing_chunks.mode` | `0` = report，`1` = request |
 | `proto_version` | 三个 `u8`：`major` / `minor` / `patch`，按 major → minor → patch 逐段数值比较（见 08 章「版本比较规则」） |
@@ -424,10 +429,17 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | `0x1A` | delivery_response | Client→Server | 投递应答（接受 / 拒绝） |
 | `0x1B` | complete_ack | 双向 | 数据发送方确认已持久化接收方的完成回执 |
 | `0x1C` | window_update | 双向 | 窗口推进信用；**发布方恒为接收方** |
-| `0x00`、`0x1D`–`0xFF` | — | — | **保留**，接收方必须按「未识别消息必须忽略」处理 |
+| `0x1D` | peer_start | Client→Server | 发起 C↔C 传输意图 |
+| `0x1E` | peer_offer | Server→Client | 向对端提议 C↔C 传输 |
+| `0x1F` | peer_response | Client→Server | 对端接受 / 拒绝与数据面端口 |
+| `0x20` | peer_accept | Server→Client | C↔C 会话建立与端点 |
+| `0x21` | peer_relay_plan | Server→Client | R1 预选中转计划（两段会话） |
+| `0x22` | peer_complete | 双向 | C↔C 完成；**恒由接收方发布**，经 Server 中继 |
+| `0x00`、`0x23`–`0xFF` | — | — | **保留**，接收方必须按「未识别消息必须忽略」处理 |
 
 > **方向标注约定**：标记为「双向」的消息，其**发布方由会话方向决定**：
 > `missing_chunks`（`mode=report`）、`progress_update` 与 `window_update` 由**接收方**发布；
+> `peer_complete` 由**接收方**发布（经 Server 中继）；
 > `session_pause` 双方均可发布；`mode=request` 的 `missing_chunks` 由**发送方**发布。
 > 见 10 章「视角定义」。
 
@@ -699,8 +711,10 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 |-----------|------------------------|----------|--------------|
 | `upload` | **Server**（接收方） | Server 尚未收到的 symbol | Client 重传这些 symbol |
 | `download` | **Client**（接收方） | Client 尚未收到的 symbol | Server 重传这些 symbol |
+| `peer` | **receiver_device_id**（接收方） | 接收方尚未收到的 symbol | `sender_device_id` 重传这些 symbol（经 Server 中继控制消息） |
 
-发送方（上传方向 Client / 下载方向 Server）**不得**发布 `mode=report`。
+发送方（上传方向 Client / 下载方向 Server / peer 方向的 `sender_device_id`）
+**不得**发布 `mode=report`。
 发送方要了解对端的缺失情况，**必须**使用 `mode=request` 索要。
 
 **`missing_count` 的取值（规范性）**：`missing_count` **必须**是位图中**尚未收到**的
@@ -845,7 +859,7 @@ Client 是会话对端，Server 不主动发起恢复。
 | 16 | 8 | total | u64 | 本会话的 `symbol_count` |
 
 **发布方（规范性）**：`progress_update` 由**接收方**发布 ——
-上传方向是 Server，下载方向是 Client。
+上传方向是 Server，下载方向是 Client，peer 方向是 `receiver_device_id`。
 原因：`received` 表达的是**本端已接收**的 symbol 数，只有持有位图的接收方才知道该值；
 发送方需要它来估算链路丢包率并驱动 AIMD（见 11 章）。
 
@@ -919,7 +933,175 @@ Client 是会话对端，Server 不主动发起恢复。
 | 0 | 8 | session_id | u64 | 已持久化最终结果的会话 |
 
 无变长区。上传由 Client 应答 `upload_complete`，下载由 Server 应答
-`download_complete`。只确认结果已记录，不表示传输成功；重发与清理规则见 13 章。
+`download_complete`；peer 由**发送方**应答 `peer_complete`（经 Server 中继）。
+只确认结果已记录，不表示传输成功；重发与清理规则见 13 章。
+
+### peer_start（`0x1D`）
+
+**定长区（36 字节）**
+
+| 偏移 | 大小 | 字段 | 类型 | 说明 |
+|------|------|------|------|------|
+| 0 | 8 | session_id | u64 | 可为 0；由 Server 生成并在 `peer_accept`/`peer_relay_plan` 中回填 |
+| 8 | 8 | size | u64 | 文件大小 |
+| 16 | 8 | mtime | u64 | 文件修改时间 |
+| 24 | 4 | chunk_size | u32 | 期望的逻辑块大小（`symbol_size` 的整数倍，`1 ≤ S ≤ 64`） |
+| 28 | 1 | mode | enum8 | `peer_mode`：`0` = push，`1` = pull |
+| 29 | 1 | transport_pref | enum8 | `transport_pref`：`0` = auto，`1` = direct，`2` = relay |
+| 30 | 2 | udp_port | u16 | 发起方数据面 UDP 端口；`0` = 稍后声明 |
+| 32 | 2 | tcp_port | u16 | 发起方数据面 TCP 端口；`0` = 不支持 |
+| 34 | 2 | reserved | u16 | 保留 |
+
+**变长区（顺序固定）**
+
+1. `target_device_id`：`str`。对端设备。
+2. `file_hash`：`hash32`。
+3. `file_name`：`str`。
+
+**发布方（规范性）**：恒由 **Client** 发布；Server 校验 share grant 与对端在线状态。
+同一 `(sender_device_id, receiver_device_id, file_hash)` 的活跃传输**必须**复用。
+
+### peer_offer（`0x1E`）
+
+**定长区（64 字节）**
+
+| 偏移 | 大小 | 字段 | 类型 | 说明 |
+|------|------|------|------|------|
+| 0 | 8 | session_id | u64 | Server 生成的会话 ID |
+| 8 | 8 | size | u64 | 文件大小 |
+| 16 | 8 | mtime | u64 | 文件修改时间 |
+| 24 | 4 | chunk_count | u32 | 总块数 = `ceil(size / chunk_size)` |
+| 28 | 4 | window | u32 | 会话级在途 **symbol** 上限 |
+| 32 | 4 | connection_window | u32 | 连接级在途 **symbol** 上限 |
+| 36 | 4 | chunk_size | u32 | 逻辑块大小 |
+| 40 | 16 | transfer_token | token16 | Server 签发的一次性令牌 |
+| 56 | 1 | transport | enum8 | `0` = direct（Stage 1）；`1` = relay_r2（Stage 2） |
+| 57 | 1 | role | enum8 | **接收方**在本会话中的角色：`0` = sender，`1` = receiver |
+| 58 | 2 | reserved | u16 | 保留 |
+| 60 | 4 | reserved | u32 | 保留 |
+
+**变长区（顺序固定）**
+
+1. `sender_device_id`：`str`。
+2. `receiver_device_id`：`str`。
+3. `file_hash`：`hash32`。
+4. `file_name`：`str`。
+
+**发布方（规范性）**：恒由 **Server** 发布给**未发起**的那一端。
+接收方必须显式接受或拒绝（`peer_response`）。
+
+### peer_response（`0x1F`）
+
+**定长区（16 字节）**
+
+| 偏移 | 大小 | 字段 | 类型 | 说明 |
+|------|------|------|------|------|
+| 0 | 8 | session_id | u64 | 对应 `peer_offer` 的会话 |
+| 8 | 1 | result | enum8 | `0` = fail（拒绝），`1` = success（接受） |
+| 9 | 1 | reserved | u8 | 保留 |
+| 10 | 2 | udp_port | u16 | 本端数据面 UDP 端口（接受时有效） |
+| 12 | 2 | tcp_port | u16 | 本端数据面 TCP 端口；`0` = 不支持 |
+| 14 | 2 | reserved | u16 | 保留 |
+
+**变长区（顺序固定）**
+
+1. `code`：`str`。拒绝原因（`PEER_DECLINED` / `ACL_DENY` / `STORAGE_FULL` 等）；
+   接受时**必须**为空串。
+
+**约定（规范性）**：接受方**必须**在发送本条**之前**打开数据面 socket，
+并填入其端口；S 将据此组成端点。
+
+### peer_accept（`0x20`）
+
+**定长区（96 字节）**
+
+| 偏移 | 大小 | 字段 | 类型 | 说明 |
+|------|------|------|------|------|
+| 0 | 8 | session_id | u64 | 会话 ID |
+| 8 | 8 | size | u64 | 文件大小 |
+| 16 | 8 | mtime | u64 | 文件修改时间 |
+| 24 | 4 | chunk_count | u32 | 总块数 |
+| 28 | 4 | window | u32 | 会话级在途 **symbol** 上限 |
+| 32 | 4 | connection_window | u32 | 连接级在途 **symbol** 上限 |
+| 36 | 4 | chunk_size | u32 | 逻辑块大小 |
+| 40 | 16 | transfer_token | token16 | 一次性令牌 |
+| 56 | 1 | transport | enum8 | `0` = direct；`1` = relay_r2（Stage 2） |
+| 57 | 1 | role | enum8 | 本端角色：`0` = sender，`1` = receiver |
+| 58 | 1 | peer_addr_family | u8 | `4` / `6`；`0` = 未知（relay 时可为 0） |
+| 59 | 1 | reserved | u8 | 保留 |
+| 60 | 2 | peer_udp_port | u16 | 对端数据面 UDP 端口 |
+| 62 | 2 | peer_tcp_port | u16 | 对端数据面 TCP 端口；`0` = 不支持 |
+| 64 | 16 | peer_addr | bytes | 对端数据面地址（IPv4 用前 4 字节，其余 0） |
+| 80 | 8 | reserved | u64 | 保留 |
+| 88 | 8 | reserved | u64 | 保留 |
+
+**变长区（顺序固定）**
+
+1. `file_hash`：`hash32`。
+2. `file_name`：`str`。
+3. `peer_device_id`：`str`。对端 `device_id`。
+
+**发布方（规范性）**：恒由 **Server** 发布给**双方**；双方各自收到 `role` 不同的同一布局。
+Server **必须**校验端点来源（见 07 章）。
+本消息**也用于恢复**：成功 `login` 后，Server **必须**对每个恢复的 peer 会话重发本条，
+携带最新端点与 `transfer_token`（见 13 章）。
+
+### peer_relay_plan（`0x21`）
+
+**定长区（48 字节）**
+
+| 偏移 | 大小 | 字段 | 类型 | 说明 |
+|------|------|------|------|------|
+| 0 | 8 | transfer_id | u64 | Server 生成的传输关联 id |
+| 8 | 8 | upload_session_id | u64 | C1→S 的上传会话 |
+| 16 | 8 | download_session_id | u64 | S→C2 的下载会话 |
+| 24 | 8 | size | u64 | 文件大小 |
+| 32 | 4 | chunk_size | u32 | 逻辑块大小 |
+| 36 | 4 | reserved | u32 | 保留 |
+| 40 | 8 | reserved | u64 | 保留 |
+
+**变长区（顺序固定）**
+
+1. `file_hash`：`hash32`。
+2. `sender_device_id`：`str`。
+3. `receiver_device_id`：`str`。
+4. `file_name`：`str`。
+
+**发布方（规范性）**：恒由 **Server** 发布给双方。
+本条只做**关联**；随后 Server **必须**分别下发标准的 `upload_accept`（给发送方）与
+`download_accept`（给接收方），端口/窗口等参数以标准 accept 为准。
+R1 不建立 `direction = peer` 的数据面；它是两段既有会话。
+
+### peer_complete（`0x22`）
+
+**定长区（12 字节）**
+
+| 偏移 | 大小 | 字段 | 类型 | 说明 |
+|------|------|------|------|------|
+| 0 | 8 | session_id | u64 | 会话 ID |
+| 8 | 1 | result | enum8 | `0` = fail，`1` = success |
+| 9 | 1 | flags | u8 | bit0 = `file_hash` 有效；bit1-7 保留 |
+| 10 | 2 | reserved | u16 | 保留 |
+
+**变长区（顺序固定）**
+
+1. `code`：`str`。失败时的错误码；成功时为空串。
+2. `file_hash`：`hash32`，**仅当** `flags.bit0 = 1` 时存在。
+
+**发布方（规范性）**：恒由**接收方**发布，经 Server 中继给发送方。
+发送方持久化结果后回 `complete_ack`（同样经 Server 中继）。
+
+**peer 控制中继（规范性）**：`direction = peer` 的会话，其控制消息由 Server 在
+两条控制连接之间转发：
+
+- 接收方 → 发送方：`missing_chunks`（`mode=report`）、`window_update`、
+  `progress_update`、`peer_complete`、`reconcile_request`；
+- 发送方 → 接收方：`missing_chunks`（`mode=request`）、`reconcile_response`、
+  `complete_ack`；
+- 双方：`session_pause`、`session_abort`（发布方权限见 10 章；Server 可终止）。
+
+Server **必须**校验消息的发布方确实是该会话的对应角色；越权按 `ACL_DENY` 丢弃并审计。
+**不得**建立 C↔C 的控制连接。
 
 ### session_pause（`0x0E`）
 
@@ -1272,6 +1454,15 @@ Client 可用 `file_hash` 单独定位，也可用 `asset_id` 精确定位到某
     `received_symbols` 与 `max_ok_payload`；`missing_chunks` 的 `missing_count`
     同样构成信用。发送方以两者中**最新**的计数推进窗口，二者在同一代号内**必须**一致
     （见 11 章「窗口推进信用」）
+22. **C↔C peer 会话**：`direction = peer` 的会话绑定两个 Client
+    （`sender_device_id` / `receiver_device_id`），两者各自有一条控制连接；
+    Server 生成 `session_id` 并仲裁状态。**没有 C↔C 的 `login`**。
+23. **peer 控制中继**：peer 会话的缺失/信用/进度/完成/对帐消息
+    **必须**经 Server 在两条控制连接间转发；Server 校验发布方角色，越权按 `ACL_DENY`。
+24. **R1 预选中转**：`peer_relay_plan` 只做关联；实际传输是
+    `upload`（C1→S）与 `download`（S→C2）两段既有会话，参数以标准 accept 为准。
+25. **peer 与 transport**：Stage 1 仅 `transport = direct`；`relay_r2` 字段预留。
+    传输模式切换（若实现）**不**改变 `session_id`、方向或 generation。
 
 ## 与状态机关系
 

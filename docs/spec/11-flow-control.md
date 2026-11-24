@@ -23,6 +23,9 @@
 
 - **无逐包 ACK**：可靠性由接收方**信用**（`window_update`）与 `missing_chunks` 裁决共同提供
   （见 12 章）；窗口前进的节奏由信用驱动，而非固定墙钟周期。
+- **`direction = peer` 同样适用**：信用、缺失、进度与在途估算按 symbol 计；
+  这些控制消息由 Server 在两条控制连接间中继（见 06 章），窗口仍是**端到端**语义。
+  R1 则是两段独立的 upload/download 会话，各自适用本章。
 
 ### 连接级：`connection_window`（规范性）
 

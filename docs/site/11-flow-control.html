@@ -175,6 +175,9 @@
 <ul>
 <li><strong>无逐包 ACK</strong>：可靠性由接收方<strong>信用</strong>（<code>window_update</code>）与 <code>missing_chunks</code> 裁决共同提供
   （见 12 章）；窗口前进的节奏由信用驱动，而非固定墙钟周期。</li>
+<li><strong><code>direction = peer</code> 同样适用</strong>：信用、缺失、进度与在途估算按 symbol 计；
+  这些控制消息由 Server 在两条控制连接间中继（见 06 章），窗口仍是<strong>端到端</strong>语义。
+  R1 则是两段独立的 upload/download 会话，各自适用本章。</li>
 </ul>
 <h3>连接级：<code>connection_window</code>（规范性）</h3>
 <p>一条控制连接<strong>可以</strong>承载多个并发会话（见 09 章）。

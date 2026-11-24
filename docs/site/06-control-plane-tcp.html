@@ -767,6 +767,10 @@ RESYNC（仅诊断，不恢复协议状态机）
 <td><strong>32 字节原始 Blake3 摘要</strong>（非十六进制串）</td>
 </tr>
 <tr>
+<td><code>token16</code></td>
+<td>16 字节原始令牌（不透明；见 09、20 章）</td>
+</tr>
+<tr>
 <td><code>chunk_list</code></td>
 <td><code>u32</code> 条数 + 条数 × <code>u32</code> <code>chunk_id</code>（<strong>必须</strong>升序）</td>
 </tr>
@@ -803,7 +807,23 @@ RESYNC（仅诊断，不恢复协议状态机）
 </tr>
 <tr>
 <td><code>direction</code></td>
-<td><code>0</code> = upload，<code>1</code> = download</td>
+<td><code>0</code> = upload，<code>1</code> = download，<code>2</code> = peer</td>
+</tr>
+<tr>
+<td><code>peer_mode</code></td>
+<td><code>0</code> = push（发起方发送），<code>1</code> = pull（发起方接收）</td>
+</tr>
+<tr>
+<td><code>peer_role</code></td>
+<td><code>0</code> = sender，<code>1</code> = receiver</td>
+</tr>
+<tr>
+<td><code>transport</code></td>
+<td><code>0</code> = direct，<code>1</code> = relay_r2（Stage 2；Stage 1 仅 direct）</td>
+</tr>
+<tr>
+<td><code>transport_pref</code></td>
+<td><code>0</code> = auto，<code>1</code> = direct，<code>2</code> = relay</td>
 </tr>
 <tr>
 <td><code>state</code></td>
@@ -1069,7 +1089,43 @@ RESYNC（仅诊断，不恢复协议状态机）
 <td>窗口推进信用；<strong>发布方恒为接收方</strong></td>
 </tr>
 <tr>
-<td><code>0x00</code>、<code>0x1D</code>–<code>0xFF</code></td>
+<td><code>0x1D</code></td>
+<td>peer_start</td>
+<td>Client→Server</td>
+<td>发起 C↔C 传输意图</td>
+</tr>
+<tr>
+<td><code>0x1E</code></td>
+<td>peer_offer</td>
+<td>Server→Client</td>
+<td>向对端提议 C↔C 传输</td>
+</tr>
+<tr>
+<td><code>0x1F</code></td>
+<td>peer_response</td>
+<td>Client→Server</td>
+<td>对端接受 / 拒绝与数据面端口</td>
+</tr>
+<tr>
+<td><code>0x20</code></td>
+<td>peer_accept</td>
+<td>Server→Client</td>
+<td>C↔C 会话建立与端点</td>
+</tr>
+<tr>
+<td><code>0x21</code></td>
+<td>peer_relay_plan</td>
+<td>Server→Client</td>
+<td>R1 预选中转计划（两段会话）</td>
+</tr>
+<tr>
+<td><code>0x22</code></td>
+<td>peer_complete</td>
+<td>双向</td>
+<td>C↔C 完成；<strong>恒由接收方发布</strong>，经 Server 中继</td>
+</tr>
+<tr>
+<td><code>0x00</code>、<code>0x23</code>–<code>0xFF</code></td>
 <td>—</td>
 <td>—</td>
 <td><strong>保留</strong>，接收方必须按「未识别消息必须忽略」处理</td>
@@ -1079,6 +1135,7 @@ RESYNC（仅诊断，不恢复协议状态机）
 <blockquote>
 <p><strong>方向标注约定</strong>：标记为「双向」的消息，其<strong>发布方由会话方向决定</strong>：
 <code>missing_chunks</code>（<code>mode=report</code>）、<code>progress_update</code> 与 <code>window_update</code> 由<strong>接收方</strong>发布；
+<code>peer_complete</code> 由<strong>接收方</strong>发布（经 Server 中继）；
 <code>session_pause</code> 双方均可发布；<code>mode=request</code> 的 <code>missing_chunks</code> 由<strong>发送方</strong>发布。
 见 10 章「视角定义」。</p>
 <p><strong><code>window_update</code> 的发布方（规范性）</strong>：<code>window_update</code> 恒由<strong>接收方</strong>发布
@@ -1894,9 +1951,16 @@ RESYNC（仅诊断，不恢复协议状态机）
 <td>Client 尚未收到的 symbol</td>
 <td>Server 重传这些 symbol</td>
 </tr>
+<tr>
+<td><code>peer</code></td>
+<td><strong>receiver_device_id</strong>（接收方）</td>
+<td>接收方尚未收到的 symbol</td>
+<td><code>sender_device_id</code> 重传这些 symbol（经 Server 中继控制消息）</td>
+</tr>
 </tbody>
 </table></div>
-<p>发送方（上传方向 Client / 下载方向 Server）<strong>不得</strong>发布 <code>mode=report</code>。
+<p>发送方（上传方向 Client / 下载方向 Server / peer 方向的 <code>sender_device_id</code>）
+<strong>不得</strong>发布 <code>mode=report</code>。
 发送方要了解对端的缺失情况，<strong>必须</strong>使用 <code>mode=request</code> 索要。</p>
 <p><strong><code>missing_count</code> 的取值（规范性）</strong>：<code>missing_count</code> <strong>必须</strong>是位图中<strong>尚未收到</strong>的
 <strong>symbol 精确总数</strong>（<strong>不是</strong> <code>chunks</code> 的条数，也<strong>不是</strong> <code>partial_count</code>）。
@@ -2221,7 +2285,7 @@ Client 是会话对端，Server 不主动发起恢复。</p>
 </tbody>
 </table></div>
 <p><strong>发布方（规范性）</strong>：<code>progress_update</code> 由<strong>接收方</strong>发布 ——
-上传方向是 Server，下载方向是 Client。
+上传方向是 Server，下载方向是 Client，peer 方向是 <code>receiver_device_id</code>。
 原因：<code>received</code> 表达的是<strong>本端已接收</strong>的 symbol 数，只有持有位图的接收方才知道该值；
 发送方需要它来估算链路丢包率并驱动 AIMD（见 11 章）。</p>
 <ul>
@@ -2416,7 +2480,546 @@ Client 是会话对端，Server 不主动发起恢复。</p>
 </tbody>
 </table></div>
 <p>无变长区。上传由 Client 应答 <code>upload_complete</code>，下载由 Server 应答
-<code>download_complete</code>。只确认结果已记录，不表示传输成功；重发与清理规则见 13 章。</p>
+<code>download_complete</code>；peer 由<strong>发送方</strong>应答 <code>peer_complete</code>（经 Server 中继）。
+只确认结果已记录，不表示传输成功；重发与清理规则见 13 章。</p>
+<h3>peer_start（<code>0x1D</code>）</h3>
+<p><strong>定长区（36 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>可为 0；由 Server 生成并在 <code>peer_accept</code>/<code>peer_relay_plan</code> 中回填</td>
+</tr>
+<tr>
+<td>8</td>
+<td>8</td>
+<td>size</td>
+<td>u64</td>
+<td>文件大小</td>
+</tr>
+<tr>
+<td>16</td>
+<td>8</td>
+<td>mtime</td>
+<td>u64</td>
+<td>文件修改时间</td>
+</tr>
+<tr>
+<td>24</td>
+<td>4</td>
+<td>chunk_size</td>
+<td>u32</td>
+<td>期望的逻辑块大小（<code>symbol_size</code> 的整数倍，<code>1 ≤ S ≤ 64</code>）</td>
+</tr>
+<tr>
+<td>28</td>
+<td>1</td>
+<td>mode</td>
+<td>enum8</td>
+<td><code>peer_mode</code>：<code>0</code> = push，<code>1</code> = pull</td>
+</tr>
+<tr>
+<td>29</td>
+<td>1</td>
+<td>transport_pref</td>
+<td>enum8</td>
+<td><code>transport_pref</code>：<code>0</code> = auto，<code>1</code> = direct，<code>2</code> = relay</td>
+</tr>
+<tr>
+<td>30</td>
+<td>2</td>
+<td>udp_port</td>
+<td>u16</td>
+<td>发起方数据面 UDP 端口；<code>0</code> = 稍后声明</td>
+</tr>
+<tr>
+<td>32</td>
+<td>2</td>
+<td>tcp_port</td>
+<td>u16</td>
+<td>发起方数据面 TCP 端口；<code>0</code> = 不支持</td>
+</tr>
+<tr>
+<td>34</td>
+<td>2</td>
+<td>reserved</td>
+<td>u16</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>target_device_id</code>：<code>str</code>。对端设备。</li>
+<li><code>file_hash</code>：<code>hash32</code>。</li>
+<li><code>file_name</code>：<code>str</code>。</li>
+</ol>
+<p><strong>发布方（规范性）</strong>：恒由 <strong>Client</strong> 发布；Server 校验 share grant 与对端在线状态。
+同一 <code>(sender_device_id, receiver_device_id, file_hash)</code> 的活跃传输<strong>必须</strong>复用。</p>
+<h3>peer_offer（<code>0x1E</code>）</h3>
+<p><strong>定长区（64 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>Server 生成的会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>8</td>
+<td>size</td>
+<td>u64</td>
+<td>文件大小</td>
+</tr>
+<tr>
+<td>16</td>
+<td>8</td>
+<td>mtime</td>
+<td>u64</td>
+<td>文件修改时间</td>
+</tr>
+<tr>
+<td>24</td>
+<td>4</td>
+<td>chunk_count</td>
+<td>u32</td>
+<td>总块数 = <code>ceil(size / chunk_size)</code></td>
+</tr>
+<tr>
+<td>28</td>
+<td>4</td>
+<td>window</td>
+<td>u32</td>
+<td>会话级在途 <strong>symbol</strong> 上限</td>
+</tr>
+<tr>
+<td>32</td>
+<td>4</td>
+<td>connection_window</td>
+<td>u32</td>
+<td>连接级在途 <strong>symbol</strong> 上限</td>
+</tr>
+<tr>
+<td>36</td>
+<td>4</td>
+<td>chunk_size</td>
+<td>u32</td>
+<td>逻辑块大小</td>
+</tr>
+<tr>
+<td>40</td>
+<td>16</td>
+<td>transfer_token</td>
+<td>token16</td>
+<td>Server 签发的一次性令牌</td>
+</tr>
+<tr>
+<td>56</td>
+<td>1</td>
+<td>transport</td>
+<td>enum8</td>
+<td><code>0</code> = direct（Stage 1）；<code>1</code> = relay_r2（Stage 2）</td>
+</tr>
+<tr>
+<td>57</td>
+<td>1</td>
+<td>role</td>
+<td>enum8</td>
+<td><strong>接收方</strong>在本会话中的角色：<code>0</code> = sender，<code>1</code> = receiver</td>
+</tr>
+<tr>
+<td>58</td>
+<td>2</td>
+<td>reserved</td>
+<td>u16</td>
+<td>保留</td>
+</tr>
+<tr>
+<td>60</td>
+<td>4</td>
+<td>reserved</td>
+<td>u32</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>sender_device_id</code>：<code>str</code>。</li>
+<li><code>receiver_device_id</code>：<code>str</code>。</li>
+<li><code>file_hash</code>：<code>hash32</code>。</li>
+<li><code>file_name</code>：<code>str</code>。</li>
+</ol>
+<p><strong>发布方（规范性）</strong>：恒由 <strong>Server</strong> 发布给<strong>未发起</strong>的那一端。
+接收方必须显式接受或拒绝（<code>peer_response</code>）。</p>
+<h3>peer_response（<code>0x1F</code>）</h3>
+<p><strong>定长区（16 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>对应 <code>peer_offer</code> 的会话</td>
+</tr>
+<tr>
+<td>8</td>
+<td>1</td>
+<td>result</td>
+<td>enum8</td>
+<td><code>0</code> = fail（拒绝），<code>1</code> = success（接受）</td>
+</tr>
+<tr>
+<td>9</td>
+<td>1</td>
+<td>reserved</td>
+<td>u8</td>
+<td>保留</td>
+</tr>
+<tr>
+<td>10</td>
+<td>2</td>
+<td>udp_port</td>
+<td>u16</td>
+<td>本端数据面 UDP 端口（接受时有效）</td>
+</tr>
+<tr>
+<td>12</td>
+<td>2</td>
+<td>tcp_port</td>
+<td>u16</td>
+<td>本端数据面 TCP 端口；<code>0</code> = 不支持</td>
+</tr>
+<tr>
+<td>14</td>
+<td>2</td>
+<td>reserved</td>
+<td>u16</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>code</code>：<code>str</code>。拒绝原因（<code>PEER_DECLINED</code> / <code>ACL_DENY</code> / <code>STORAGE_FULL</code> 等）；
+   接受时<strong>必须</strong>为空串。</li>
+</ol>
+<p><strong>约定（规范性）</strong>：接受方<strong>必须</strong>在发送本条<strong>之前</strong>打开数据面 socket，
+并填入其端口；S 将据此组成端点。</p>
+<h3>peer_accept（<code>0x20</code>）</h3>
+<p><strong>定长区（96 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>8</td>
+<td>size</td>
+<td>u64</td>
+<td>文件大小</td>
+</tr>
+<tr>
+<td>16</td>
+<td>8</td>
+<td>mtime</td>
+<td>u64</td>
+<td>文件修改时间</td>
+</tr>
+<tr>
+<td>24</td>
+<td>4</td>
+<td>chunk_count</td>
+<td>u32</td>
+<td>总块数</td>
+</tr>
+<tr>
+<td>28</td>
+<td>4</td>
+<td>window</td>
+<td>u32</td>
+<td>会话级在途 <strong>symbol</strong> 上限</td>
+</tr>
+<tr>
+<td>32</td>
+<td>4</td>
+<td>connection_window</td>
+<td>u32</td>
+<td>连接级在途 <strong>symbol</strong> 上限</td>
+</tr>
+<tr>
+<td>36</td>
+<td>4</td>
+<td>chunk_size</td>
+<td>u32</td>
+<td>逻辑块大小</td>
+</tr>
+<tr>
+<td>40</td>
+<td>16</td>
+<td>transfer_token</td>
+<td>token16</td>
+<td>一次性令牌</td>
+</tr>
+<tr>
+<td>56</td>
+<td>1</td>
+<td>transport</td>
+<td>enum8</td>
+<td><code>0</code> = direct；<code>1</code> = relay_r2（Stage 2）</td>
+</tr>
+<tr>
+<td>57</td>
+<td>1</td>
+<td>role</td>
+<td>enum8</td>
+<td>本端角色：<code>0</code> = sender，<code>1</code> = receiver</td>
+</tr>
+<tr>
+<td>58</td>
+<td>1</td>
+<td>peer_addr_family</td>
+<td>u8</td>
+<td><code>4</code> / <code>6</code>；<code>0</code> = 未知（relay 时可为 0）</td>
+</tr>
+<tr>
+<td>59</td>
+<td>1</td>
+<td>reserved</td>
+<td>u8</td>
+<td>保留</td>
+</tr>
+<tr>
+<td>60</td>
+<td>2</td>
+<td>peer_udp_port</td>
+<td>u16</td>
+<td>对端数据面 UDP 端口</td>
+</tr>
+<tr>
+<td>62</td>
+<td>2</td>
+<td>peer_tcp_port</td>
+<td>u16</td>
+<td>对端数据面 TCP 端口；<code>0</code> = 不支持</td>
+</tr>
+<tr>
+<td>64</td>
+<td>16</td>
+<td>peer_addr</td>
+<td>bytes</td>
+<td>对端数据面地址（IPv4 用前 4 字节，其余 0）</td>
+</tr>
+<tr>
+<td>80</td>
+<td>8</td>
+<td>reserved</td>
+<td>u64</td>
+<td>保留</td>
+</tr>
+<tr>
+<td>88</td>
+<td>8</td>
+<td>reserved</td>
+<td>u64</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>file_hash</code>：<code>hash32</code>。</li>
+<li><code>file_name</code>：<code>str</code>。</li>
+<li><code>peer_device_id</code>：<code>str</code>。对端 <code>device_id</code>。</li>
+</ol>
+<p><strong>发布方（规范性）</strong>：恒由 <strong>Server</strong> 发布给<strong>双方</strong>；双方各自收到 <code>role</code> 不同的同一布局。
+Server <strong>必须</strong>校验端点来源（见 07 章）。
+本消息<strong>也用于恢复</strong>：成功 <code>login</code> 后，Server <strong>必须</strong>对每个恢复的 peer 会话重发本条，
+携带最新端点与 <code>transfer_token</code>（见 13 章）。</p>
+<h3>peer_relay_plan（<code>0x21</code>）</h3>
+<p><strong>定长区（48 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>transfer_id</td>
+<td>u64</td>
+<td>Server 生成的传输关联 id</td>
+</tr>
+<tr>
+<td>8</td>
+<td>8</td>
+<td>upload_session_id</td>
+<td>u64</td>
+<td>C1→S 的上传会话</td>
+</tr>
+<tr>
+<td>16</td>
+<td>8</td>
+<td>download_session_id</td>
+<td>u64</td>
+<td>S→C2 的下载会话</td>
+</tr>
+<tr>
+<td>24</td>
+<td>8</td>
+<td>size</td>
+<td>u64</td>
+<td>文件大小</td>
+</tr>
+<tr>
+<td>32</td>
+<td>4</td>
+<td>chunk_size</td>
+<td>u32</td>
+<td>逻辑块大小</td>
+</tr>
+<tr>
+<td>36</td>
+<td>4</td>
+<td>reserved</td>
+<td>u32</td>
+<td>保留</td>
+</tr>
+<tr>
+<td>40</td>
+<td>8</td>
+<td>reserved</td>
+<td>u64</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>file_hash</code>：<code>hash32</code>。</li>
+<li><code>sender_device_id</code>：<code>str</code>。</li>
+<li><code>receiver_device_id</code>：<code>str</code>。</li>
+<li><code>file_name</code>：<code>str</code>。</li>
+</ol>
+<p><strong>发布方（规范性）</strong>：恒由 <strong>Server</strong> 发布给双方。
+本条只做<strong>关联</strong>；随后 Server <strong>必须</strong>分别下发标准的 <code>upload_accept</code>（给发送方）与
+<code>download_accept</code>（给接收方），端口/窗口等参数以标准 accept 为准。
+R1 不建立 <code>direction = peer</code> 的数据面；它是两段既有会话。</p>
+<h3>peer_complete（<code>0x22</code>）</h3>
+<p><strong>定长区（12 字节）</strong></p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>8</td>
+<td>session_id</td>
+<td>u64</td>
+<td>会话 ID</td>
+</tr>
+<tr>
+<td>8</td>
+<td>1</td>
+<td>result</td>
+<td>enum8</td>
+<td><code>0</code> = fail，<code>1</code> = success</td>
+</tr>
+<tr>
+<td>9</td>
+<td>1</td>
+<td>flags</td>
+<td>u8</td>
+<td>bit0 = <code>file_hash</code> 有效；bit1-7 保留</td>
+</tr>
+<tr>
+<td>10</td>
+<td>2</td>
+<td>reserved</td>
+<td>u16</td>
+<td>保留</td>
+</tr>
+</tbody>
+</table></div>
+<p><strong>变长区（顺序固定）</strong></p>
+<ol>
+<li><code>code</code>：<code>str</code>。失败时的错误码；成功时为空串。</li>
+<li><code>file_hash</code>：<code>hash32</code>，<strong>仅当</strong> <code>flags.bit0 = 1</code> 时存在。</li>
+</ol>
+<p><strong>发布方（规范性）</strong>：恒由<strong>接收方</strong>发布，经 Server 中继给发送方。
+发送方持久化结果后回 <code>complete_ack</code>（同样经 Server 中继）。</p>
+<p><strong>peer 控制中继（规范性）</strong>：<code>direction = peer</code> 的会话，其控制消息由 Server 在
+两条控制连接之间转发：</p>
+<ul>
+<li>接收方 → 发送方：<code>missing_chunks</code>（<code>mode=report</code>）、<code>window_update</code>、
+  <code>progress_update</code>、<code>peer_complete</code>、<code>reconcile_request</code>；</li>
+<li>发送方 → 接收方：<code>missing_chunks</code>（<code>mode=request</code>）、<code>reconcile_response</code>、
+  <code>complete_ack</code>；</li>
+<li>双方：<code>session_pause</code>、<code>session_abort</code>（发布方权限见 10 章；Server 可终止）。</li>
+</ul>
+<p>Server <strong>必须</strong>校验消息的发布方确实是该会话的对应角色；越权按 <code>ACL_DENY</code> 丢弃并审计。
+<strong>不得</strong>建立 C↔C 的控制连接。</p>
 <h3>session_pause（<code>0x0E</code>）</h3>
 <p><strong>定长区（8 字节）</strong></p>
 <div class="card"><table>
@@ -3212,6 +3815,15 @@ Client 可用 <code>file_hash</code> 单独定位，也可用 <code>asset_id</co
     <code>received_symbols</code> 与 <code>max_ok_payload</code>；<code>missing_chunks</code> 的 <code>missing_count</code>
     同样构成信用。发送方以两者中<strong>最新</strong>的计数推进窗口，二者在同一代号内<strong>必须</strong>一致
     （见 11 章「窗口推进信用」）</li>
+<li><strong>C↔C peer 会话</strong>：<code>direction = peer</code> 的会话绑定两个 Client
+    （<code>sender_device_id</code> / <code>receiver_device_id</code>），两者各自有一条控制连接；
+    Server 生成 <code>session_id</code> 并仲裁状态。<strong>没有 C↔C 的 <code>login</code></strong>。</li>
+<li><strong>peer 控制中继</strong>：peer 会话的缺失/信用/进度/完成/对帐消息
+    <strong>必须</strong>经 Server 在两条控制连接间转发；Server 校验发布方角色，越权按 <code>ACL_DENY</code>。</li>
+<li><strong>R1 预选中转</strong>：<code>peer_relay_plan</code> 只做关联；实际传输是
+    <code>upload</code>（C1→S）与 <code>download</code>（S→C2）两段既有会话，参数以标准 accept 为准。</li>
+<li><strong>peer 与 transport</strong>：Stage 1 仅 <code>transport = direct</code>；<code>relay_r2</code> 字段预留。
+    传输模式切换（若实现）<strong>不</strong>改变 <code>session_id</code>、方向或 generation。</li>
 </ol>
 <h2>与状态机关系</h2>
 <ul>

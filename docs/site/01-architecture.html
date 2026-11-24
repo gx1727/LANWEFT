@@ -90,6 +90,7 @@
 <th>定义</th>
 <th>上传方向</th>
 <th>下载方向</th>
+<th>peer 方向</th>
 </tr>
 </thead>
 <tbody>
@@ -98,18 +99,21 @@
 <td>发送数据的一方</td>
 <td>Client</td>
 <td>Server</td>
+<td><code>sender_device_id</code></td>
 </tr>
 <tr>
 <td><strong>接收侧</strong></td>
 <td>持有位图与临时文件的一方</td>
 <td>Server</td>
 <td>Client</td>
+<td><code>receiver_device_id</code></td>
 </tr>
 </tbody>
 </table></div>
 <ul>
 <li><strong>完成消息一律由接收方发布</strong>：<code>upload_complete</code> 由 Server 发布，
-  <code>download_complete</code> 由 Client 发布。</li>
+  <code>download_complete</code> 由 Client 发布，<code>peer_complete</code> 由 <code>receiver_device_id</code> 发布
+  （经 Server 中继）。</li>
 <li><strong>缺失报告一律由接收方发起</strong>：<code>missing_chunks</code>（<code>mode=report</code>）由接收方下发，
   发送方据此补发。</li>
 </ul>

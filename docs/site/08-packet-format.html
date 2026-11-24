@@ -262,7 +262,13 @@ UDP 报文长度已给出总长。接收方<strong>必须</strong>按 <code>L = 
 <td><strong>仅用于 TCP 数据面帧</strong>的绑定帧（见 07 章）；UDP 包<strong>必须</strong>为 0</td>
 </tr>
 <tr>
-<td>bit7-15</td>
+<td>bit7</td>
+<td>FLAG_PEER_PROBE</td>
+<td>0x0080</td>
+<td><strong>C↔C 直连探测</strong>；UDP 包<strong>必须</strong>同时满足 <code>FLAG_DATA</code> = 0；PROBE / PROBE_ACK 载荷长度 24 / 25（见 07 章）</td>
+</tr>
+<tr>
+<td>bit8-15</td>
 <td>RESERVED</td>
 <td>0x0000</td>
 <td>保留位；接收方<strong>必须</strong>忽略未知标志位</td>

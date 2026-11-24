@@ -49,6 +49,20 @@
     **未**置位的包。`FLAG_DATA` 包一律按数据路径处理，
     **不得**用载荷长度判别类型（数据报的 `K × symbol_size` 可能恰好为 8 或 9 字节）。
 
+### C↔C peer PROBE（规范性）
+
+仅用于 `direction = peer` 的**直连**：发送方向接收方声明的数据端点发送探测。
+
+- `flags.bit7 = 1`（`FLAG_PEER_PROBE`）、`flags.bit0 = 0`；`chunk_id = 0`、`chunk_symbol = 0`。
+- **PROBE** 载荷 = `session_id`（u64，8 字节）‖ `transfer_token`（16 字节），`L = 24`。
+- **PROBE_ACK** 载荷 = 上述 24 字节 ‖ 1 字节状态（0=成功，1=失败），`L = 25`。
+- 接收方**必须**校验 `transfer_token` 与 `session_id`，并从**同一数据面端口**回 ACK；
+  校验失败按 `PEER_TOKEN_INVALID` 丢弃（见 19 章）。
+- 接收方**必须**把 PROBE 的**源地址:端口**绑定为该会话的发送方端点；
+  之后**只接受来自该端点**的数据包。发送方**必须**只接受来自接收方端点的 ACK。
+- 端点由 Server 经 `peer_accept` 下发（见 06 章）；PROBE 不改变端口。
+- **R1 预选中转不使用 peer PROBE**：它沿用标准 upload/download 的 PROBE 与端点规则。
+
 ### 端口与地址绑定（规范性）
 
 - Server 的数据面 socket **必须**绑定 accept 消息中下发的 `udp_port`。
@@ -199,8 +213,9 @@ frame_len = 28 + L        // L 为载荷长度，由 frame_len 反推
 
 TCP 数据面连接**不**承载认证凭据，其权限**必须**通过绑定建立。
 
-- **Client 恒为连接方**：无论上传或下载，Server 在下发的 `tcp_port` 监听，Client 主动连接后，
-  **必须**先发送一个**绑定帧**：
+- **连接方向**：upload/download 中 **Server 监听、Client 连接**；
+  `direction = peer` 中由**接收方**（`receiver_device_id`）监听 `tcp_port`、
+  **发送方**连接。无论哪种，连接方**必须**先发送一个**绑定帧**：
   `flags` 置位 `FLAG_BIND`（bit6）、**未**置位 `FLAG_DATA`，
   载荷长度 `L = 0`、`chunk_symbol` = 0，`session_id` 为待绑定会话。
   - 绑定帧**必须**是连接上的**第一条**数据面帧（**首帧锚点**）；
@@ -216,6 +231,13 @@ TCP 数据面连接**不**承载认证凭据，其权限**必须**通过绑定�
   任一项不满足即**必须**关闭该 TCP 数据面连接，且**不得**发送任何数据面帧。
 - 绑定成功后，该 TCP 数据面连接**只能**承载**该 `session_id`**；
   收到其他 `session_id` 的帧**必须**按 `SESSION_ID_MISMATCH` 丢弃该帧。
+- **peer 模式（规范性）**：`direction = peer` 时，接收方监听、发送方连接。
+  接收方**必须**校验：
+  1. 该 `session_id` 存在且属于该 peer 会话；
+  2. 发送方身份 = 会话的 `sender_device_id`（来自 `peer_accept` / 控制面）；
+  3. TCP 连接来源 IP 与 `peer_accept` 下发的对端端点一致。
+  peer **没有** C↔C 控制连接，因此**不得**套用「与控制连接绑定」的 Server 校验。
+  Stage 1 只做源地址 + `session_id` 绑定；每包 keyed MAC 属 Stage 2。
 - 同一会话**已有**活动的 TCP 数据面连接时，新的绑定**必须**替换旧连接
   （旧连接**必须**被关闭）—— 重连语义因此是幂等的。
 - **多个会话**可以各自建立独立的 TCP 数据面连接；`session_id` 用于区分。

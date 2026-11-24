@@ -54,7 +54,10 @@
 | 停滞 / 定点重读 | `missing_count` 在 `stall_timeout`（10 秒）内不动即停滞；首次停滞触发 `flags.bit6` 定点重读，再次停滞以 `TRANSFER_STALLED` 终止（见 12 章） |
 | burst_size | 发送批次大小（发送端本地参数，初值 = `min(256, window)`） |
 | batch_gap_us | 批间隔（微秒，发送端本地参数，初值 2000） |
-| direction | 会话方向（`0` = `upload` / `1` = `download`），决定接收方与发送方 |
+| direction | 会话方向（`0` = `upload` / `1` = `download` / `2` = `peer`），决定接收方与发送方 |
+| peer 会话 | `direction=peer` 的 C↔C 会话：绑定 `sender_device_id` / `receiver_device_id`；数据直连、控制经 Server 中继 |
+| transport / transfer_token | peer 传输模式（`direct` / `relay_r2`）/ Server 签发的一次性令牌 |
+| share grant | `(sender_device_id, receiver_device_id, file_hash, expiry)`；peer 传输的授权范围 |
 | AIMD | 加性增乘性减动态流控算法（**发送端策略**，非协议层机制） |
 
 ## 控制面消息
@@ -72,6 +75,9 @@
 | resume_session / resume_ack | C→S / S→C | 暂停后的会话恢复（恢复提示由**接收方**提供，见 13 章） |
 | upload_complete / download_complete | S→C / C→S | 传输完成（**完成消息一律由接收方发布**） |
 | complete_ack | C→S / S→C | 数据发送方确认已持久化完成回执 |
+| peer_start / peer_offer / peer_response / peer_accept | C↔S | C↔C 握手（全部经 Server；无 C↔C login） |
+| peer_relay_plan | S→C | R1 预选中转计划（两段既有会话） |
+| peer_complete | 双向（接收方发布） | C↔C 完成消息，经 Server 中继 |
 | asset_recall / asset_recall_complete | C→S / S→C | 资产撤回请求与回执 |
 | ping / pong | 双向 | 心跳与应答（10 秒周期，30 秒空闲超时） |
 
