@@ -142,9 +142,22 @@ UDP 报文长度已给出总长。接收方<strong>必须</strong>按 <code>L = 
    （按<strong>宽整数</strong>计算；结果为负数即非法；此时 <code>K = 1</code>，覆盖文件末尾的短 symbol）。</li>
 </ol>
 <p>任一不满足即按 <code>INVALID_PACKET</code> 丢弃，<strong>不得</strong>写盘或标位。空文件没有 DATA 块。</p>
-<p><strong>关于 IP 分片（说明）</strong>：<code>K × symbol_size + 20</code> 超过路径 MTU 时会被 IP 分片。
-规范<strong>不禁止</strong>分片，但分片会放大丢失：丢一个分片即整报文作废、其覆盖的 <code>K</code> 个
-symbol 全部重传。发送方<strong>应当</strong>按路径 MTU 选择 <code>K</code>（见 11 章「变长数据报与 K」）。</p>
+<p><strong>MTU、头部开销与分片（规范性 / 说明）</strong>：</p>
+<ul>
+<li><strong>MTU</strong> = 一条链路能承载的最大 <strong>IP 包</strong>（含 IP 头）。常见取值：以太网 <strong>1500</strong>、
+  巨帧 <strong>9000</strong>、环回 <strong>65536</strong>；VPN / 隧道 / 部分 IPv6 路径可能更小（如 1280）。</li>
+<li>本协议一个数据报对应的 IP 包长度为
+  <code>L + 16 + 4 + 8 + IP头</code> = <strong><code>L + 48</code>（IPv4）/ <code>L + 68</code>（IPv6）</strong>。</li>
+<li>若要<strong>避免 IP 分片</strong>：<code>L ≤ 路径 MTU − 48/68</code>，且 <code>L ≤ 65487</code>
+  （UDP 载荷上限 <code>20 + L ≤ 65507</code>）。</li>
+<li>允许分片时 <code>L</code> 可以更大（至多 <code>S × symbol_size</code>，默认 64800）。是否允许由发送端
+  策略决定：<code>K ≤ K_nofrag</code> 为不分片模式，<code>K ≤ K_cap = S</code> 为<strong>信任模式</strong>
+  （见 11 章「变长数据报与 K」）。</li>
+<li><strong>分片的代价（说明）</strong>：分片是「全有或全无」——丢一个分片即整报文作废，
+  其覆盖的 <code>K</code> 个 symbol 全部重传；因此信任模式<strong>必须</strong>带丢包预算与自动回退。</li>
+<li><strong>判断路径 MTU 必须用 DF/PMTUD</strong>：<code>max_ok_payload</code> 报告的是「曾成功到达的载荷长度」，
+  分片重组成功也会报告完整长度，<strong>不能</strong>据此推断「没有分片」。</li>
+</ul>
 <h2>CRC32 变体（规范性）</h2>
 <p>本协议的 <code>crc32</code> 字段使用 <strong>CRC-32/ISO-HDLC</strong>（又称 CRC-32、zlib <code>crc32</code>）：</p>
 <div class="card"><table>

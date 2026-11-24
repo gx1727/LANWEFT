@@ -22,8 +22,15 @@
   字节偏移 = `chunk_id × chunk_size + chunk_symbol × symbol_size`
 - `symbol_count`（u32）：总 symbol 数 = `ceil(size / symbol_size)`；
   **必须** ≤ 2³² − 1（文件大小上限，见 09 章）
-- `K`：一个数据报承载的 symbol 数（`1 ≤ K ≤ S`），由载荷长度推出：
+- `K`：一个数据报承载的 symbol 数（`1 ≤ K ≤ K_cap`），由载荷长度推出：
   `K = ceil(L / symbol_size)`，**不单独编码**
+- `S`：块内 symbol 数 = `chunk_size / symbol_size`（≤ 64），**结构上限**
+- `K_nofrag`：不分片的 `K` 上限 =
+  `min(S, floor(min(路径 MTU − overhead, 65487) / symbol_size))`；
+  `overhead` = IPv4 **48** / IPv6 **68**（见 08 章）
+- `K_cap`：**策略上限**，`K_nofrag ≤ K_cap ≤ S`；默认 `K_nofrag`（不分片），
+  **信任模式**取 `S`（显式允许 IP 分片，见 11 章）
+- `frag_loss_budget`：信任模式下整报文丢失率的建议预算（0.05%–0.1%）
 - `L`：数据报载荷长度；**不**在应用头中编码，由传输层长度反推
   （UDP：`总长 − 20`；TCP 数据面：`frame_len − 28`，见 07、08 章）
 - `flags`（u16）：标志位

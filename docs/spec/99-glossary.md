@@ -33,6 +33,7 @@
 | chunk_symbol | 块内 symbol 起始索引（u16）；字节偏移 = `chunk_id×chunk_size + chunk_symbol×symbol_size` |
 | symbol_count | 总 symbol 数 = ceil(size / 1200) |
 | K / L | 一个数据报承载的 symbol 数 / 载荷长度（均由传输层与头部推出，不单独编码） |
+| K_nofrag / K_cap | 不分片上限（由路径 MTU 决定）/ 策略上限（信任模式可达 S，允许分片）；见 11 章 |
 | flags | 数据包标志位（u16） |
 | bitmap | **两级**位图：块完成位图 + 未完成块的 `u64` symbol 掩码 |
 | missing_chunks | 两级缺失上报：`chunks`（完全缺失块）+ `partial[]`（部分缺失块 + `u64` missing_mask）；发布方恒为接收方 |

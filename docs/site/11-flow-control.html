@@ -250,26 +250,78 @@
 </ul>
 <h3>变长数据报与 K（规范性）</h3>
 <p>一个数据报承载 <code>K</code> 个连续 symbol（<code>1 ≤ K ≤ S</code>），载荷 <code>L = K × symbol_size</code>，
-由头部与传输层长度唯一确定（见 08 章）。发送方<strong>必须</strong>把 <code>K</code> 限制在：</p>
-<pre class="codeblock"><code>Kmax = floor((min(路径 MTU, 65507) − 20) / symbol_size)     // UDP，避免 IP 分片
-K ≤ min(S, Kmax)
-</code></pre>
+由头部与传输层长度唯一确定（见 08 章）。</p>
+<p><strong>三个不同的上限（规范性）</strong>：</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>名称</th>
+<th>定义</th>
+<th>作用</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td><code>S</code></td>
+<td><code>chunk_size / symbol_size</code>（≤ 64）</td>
+<td><strong>结构上限</strong>：一个块最多多少 symbol</td>
+</tr>
+<tr>
+<td><code>K_nofrag</code></td>
+<td><code>min(S, floor(min(路径 MTU − overhead, 65487) / symbol_size))</code></td>
+<td><strong>不分片上限</strong></td>
+</tr>
+<tr>
+<td><code>K_cap</code></td>
+<td>策略上限，<code>K_nofrag ≤ K_cap ≤ S</code></td>
+<td>是否允许分片（发送端策略）</td>
+</tr>
+<tr>
+<td><code>K</code></td>
+<td>本数据报实际值，<code>1 ≤ K ≤ K_cap</code></td>
+<td>——</td>
+</tr>
+</tbody>
+</table></div>
+<p>其中 <code>overhead = 16（本协议头）+ 4（crc）+ 8（UDP）+ IP 头</code>：IPv4 为 <strong>48</strong>，
+IPv6 为 <strong>68</strong>；<code>65487 = 65507 − 20</code> 是 UDP 载荷上限（<code>20 + L ≤ 65507</code>）对应的 <code>L</code> 上限。</p>
 <ul>
-<li><strong>1500 MTU 的说明（规范性）</strong>：<code>(1500 − 20) / 1200 = 1</code>，因此标准以太网上
-  <code>Kmax = 1</code> —— 每个数据报只能承载一个 symbol；<code>K &gt; 1</code> 只在巨帧（如 9000 MTU）
-  或启用分段卸载时才可能。规范<strong>不</strong>要求分段卸载；<code>K</code> 的选择是<strong>发送端本地策略</strong>。</li>
-<li><strong>路径反馈（规范性）</strong>：接收方<strong>必须</strong>在 <code>window_update.max_ok_payload</code> 中报告
-  最近成功收到的最大载荷长度 <code>L</code>；<code>0</code> 表示<strong>未知</strong>（此时发送方不受该值约束）。
-  非零时，发送方<strong>必须</strong>忽略超过该值的 <code>K</code>（除非正在探测）。</li>
-<li><strong>收缩（规范性）</strong>：仅在<strong>尺寸相关失败</strong>（同一 <code>K</code> 连续失败、更小 <code>K</code> 成功）时收缩；
-  <code>K ← max(1, floor(K / 2))</code>。<strong>不得</strong>因随机丢包/拥塞直接收缩 <code>K</code>
-  （那属于 AIMD 的发送节奏调节，见下）。</li>
-<li><strong>探测回升（推荐性）</strong>：同一 <code>K</code> 连续成功 <code>probe_success_threshold</code>（建议 64）个数据报后，
-  <strong>可以</strong>探测 <code>min(2K, S, Kmax)</code>；探测失败则回退并记录该路径的 <code>Kmax_ok</code>。
-  升降<strong>应当</strong>加入迟滞，避免抖动。</li>
-<li><strong>分片（说明）</strong>：<code>K × symbol_size + 20</code> 超过路径 MTU 时发生 IP 分片，
-  丢一个分片即整报文作废、其 <code>K</code> 个 symbol 全部重传。这正是 <code>Kmax</code> 公式存在的原因。</li>
+<li><strong>不分片模式（默认，规范性）</strong>：<code>K_cap = K_nofrag</code>。</li>
+<li>1500 MTU（IPv4）→ <code>(1500 − 48) / 1200 = 1</code>，故 <code>K_nofrag = 1</code>；</li>
+<li>9000 巨帧 → <code>(9000 − 48) / 1200 = 7</code>；</li>
+<li>环回 65536 → <code>54</code>（受 <code>S</code> 约束）。</li>
+<li><strong>信任模式（推荐性，显式允许分片）</strong>：<code>K_cap = S</code>（可到 54）。
+  一个 64800 字节载荷的数据报在 1500 MTU 上约分成 <strong>44 个 IP 分片</strong>。
+  该模式<strong>仅</strong>适用于<strong>受控、丢包率很低的</strong>链路；发送方<strong>必须</strong>按下面的
+  丢包预算自动回退，并<strong>应当</strong>对 WiFi / VPN / 漫游路径禁用。</li>
+<li><strong>接收端无关（规范性）</strong>：接收端只从传输层长度推出 <code>K</code> 并标记 symbol，
+  <strong>不关心</strong>是否发生 IP 分片；两种模式的线路格式完全相同。</li>
 </ul>
+<p><strong>路径反馈（规范性）</strong>：接收方<strong>必须</strong>在 <code>window_update.max_ok_payload</code> 中报告
+最近成功收到的最大载荷长度 <code>L</code>；<code>0</code> 表示<strong>未知</strong>（此时发送方不受该值约束）。
+非零时，发送方<strong>必须</strong>忽略超过该值的 <code>K</code>（除非正在探测）。</p>
+<blockquote>
+<p><code>max_ok_payload</code> 只说明「这么大的载荷曾经成功到达」，<strong>不能</strong>用来判断是否分片
+——分片重组成功同样会报告完整长度。判断路径 MTU <strong>必须</strong>用 DF/PMTUD（见 08 章）。</p>
+</blockquote>
+<p><strong>信任模式的丢包预算（推荐性）</strong>：</p>
+<ul>
+<li>记 <code>loss_dgram(K)</code> 为当前 <code>K</code> 下<strong>整报文</strong>的丢失率：接收端报告的<strong>连续 <code>K</code> 个
+  symbol 缺失</strong>即对应一次整报文丢失。建议 <code>frag_loss_budget</code> = <strong>0.05%–0.1%</strong>。</li>
+<li><code>loss_dgram(K)</code> 超过预算 → <code>K ← max(1, floor(K/2))</code> 回退。</li>
+<li><code>loss_dgram(K)</code> 明显低于预算、且连续 <code>probe_success_threshold</code>（建议 64）个数据报
+  成功 → <strong>可以</strong>探测 <code>min(2K, K_cap)</code>。</li>
+<li>升降<strong>应当</strong>加入迟滞/冷却，并按路径缓存 <code>K_cap_ok</code>。</li>
+<li><strong>不得</strong>因「单个 symbol 缺失」或随机拥塞直接回退 <code>K</code>；只有<strong>尺寸相关</strong>的整报文
+  失败才回退（见 12 章「停滞检测与升级」）。</li>
+</ul>
+<blockquote>
+<p><strong>代价（说明）</strong>：分片是「全有或全无」。丢失一个分片即整个 <code>K</code>-symbol 报文作废，
+代价是 <code>K</code> 个 symbol 的重传。实测在分片丢包 <strong>0.01%</strong> 的稳定有线 LAN 上，
+<code>K=54</code> 的重传量约 <strong>0.9%</strong>，而应用层数据报数比 <code>K=1</code> 少约 <strong>53 倍</strong>；
+分片丢包升到 <strong>0.1% / 1%</strong> 时重传量约 <strong>5.6% / 54%</strong>。
+因此信任模式必须带预算与回退，不能无条件「相信」。</p>
+</blockquote>
 <h2>窗口推进判据（规范性）</h2>
 <p>这是发送方在「无逐包 ACK」下继续推进的依据：</p>
 <ol>
