@@ -31,7 +31,13 @@
         <tr><td class="num">0x1A</td><td class="mono">delivery_response</td><td>Client→Server</td><td class="num">12 B</td><td class="mono">code, file_hash</td><td>投递应答（接受 / 拒绝）</td></tr>
         <tr><td class="num">0x1B</td><td class="mono">complete_ack</td><td>双向</td><td class="num">8 B</td><td class="mono">—</td><td>数据发送方确认已持久化接收方的完成回执</td></tr>
         <tr><td class="num">0x1C</td><td class="mono">window_update</td><td>双向<br><span class="c-muted">接收方发布</span></td><td class="num">16 B</td><td class="mono">—</td><td>窗口推进信用（<code>generation</code> / <code>received_symbols</code> / <code>max_ok_payload</code>）</td></tr>
-        <tr><td class="num c-muted">0x00, 0x1D–0xFF</td><td class="c-muted">—</td><td class="c-muted">—</td><td class="num c-muted">—</td><td class="c-muted">—</td><td class="c-muted">保留，接收方必须忽略</td></tr>
+        <tr><td class="num">0x1D</td><td class="mono">peer_start</td><td>Client→Server</td><td class="num">36 B</td><td class="mono">target_device_id, file_hash, file_name</td><td>发起 C↔C 传输意图</td></tr>
+        <tr><td class="num">0x1E</td><td class="mono">peer_offer</td><td>Server→Client</td><td class="num">64 B</td><td class="mono">sender/receiver_device_id, file_hash, file_name</td><td>向对端提议 C↔C 传输</td></tr>
+        <tr><td class="num">0x1F</td><td class="mono">peer_response</td><td>Client→Server</td><td class="num">16 B</td><td class="mono">code</td><td>对端接受 / 拒绝与数据面端口</td></tr>
+        <tr><td class="num">0x20</td><td class="mono">peer_accept</td><td>Server→Client</td><td class="num">96 B</td><td class="mono">file_hash, file_name, peer_device_id</td><td>C↔C 会话建立与端点</td></tr>
+        <tr><td class="num">0x21</td><td class="mono">peer_relay_plan</td><td>Server→Client</td><td class="num">48 B</td><td class="mono">file_hash, sender/receiver_device_id, file_name</td><td>R1 预选中转计划（两段会话）</td></tr>
+        <tr><td class="num">0x22</td><td class="mono">peer_complete</td><td>双向<br><span class="c-muted">接收方发布</span></td><td class="num">12 B</td><td class="mono">code, file_hash</td><td>C↔C 完成消息，经 Server 中继</td></tr>
+        <tr><td class="num c-muted">0x00, 0x23–0xFF</td><td class="c-muted">—</td><td class="c-muted">—</td><td class="num c-muted">—</td><td class="c-muted">—</td><td class="c-muted">保留，接收方必须忽略</td></tr>
       </tbody>
     </table>
   </div>

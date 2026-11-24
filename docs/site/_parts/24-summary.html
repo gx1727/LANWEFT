@@ -5,6 +5,8 @@
     <code>missing_chunks</code> 的 <code>missing_count</code> 同样构成信用；缺失列表仅在<strong>确有缺失</strong>时按 50 ms 下发。
     发送方 {{VAR:adjudicate_request_ms}} ms 未收到任何信用时<strong>必须</strong>主动索要。
     文件级失配走<strong>恢复阶梯</strong>：①摘要对帐（零内容流量定位差异区间）→ ②复核轮（全量重传，至多一次）→ ③中止。
+    C↔C：两端复用与 Server 的既有登录，<strong>没有 C↔C login</strong>；Server 做授权/控制中继，
+    数据优先直连，直连不可用走 <strong>R1 预选中转</strong>（见正文时序）。
     主动投递方向恒为 <strong>download</strong>，Server <strong>必须</strong>等到 <code>UDP_PROBE</code> 才可推送；
     共享清单的通知<strong>不保证送达</strong>，拉取路径复用既有下载流程。
   </div>

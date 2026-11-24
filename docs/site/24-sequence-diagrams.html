@@ -60,6 +60,8 @@
     <code>missing_chunks</code> 的 <code>missing_count</code> 同样构成信用；缺失列表仅在<strong>确有缺失</strong>时按 50 ms 下发。
     发送方 1000 ms 未收到任何信用时<strong>必须</strong>主动索要。
     文件级失配走<strong>恢复阶梯</strong>：①摘要对帐（零内容流量定位差异区间）→ ②复核轮（全量重传，至多一次）→ ③中止。
+    C↔C：两端复用与 Server 的既有登录，<strong>没有 C↔C login</strong>；Server 做授权/控制中继，
+    数据优先直连，直连不可用走 <strong>R1 预选中转</strong>（见正文时序）。
     主动投递方向恒为 <strong>download</strong>，Server <strong>必须</strong>等到 <code>UDP_PROBE</code> 才可推送；
     共享清单的通知<strong>不保证送达</strong>，拉取路径复用既有下载流程。
   </div>
@@ -121,8 +123,8 @@
     {note:'若 file_exists 为真：发送侧直接 NEGOTIATING → COMPLETED；接收侧 NEGOTIATING → VERIFY → COMMIT → COMPLETED（秒传不产生位图）'},
 
     {sep:'③ UDP 可用性探测（数据面）'},
-    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {payload_len='+PROBE_LEN+', session_id}'},
-    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {payload_len='+PROBE_ACK_LEN+'}'},
+    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {L='+PROBE_LEN+', session_id}'},
+    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {L='+PROBE_ACK_LEN+'}'},
     {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
     {note:'等待 PROBE_ACK 超时（建议 '+PROBE_TIMEOUT+'）→ 回退数据面 TCP；是否支持降级由 tcp_port 表达（见 07 章）'},
 
@@ -190,8 +192,8 @@
       chip:{side:'C', text:'Client: NEGOTIATING → TRANSFERRING'}, chip2:{side:'S', text:'Server: NEGOTIATING → TRANSFERRING'}},
 
     {sep:'③ UDP 可用性探测（数据面）'},
-    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {payload_len='+PROBE_LEN+', session_id}'},
-    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {payload_len='+PROBE_ACK_LEN+'}'},
+    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {L='+PROBE_LEN+', session_id}'},
+    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {L='+PROBE_ACK_LEN+'}'},
     {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
     {note:'Server 以 PROBE 报文的源地址:端口作为该会话的对端数据面地址；udp_ready 只确认当前探测，不改变端口（见 14 章）'},
 

@@ -53,8 +53,8 @@
     {note:'若 file_exists 为真：发送侧直接 NEGOTIATING → COMPLETED；接收侧 NEGOTIATING → VERIFY → COMMIT → COMPLETED（秒传不产生位图）'},
 
     {sep:'③ UDP 可用性探测（数据面）'},
-    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {payload_len='+PROBE_LEN+', session_id}'},
-    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {payload_len='+PROBE_ACK_LEN+'}'},
+    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {L='+PROBE_LEN+', session_id}'},
+    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {L='+PROBE_ACK_LEN+'}'},
     {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
     {note:'等待 PROBE_ACK 超时（建议 '+PROBE_TIMEOUT+'）→ 回退数据面 TCP；是否支持降级由 tcp_port 表达（见 07 章）'},
 
@@ -122,8 +122,8 @@
       chip:{side:'C', text:'Client: NEGOTIATING → TRANSFERRING'}, chip2:{side:'S', text:'Server: NEGOTIATING → TRANSFERRING'}},
 
     {sep:'③ UDP 可用性探测（数据面）'},
-    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {payload_len='+PROBE_LEN+', session_id}'},
-    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {payload_len='+PROBE_ACK_LEN+'}'},
+    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {L='+PROBE_LEN+', session_id}'},
+    {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {L='+PROBE_ACK_LEN+'}'},
     {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
     {note:'Server 以 PROBE 报文的源地址:端口作为该会话的对端数据面地址；udp_ready 只确认当前探测，不改变端口（见 14 章）'},
 
