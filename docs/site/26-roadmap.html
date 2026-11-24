@@ -445,6 +445,11 @@
 <tbody>
 <tr>
 <td>—</td>
+<td><strong>C↔C R2 会话内中转与 transport 切换</strong>：新增 <code>peer_transport_switch</code>（<code>0x23</code>，Server→Client，36 字节），支持 <code>direct ⇄ relay_r2</code> <strong>中途切换</strong>；S 在<strong>同一 peer 会话</strong>内转发数据（有界队列、不存整文件），校验两段 leg 的 <code>transfer_token</code>/源地址，K 规范化为 <code>K = 1</code>；端到端信用不变，S 队列计入在途并做中转入量控制（<code>relay_capacity</code>）；切换清空在途、重建信用基线、保留位图/临时文件、从第一个缺失 symbol 继续；新增 <code>switch_reason</code> 枚举。R1 仍为预选中转。<strong>版本号不变</strong></td>
+<td>02、06、07、09、11、13、19、20、24、26、99、site</td>
+</tr>
+<tr>
+<td>—</td>
 <td><strong>C↔C peer 传输（Stage 1：直连 + R1 预选中转）</strong>：新增 <code>direction = peer</code> 与 <code>peer_start</code> / <code>peer_offer</code> / <code>peer_response</code> / <code>peer_accept</code> / <code>peer_relay_plan</code> / <code>peer_complete</code>；两端复用与 Server 的既有 <code>login</code>，<strong>无 C↔C login</strong>；Server 做 share grant 授权、控制消息中继与会话仲裁；数据面直连（peer PROBE + <code>transfer_token</code> + 源地址绑定），直连失败走 R1（C1→S upload + S→C2 download，临时中转素材）。新增错误码 <code>PEER_DECLINED</code> / <code>PEER_UNREACHABLE</code> / <code>PEER_RELAY_UNAVAILABLE</code> / <code>PEER_TOKEN_INVALID</code>；数据面 <code>FLAG_PEER_PROBE</code>。Stage 2 预留 <code>relay_r2</code> 与中途切换。<strong>版本号不变</strong></td>
 <td>00、01、02、06、07、08、09、10、11、12、13、19、20、21、24、26、99、site</td>
 </tr>

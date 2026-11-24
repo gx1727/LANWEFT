@@ -9,7 +9,7 @@
 | direction | enum8 | `0` = `upload`、`1` = `download`、`2` = `peer` —— **接收方 / 发送方角色** |
 | sender_device_id | str | **仅 peer**：发送方 Client 的 `device_id` |
 | receiver_device_id | str | **仅 peer**：接收方 Client 的 `device_id` |
-| transport | enum8 | **仅 peer**：`0` = direct，`1` = relay_r2（Stage 2）；R1 不是 peer transport |
+| transport | enum8 | **仅 peer**：`0` = direct，`1` = relay_r2（S 转发）；R1 不是 peer transport |
 | transfer_token | token16 | **仅 peer**：Server 签发的一次性令牌 |
 | transfer_id | u64 | **仅 R1**：两段会话的关联 id |
 | file_hash | hash32 | 文件哈希（**32 字节原始 Blake3 摘要**） |
@@ -217,6 +217,8 @@ Server **可以**在 Client 未请求的情况下，向一个**在线**的 Clien
 5. 接受后：
    - **direct**：Server 下发 `peer_accept` 给双方（含对端端点、token）；
      双方执行 peer PROBE，成功后开始数据。
+   - **relay_r2**：Server 分配中转端点，下发 `peer_accept`（`transport = relay_r2`，
+     端点为 S 中转端点）；C1 向 S 中转端点 PROBE，S 校验后转发给 C2。
    - **R1 预选中转**：Server 下发 `peer_relay_plan`，随后分别下发标准的
      `upload_accept`（给发送方）与 `download_accept`（给接收方）；
      **不**建立 `direction = peer` 的数据面。
@@ -237,9 +239,13 @@ Server **可以**在 Client 未请求的情况下，向一个**在线**的 Clien
 
 - **direct**：C1 → C2，复用 07/08 的 UDP/TCP 数据面、symbol/chunk、位图、
   缺失裁决、信用与 K 策略；`session_id` 由 Server 生成。
-  Stage 1 的 `transfer_token` 用于 **peer PROBE/端点确认**，数据包按端点做源地址校验；
-  Stage 2 才把它用于每包 keyed MAC。
-- **relay_r2**（Stage 2）：S 转发同一会话的数据包；接收方仍按 symbol 记账。
+  `transfer_token` 用于 **peer PROBE/端点确认**，数据包按端点做源地址校验；
+  每包 keyed MAC 属于后续安全增强。
+- **relay_r2**：S 转发同一会话的数据包；接收方仍按 symbol 记账。
+  S 只保有界转发队列，不存整文件；收到/发往两段 leg 的端点、token 与源地址
+  必须校验。容量不足时不得建立或切换。
+- **transport 切换**：Server **可以**通过 `peer_transport_switch` 在同一会话内
+  direct ⇄ relay_r2；`session_id`/方向/generation 不变，接收方位图/临时文件保留。
 - **R1**：两段既有会话；Server **必须**建立**临时中转素材记录/授权**，
   使接收方能够合法 `download_start`；完成后回收。`transfer_id` 关联两段结果。
 

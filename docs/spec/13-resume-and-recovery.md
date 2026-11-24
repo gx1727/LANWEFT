@@ -38,6 +38,10 @@
   接收方的位图/临时文件**必须**保留，续传起点仍是第一个缺失 symbol。
 - R1 的中转由两段既有会话组成：分别按 upload/download 恢复；
   `transfer_id` 关联两段结果。
+- **会话内 transport 切换（relay_r2）**：Server 通过 `peer_transport_switch` 切换
+  direct ⇄ relay_r2。双方**必须**停用旧端点、清空在途估计并重建信用基线，
+  **保留**位图/临时文件，从第一个缺失 symbol 继续；`session_id`/方向/generation 不变。
+  切换前 Server **必须**确认目标端点/容量可用（见 06、07 章）。
 - 断线重连**不得**把 peer 会话降级为同方向的 upload/download；拓扑/角色不变，
   只重新建立端点与信用基线。
 

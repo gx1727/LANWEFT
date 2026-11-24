@@ -222,6 +222,28 @@
 <li>端点由 Server 经 <code>peer_accept</code> 下发（见 06 章）；PROBE 不改变端口。</li>
 <li><strong>R1 预选中转不使用 peer PROBE</strong>：它沿用标准 upload/download 的 PROBE 与端点规则。</li>
 </ul>
+<h3>R2 会话内中转（relay_r2，规范性）</h3>
+<p><code>transport = relay_r2</code> 时，Server 在同一 peer 会话内转发数据：C1 → S → C2。</p>
+<ul>
+<li><strong>中转端点</strong>：Server 为本会话分配 <code>relay_udp_port</code> / <code>relay_tcp_port</code>，
+  经 <code>peer_accept</code> / <code>peer_transport_switch</code> 下发（见 06 章）。</li>
+<li><strong>UDP</strong>：</li>
+<li>C1 向 S 的中转端点发送 peer PROBE（携带 <code>session_id</code> + <code>transfer_token</code>）；
+    S 校验 token / session / 源地址后回 ACK。</li>
+<li>C1 的数据包发往 S；S <strong>必须</strong>校验 token/源地址后转发到 C2 声明的接收端点。</li>
+<li>C2 <strong>只接受</strong>来自 S 中转端点的数据；旧端点（直连对端）上的包<strong>必须</strong>丢弃。</li>
+<li><strong>TCP</strong>：C1 连接 S 的中转 <code>tcp_port</code> 并发送 <code>FLAG_BIND</code>；S 作为连接方连接 C2 的
+  <code>tcp_port</code> 并发送 <code>FLAG_BIND</code>。两条 leg 分别校验会话、角色、源地址与 token。</li>
+<li><strong>不存整文件</strong>：S 只需<strong>有界转发队列</strong>；队列溢出/丢包由 C2 的 <code>missing_chunks</code>
+  驱动 C1 重传，可靠性模型不变。</li>
+<li><strong>K 与分片</strong>：两段链路 MTU 可能不同，S <strong>应当</strong>把转发载荷规范化为 <code>K = 1</code>
+  （或按其配置重新分段）；direct 模式的 <code>K_nofrag</code>/信任模式策略<strong>不</strong>直接套用到 relay 两段。
+  <code>max_ok_payload</code> 按 leg 分别反馈。</li>
+<li><strong>容量</strong>：S <strong>必须</strong>做中转入量控制（连接数、队列、带宽）；不足时<strong>不得</strong>建立/切换 R2，
+  以 <code>PEER_RELAY_UNAVAILABLE</code> 拒绝或保持 direct。</li>
+<li><strong>切换</strong>：由 <code>peer_transport_switch</code> 完成；切换后按新端点重新绑定，
+  接收方保留位图/临时文件，从第一个缺失 symbol 继续（见 06、13 章）。</li>
+</ul>
 <h3>端口与地址绑定（规范性）</h3>
 <ul>
 <li>Server 的数据面 socket <strong>必须</strong>绑定 accept 消息中下发的 <code>udp_port</code>。</li>

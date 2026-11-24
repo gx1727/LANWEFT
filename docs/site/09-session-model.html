@@ -144,7 +144,7 @@
 <tr>
 <td>transport</td>
 <td>enum8</td>
-<td><strong>仅 peer</strong>：<code>0</code> = direct，<code>1</code> = relay_r2（Stage 2）；R1 不是 peer transport</td>
+<td><strong>仅 peer</strong>：<code>0</code> = direct，<code>1</code> = relay_r2（S 转发）；R1 不是 peer transport</td>
 </tr>
 <tr>
 <td>transfer_token</td>
@@ -478,6 +478,8 @@ size ≤ 1200 × (2³² − 1) ≈ 5.15 TB
 <li>接受后：
    - <strong>direct</strong>：Server 下发 <code>peer_accept</code> 给双方（含对端端点、token）；
      双方执行 peer PROBE，成功后开始数据。
+   - <strong>relay_r2</strong>：Server 分配中转端点，下发 <code>peer_accept</code>（<code>transport = relay_r2</code>，
+     端点为 S 中转端点）；C1 向 S 中转端点 PROBE，S 校验后转发给 C2。
    - <strong>R1 预选中转</strong>：Server 下发 <code>peer_relay_plan</code>，随后分别下发标准的
      <code>upload_accept</code>（给发送方）与 <code>download_accept</code>（给接收方）；
      <strong>不</strong>建立 <code>direction = peer</code> 的数据面。
@@ -498,9 +500,13 @@ size ≤ 1200 × (2³² − 1) ≈ 5.15 TB
 <ul>
 <li><strong>direct</strong>：C1 → C2，复用 07/08 的 UDP/TCP 数据面、symbol/chunk、位图、
   缺失裁决、信用与 K 策略；<code>session_id</code> 由 Server 生成。
-  Stage 1 的 <code>transfer_token</code> 用于 <strong>peer PROBE/端点确认</strong>，数据包按端点做源地址校验；
-  Stage 2 才把它用于每包 keyed MAC。</li>
-<li><strong>relay_r2</strong>（Stage 2）：S 转发同一会话的数据包；接收方仍按 symbol 记账。</li>
+  <code>transfer_token</code> 用于 <strong>peer PROBE/端点确认</strong>，数据包按端点做源地址校验；
+  每包 keyed MAC 属于后续安全增强。</li>
+<li><strong>relay_r2</strong>：S 转发同一会话的数据包；接收方仍按 symbol 记账。
+  S 只保有界转发队列，不存整文件；收到/发往两段 leg 的端点、token 与源地址
+  必须校验。容量不足时不得建立或切换。</li>
+<li><strong>transport 切换</strong>：Server <strong>可以</strong>通过 <code>peer_transport_switch</code> 在同一会话内
+  direct ⇄ relay_r2；<code>session_id</code>/方向/generation 不变，接收方位图/临时文件保留。</li>
 <li><strong>R1</strong>：两段既有会话；Server <strong>必须</strong>建立<strong>临时中转素材记录/授权</strong>，
   使接收方能够合法 <code>download_start</code>；完成后回收。<code>transfer_id</code> 关联两段结果。</li>
 </ul>

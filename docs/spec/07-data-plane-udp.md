@@ -63,6 +63,29 @@
 - 端点由 Server 经 `peer_accept` 下发（见 06 章）；PROBE 不改变端口。
 - **R1 预选中转不使用 peer PROBE**：它沿用标准 upload/download 的 PROBE 与端点规则。
 
+### R2 会话内中转（relay_r2，规范性）
+
+`transport = relay_r2` 时，Server 在同一 peer 会话内转发数据：C1 → S → C2。
+
+- **中转端点**：Server 为本会话分配 `relay_udp_port` / `relay_tcp_port`，
+  经 `peer_accept` / `peer_transport_switch` 下发（见 06 章）。
+- **UDP**：
+  - C1 向 S 的中转端点发送 peer PROBE（携带 `session_id` + `transfer_token`）；
+    S 校验 token / session / 源地址后回 ACK。
+  - C1 的数据包发往 S；S **必须**校验 token/源地址后转发到 C2 声明的接收端点。
+  - C2 **只接受**来自 S 中转端点的数据；旧端点（直连对端）上的包**必须**丢弃。
+- **TCP**：C1 连接 S 的中转 `tcp_port` 并发送 `FLAG_BIND`；S 作为连接方连接 C2 的
+  `tcp_port` 并发送 `FLAG_BIND`。两条 leg 分别校验会话、角色、源地址与 token。
+- **不存整文件**：S 只需**有界转发队列**；队列溢出/丢包由 C2 的 `missing_chunks`
+  驱动 C1 重传，可靠性模型不变。
+- **K 与分片**：两段链路 MTU 可能不同，S **应当**把转发载荷规范化为 `K = 1`
+  （或按其配置重新分段）；direct 模式的 `K_nofrag`/信任模式策略**不**直接套用到 relay 两段。
+  `max_ok_payload` 按 leg 分别反馈。
+- **容量**：S **必须**做中转入量控制（连接数、队列、带宽）；不足时**不得**建立/切换 R2，
+  以 `PEER_RELAY_UNAVAILABLE` 拒绝或保持 direct。
+- **切换**：由 `peer_transport_switch` 完成；切换后按新端点重新绑定，
+  接收方保留位图/临时文件，从第一个缺失 symbol 继续（见 06、13 章）。
+
 ### 端口与地址绑定（规范性）
 
 - Server 的数据面 socket **必须**绑定 accept 消息中下发的 `udp_port`。

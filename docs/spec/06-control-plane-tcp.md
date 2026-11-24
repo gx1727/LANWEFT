@@ -334,7 +334,8 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | `direction` | `0` = upload，`1` = download，`2` = peer |
 | `peer_mode` | `0` = push（发起方发送），`1` = pull（发起方接收） |
 | `peer_role` | `0` = sender，`1` = receiver |
-| `transport` | `0` = direct，`1` = relay_r2（Stage 2；Stage 1 仅 direct） |
+| `transport` | `0` = direct，`1` = relay_r2（S 转发同一 peer 会话） |
+| `switch_reason` | `0` = direct_unreachable，`1` = direct_stalled，`2` = relay_capacity，`3` = policy，`4` = direct_recovered |
 | `transport_pref` | `0` = auto，`1` = direct，`2` = relay |
 | `state` | `0` INIT、`1` NEGOTIATING、`2` TRANSFERRING、`3` PAUSED、`4` VERIFY、`5` COMMIT、`6` COMPLETED、`7` ABORTED（见 10 章） |
 | `missing_chunks.mode` | `0` = report，`1` = request |
@@ -435,7 +436,8 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | `0x20` | peer_accept | Server→Client | C↔C 会话建立与端点 |
 | `0x21` | peer_relay_plan | Server→Client | R1 预选中转计划（两段会话） |
 | `0x22` | peer_complete | 双向 | C↔C 完成；**恒由接收方发布**，经 Server 中继 |
-| `0x00`、`0x23`–`0xFF` | — | — | **保留**，接收方必须按「未识别消息必须忽略」处理 |
+| `0x23` | peer_transport_switch | Server→Client | direct ⇄ relay_r2 中途切换；携带新端点 |
+| `0x00`、`0x24`–`0xFF` | — | — | **保留**，接收方必须按「未识别消息必须忽略」处理 |
 
 > **方向标注约定**：标记为「双向」的消息，其**发布方由会话方向决定**：
 > `missing_chunks`（`mode=report`）、`progress_update` 与 `window_update` 由**接收方**发布；
@@ -975,7 +977,7 @@ Client 是会话对端，Server 不主动发起恢复。
 | 32 | 4 | connection_window | u32 | 连接级在途 **symbol** 上限 |
 | 36 | 4 | chunk_size | u32 | 逻辑块大小 |
 | 40 | 16 | transfer_token | token16 | Server 签发的一次性令牌 |
-| 56 | 1 | transport | enum8 | `0` = direct（Stage 1）；`1` = relay_r2（Stage 2） |
+| 56 | 1 | transport | enum8 | `0` = direct；`1` = relay_r2（S 转发） |
 | 57 | 1 | role | enum8 | **接收方**在本会话中的角色：`0` = sender，`1` = receiver |
 | 58 | 2 | reserved | u16 | 保留 |
 | 60 | 4 | reserved | u32 | 保留 |
@@ -1025,7 +1027,7 @@ Client 是会话对端，Server 不主动发起恢复。
 | 32 | 4 | connection_window | u32 | 连接级在途 **symbol** 上限 |
 | 36 | 4 | chunk_size | u32 | 逻辑块大小 |
 | 40 | 16 | transfer_token | token16 | 一次性令牌 |
-| 56 | 1 | transport | enum8 | `0` = direct；`1` = relay_r2（Stage 2） |
+| 56 | 1 | transport | enum8 | `0` = direct；`1` = relay_r2（S 转发） |
 | 57 | 1 | role | enum8 | 本端角色：`0` = sender，`1` = receiver |
 | 58 | 1 | peer_addr_family | u8 | `4` / `6`；`0` = 未知（relay 时可为 0） |
 | 59 | 1 | reserved | u8 | 保留 |
@@ -1045,6 +1047,13 @@ Client 是会话对端，Server 不主动发起恢复。
 Server **必须**校验端点来源（见 07 章）。
 本消息**也用于恢复**：成功 `login` 后，Server **必须**对每个恢复的 peer 会话重发本条，
 携带最新端点与 `transfer_token`（见 13 章）。
+
+**端点的含义（规范性）**：
+
+- `transport = direct`：`peer_addr` / `peer_udp_port` / `peer_tcp_port` 是**对端设备**的数据端点。
+- `transport = relay_r2`：它们是 **Server 的中转端点**（见 07 章）；
+  发送方把数据发给它，接收方只接受来自它的数据。
+- `peer_addr_family = 0` 时端点未知；`transport = relay_r2` 时**不得**为 0。
 
 ### peer_relay_plan（`0x21`）
 
@@ -1102,6 +1111,40 @@ R1 不建立 `direction = peer` 的数据面；它是两段既有会话。
 
 Server **必须**校验消息的发布方确实是该会话的对应角色；越权按 `ACL_DENY` 丢弃并审计。
 **不得**建立 C↔C 的控制连接。
+
+### peer_transport_switch（`0x23`）
+
+**定长区（36 字节）**
+
+| 偏移 | 大小 | 字段 | 类型 | 说明 |
+|------|------|------|------|------|
+| 0 | 8 | session_id | u64 | 会话 ID |
+| 8 | 1 | transport | enum8 | 切换后的模式：`0` = direct，`1` = relay_r2 |
+| 9 | 1 | reason | enum8 | `switch_reason` |
+| 10 | 1 | peer_addr_family | u8 | `4` / `6`；`0` = 未知 |
+| 11 | 1 | reserved | u8 | 保留 |
+| 12 | 2 | peer_udp_port | u16 | 新数据面 UDP 端点（对端或 S 中转） |
+| 14 | 2 | peer_tcp_port | u16 | 新数据面 TCP 端点；`0` = 不支持 |
+| 16 | 16 | peer_addr | bytes | 新端点地址（IPv4 用前 4 字节） |
+| 32 | 4 | reserved | u32 | 保留 |
+
+无变长区。
+
+**语义（规范性）**：
+
+- 恒由 **Server** 发布给**双方**；切换**不改变** `session_id`、`sender_device_id`、
+  `receiver_device_id`、`generation` 或会话状态。
+- 收到后双方**必须**：
+  1. 立即停用旧端点（旧端点上的包**必须**丢弃）；
+  2. 清空在途量估计并按对端最新裁决重建信用基线；
+  3. **保留**接收方位图与临时文件，从**第一个缺失 symbol** 继续；
+  4. 按新端点重新绑定：direct 时重新 peer PROBE；relay_r2 时以 S 中转端点为对端。
+- **direct → relay_r2**：`reason` 为 `direct_unreachable` / `direct_stalled` / `policy`；
+  Server **必须**先确认中转端点与容量可用，否则**不得**切换（可改走 R1 或终止）。
+- **relay_r2 → direct**：`reason` = `direct_recovered`；Server **必须**先确认直连可用
+  （探测成功）再切换；切换**应当**加迟滞，避免抖动。
+- 任一方未在超时内完成重绑定，Server **必须**以 `session_abort`
+  （`reason` = `PEER_RELAY_UNAVAILABLE` 或 `TIMEOUT_NO_ACTIVITY`）终止。
 
 ### session_pause（`0x0E`）
 
@@ -1461,8 +1504,9 @@ Client 可用 `file_hash` 单独定位，也可用 `asset_id` 精确定位到某
     **必须**经 Server 在两条控制连接间转发；Server 校验发布方角色，越权按 `ACL_DENY`。
 24. **R1 预选中转**：`peer_relay_plan` 只做关联；实际传输是
     `upload`（C1→S）与 `download`（S→C2）两段既有会话，参数以标准 accept 为准。
-25. **peer 与 transport**：Stage 1 仅 `transport = direct`；`relay_r2` 字段预留。
-    传输模式切换（若实现）**不**改变 `session_id`、方向或 generation。
+25. **peer 与 transport**：`transport` 支持 `direct` 与 `relay_r2`；Server **可以**在会话中途
+    通过 `peer_transport_switch` 切换（direct ⇄ relay_r2），切换**不**改变 `session_id`、
+    方向或 generation，位图/临时文件保留。
 
 ## 与状态机关系
 

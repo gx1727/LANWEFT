@@ -53,10 +53,13 @@
   **全部经 Server**（没有 C↔C 的 `login`，见 06 章）
 - `peer_relay_plan`：预选中转（R1）计划，返回 C1→S upload 与 S→C2 download 两段会话
 - `peer_complete`：peer 会话的完成消息，**恒由接收方发布**，经 Server 中继
-- `transport`（enum8）：`0` = `direct`（C1→C2 直连）、`1` = `relay_r2`（S 转发；Stage 2）；
+- `transport`（enum8）：`0` = `direct`（C1→C2 直连）、`1` = `relay_r2`（S 在会话内转发）；
   R1 **不是** peer 会话的 transport，而是两段既有会话
+- `peer_transport_switch`：direct ⇄ relay_r2 的**中途切换**（S 发布，携带新端点）；
+  不改变 `session_id`、方向或 generation
+- `switch_reason`（enum8）：切换原因（direct 不可达/停滞、策略、direct 恢复）
 - `transfer_token`（token16）：Server 为 peer 传输签发的一次性令牌；
-  Stage 1 用于 peer PROBE 与端点确认，Stage 2 用于数据面 keyed MAC
+  用于 peer PROBE/端点确认；每包 keyed MAC 属于后续安全增强
 - **share grant**：`(sender_device_id, receiver_device_id, file_hash, expiry)`，
   由 Server 维护；peer 传输必须在授权范围内
 - `sender_device_id` / `receiver_device_id`：peer 会话的两个 Client；

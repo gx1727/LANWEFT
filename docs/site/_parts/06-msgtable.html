@@ -37,7 +37,8 @@
         <tr><td class="num">0x20</td><td class="mono">peer_accept</td><td>Server→Client</td><td class="num">96 B</td><td class="mono">file_hash, file_name, peer_device_id</td><td>C↔C 会话建立与端点</td></tr>
         <tr><td class="num">0x21</td><td class="mono">peer_relay_plan</td><td>Server→Client</td><td class="num">48 B</td><td class="mono">file_hash, sender/receiver_device_id, file_name</td><td>R1 预选中转计划（两段会话）</td></tr>
         <tr><td class="num">0x22</td><td class="mono">peer_complete</td><td>双向<br><span class="c-muted">接收方发布</span></td><td class="num">12 B</td><td class="mono">code, file_hash</td><td>C↔C 完成消息，经 Server 中继</td></tr>
-        <tr><td class="num c-muted">0x00, 0x23–0xFF</td><td class="c-muted">—</td><td class="c-muted">—</td><td class="num c-muted">—</td><td class="c-muted">—</td><td class="c-muted">保留，接收方必须忽略</td></tr>
+        <tr><td class="num">0x23</td><td class="mono">peer_transport_switch</td><td>Server→Client</td><td class="num">36 B</td><td class="mono">—</td><td>direct ⇄ relay_r2 中途切换（新端点）</td></tr>
+        <tr><td class="num c-muted">0x00, 0x24–0xFF</td><td class="c-muted">—</td><td class="c-muted">—</td><td class="num c-muted">—</td><td class="c-muted">—</td><td class="c-muted">保留，接收方必须忽略</td></tr>
       </tbody>
     </table>
   </div>

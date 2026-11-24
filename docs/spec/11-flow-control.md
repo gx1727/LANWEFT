@@ -26,6 +26,9 @@
 - **`direction = peer` 同样适用**：信用、缺失、进度与在途估算按 symbol 计；
   这些控制消息由 Server 在两条控制连接间中继（见 06 章），窗口仍是**端到端**语义。
   R1 则是两段独立的 upload/download 会话，各自适用本章。
+- **relay_r2**：端到端 `window` 不变；S 的转发队列计入发送方的在途估计（保守上界），
+  S **必须**做中转入量控制（`relay_capacity`）；两段链路的 `K` 由 S 规范化，
+  direct 的 `K_nofrag`/信任模式策略**不**直接套用。
 
 ### 连接级：`connection_window`（规范性）
 

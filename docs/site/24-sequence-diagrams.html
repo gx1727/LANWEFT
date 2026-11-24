@@ -61,7 +61,7 @@
     发送方 1000 ms 未收到任何信用时<strong>必须</strong>主动索要。
     文件级失配走<strong>恢复阶梯</strong>：①摘要对帐（零内容流量定位差异区间）→ ②复核轮（全量重传，至多一次）→ ③中止。
     C↔C：两端复用与 Server 的既有登录，<strong>没有 C↔C login</strong>；Server 做授权/控制中继，
-    数据优先直连，直连不可用走 <strong>R1 预选中转</strong>（见正文时序）。
+    数据优先直连，直连不可用走 <strong>R1 预选中转</strong>或 <strong>R2 会话内中转</strong>（同一会话，S 转发）。
     主动投递方向恒为 <strong>download</strong>，Server <strong>必须</strong>等到 <code>UDP_PROBE</code> 才可推送；
     共享清单的通知<strong>不保证送达</strong>，拉取路径复用既有下载流程。
   </div>
@@ -781,7 +781,35 @@ S publishes upload_complete -&gt; C1；C2 publishes download_complete -&gt; S
 <ul>
 <li>R1 是<strong>两段既有会话</strong>，由一个 <code>transfer_id</code> 关联；不建立 <code>direction = peer</code> 数据面。</li>
 <li>Server <strong>必须</strong>建立临时中转素材/授权，使 C2 能合法下载；完成后回收。</li>
-<li>直连 PROBE 失败时由 Server 决定走 R1（或 Stage 2 的 R2）。</li>
+<li>直连 PROBE 失败时由 Server 决定走 R1 或 <strong>R2 会话内中转</strong>。</li>
+</ul>
+<h3>C↔C peer（R2 会话内中转，S 转发）</h3>
+<pre class="codeblock"><code>C1（发送方）              S                    C2（接收方）
+  |--- peer_start ------&gt;|                      |
+  |                      |--- peer_offer ------&gt;|
+  |                      |&lt;-- peer_response ----|
+  |&lt;-- peer_accept ------|------ peer_accept --&gt;|   transport=relay_r2, 端点为 S 中转
+  |-- peer PROBE（到 S 中转端点, token）-------&gt;|
+  |&lt;------------- PROBE_ACK --------------------|
+  |===== data =========&gt;|===== data ==========&gt;|   S 只在会话内转发，不存整文件
+  |                      |&lt;-- missing_chunks ---|   控制经 S 中继
+  |&lt;-- missing_chunks ---|                      |
+  |                      |&lt;-- peer_complete ----|
+  |&lt;-- peer_complete ----|                      |
+</code></pre>
+<ul>
+<li>S 必须校验两段 leg 的 token/源地址；C2 只接受 S 中转端点。</li>
+<li>S 只保有界转发队列；丢失由 C2 的缺失裁决驱动 C1 重传。</li>
+<li>K 由 S 规范化（建议 <code>K = 1</code>），direct 的 K 策略不直接套用。</li>
+</ul>
+<h3>会话内 transport 切换</h3>
+<pre class="codeblock"><code>S -- peer_transport_switch (direct → relay_r2) --&gt; C1 / C2
+C1/C2：停用旧端点 → 清空在途/重建信用基线 → 保留位图/临时文件 → 按新端点重绑定
+S -- peer_transport_switch (relay_r2 → direct) --&gt; C1 / C2    （direct 恢复后，带迟滞）
+</code></pre>
+<ul>
+<li>切换<strong>不改变</strong> <code>session_id</code> / 方向 / generation / 会话状态。</li>
+<li>未完成重绑定的会话由 Server 以 <code>PEER_RELAY_UNAVAILABLE</code> / <code>TIMEOUT_NO_ACTIVITY</code> 终止。</li>
 </ul>
 <h2>状态机</h2>
 <p>状态机与合法转移以 10-state-machine 为准</p>

@@ -222,7 +222,39 @@ S publishes upload_complete -> C1；C2 publishes download_complete -> S
 
 - R1 是**两段既有会话**，由一个 `transfer_id` 关联；不建立 `direction = peer` 数据面。
 - Server **必须**建立临时中转素材/授权，使 C2 能合法下载；完成后回收。
-- 直连 PROBE 失败时由 Server 决定走 R1（或 Stage 2 的 R2）。
+- 直连 PROBE 失败时由 Server 决定走 R1 或 **R2 会话内中转**。
+
+### C↔C peer（R2 会话内中转，S 转发）
+
+```
+C1（发送方）              S                    C2（接收方）
+  |--- peer_start ------>|                      |
+  |                      |--- peer_offer ------>|
+  |                      |<-- peer_response ----|
+  |<-- peer_accept ------|------ peer_accept -->|   transport=relay_r2, 端点为 S 中转
+  |-- peer PROBE（到 S 中转端点, token）------->|
+  |<------------- PROBE_ACK --------------------|
+  |===== data =========>|===== data ==========>|   S 只在会话内转发，不存整文件
+  |                      |<-- missing_chunks ---|   控制经 S 中继
+  |<-- missing_chunks ---|                      |
+  |                      |<-- peer_complete ----|
+  |<-- peer_complete ----|                      |
+```
+
+- S 必须校验两段 leg 的 token/源地址；C2 只接受 S 中转端点。
+- S 只保有界转发队列；丢失由 C2 的缺失裁决驱动 C1 重传。
+- K 由 S 规范化（建议 `K = 1`），direct 的 K 策略不直接套用。
+
+### 会话内 transport 切换
+
+```
+S -- peer_transport_switch (direct → relay_r2) --> C1 / C2
+C1/C2：停用旧端点 → 清空在途/重建信用基线 → 保留位图/临时文件 → 按新端点重绑定
+S -- peer_transport_switch (relay_r2 → direct) --> C1 / C2    （direct 恢复后，带迟滞）
+```
+
+- 切换**不改变** `session_id` / 方向 / generation / 会话状态。
+- 未完成重绑定的会话由 Server 以 `PEER_RELAY_UNAVAILABLE` / `TIMEOUT_NO_ACTIVITY` 终止。
 
 ## 状态机
 

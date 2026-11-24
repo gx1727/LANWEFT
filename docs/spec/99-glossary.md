@@ -77,6 +77,7 @@
 | complete_ack | C→S / S→C | 数据发送方确认已持久化完成回执 |
 | peer_start / peer_offer / peer_response / peer_accept | C↔S | C↔C 握手（全部经 Server；无 C↔C login） |
 | peer_relay_plan | S→C | R1 预选中转计划（两段既有会话） |
+| peer_transport_switch | S→C | direct ⇄ relay_r2 中途切换（新端点；不改 session_id/方向/generation） |
 | peer_complete | 双向（接收方发布） | C↔C 完成消息，经 Server 中继 |
 | asset_recall / asset_recall_complete | C→S / S→C | 资产撤回请求与回执 |
 | ping / pong | 双向 | 心跳与应答（10 秒周期，30 秒空闲超时） |

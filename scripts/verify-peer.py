@@ -96,7 +96,7 @@ def send_all(rx,fm,data,sid,K,loss,corrupt,src,dst,edges):
 class Server:
     def __init__(self):
         self.events=[]; self.logins=[]; self.shares=set(); self.sessions={}
-        self.next=100; self.temp=[]
+        self.next=100; self.temp=[]; self.relay_capacity=True
     def login(self,dev):
         self.logins.append(dev); self.events.append(('login',dev,S))
     def peer_start(self,frm,target,file_hash,mode,pref,fm,ports):
@@ -106,6 +106,8 @@ class Server:
             self.events.append(('session_abort',S,frm,'ACL_DENY')); return None
         if frm not in self.logins or target not in self.logins:
             self.events.append(('session_abort',S,frm,'SESSION_NOT_FOUND')); return None
+        if pref=='relay' and not self.relay_capacity:
+            self.events.append(('session_abort',S,frm,'PEER_RELAY_UNAVAILABLE')); return None
         sid=self.next; self.next+=1; token=bytes([sid%256])*16
         sess=dict(id=sid,sender=sender,receiver=receiver,token=token,mode=mode,
                   transport=('relay_r1' if pref=='relay' else 'direct'),
@@ -250,6 +252,79 @@ def r1_case(fm,data,grant,seed=7):
     assert not any(is_c2c_control(e) for e in srv.events)
     return dict(edges=edges,ok=True)
 
+class Relay:
+    """R2：S 的会话内转发器（校验 C1 的 token/源地址，再发给 C2）。"""
+    def __init__(self,sid,token,out,out_src,out_dst,edges):
+        self.sid=sid; self.token=token; self.out=out
+        self.out_src=out_src; self.out_dst=out_dst; self.edges=edges; self.bound=None
+    def probe(self,sid,token,src):
+        if sid!=self.sid or token!=self.token: return None
+        self.bound=src; return True
+    def recv(self,sid,cid,csym,payload,crc_ok,src):
+        if sid!=self.sid: return 'session'
+        if src!=self.bound: return 'source'
+        if not crc_ok: return 'crc'
+        self.edges.add((self.out_src,self.out_dst))
+        return self.out.recv(sid,cid,csym,payload,True,self.out_src)
+
+def r2_case(fm,data,grant,loss=0.01,seed=5):
+    random.seed(seed); srv=Server(); srv.shares.add(grant)
+    srv.login(C1); srv.login(C2)
+    sess=srv.peer_start(C1,C2,grant[2],'push','direct',fm,{C1:EP1,C2:EP2})
+    sess=srv.peer_response(C2,sess,True,EP2)
+    # Server 选择 relay_r2：peer_accept 的端点改为 S 中转端点
+    sess['transport']='relay_r2'; sess['relay_endpoint']=EPS
+    srv.events.append(('peer_accept',S,C1)); srv.events.append(('peer_accept',S,C2))
+    rxC=RX(fm,sess['id'],sess['token']); rxC.bound=EPS
+    edges=set(); relay=Relay(sess['id'],sess['token'],rxC,EPS,EP2,edges)
+    assert relay.probe(sess['id'],b'\x00'*16,EP1) is None
+    assert relay.probe(sess['id'],sess['token'],EP1) is True
+    send_all(relay,fm,data,sess['id'],1,loss,0.005,EP1,EPS,edges)
+    loops=0
+    while rxC.report()[2]>0 and loops<200:
+        rep=rxC.report()
+        srv.relay_peer(sess,'missing_chunks',sess['receiver'],rep)
+        srv.relay_peer(sess,'window_update',sess['receiver'],{'received':rxC.received()})
+        for cid,s0,n in runs(fm,rep,1):
+            send_run(relay,fm,data,sess['id'],cid,s0,n,loss,0.005,EP1,EPS,edges)
+        loops+=1
+    assert rxC.report()[2]==0 and rxC.ok(data)
+    srv.relay_peer(sess,'peer_complete',sess['receiver'],{'result':1})
+    srv.relay_peer(sess,'complete_ack',sess['sender'],{})
+    assert edges=={(EP1,EPS),(EPS,EP2)}, edges
+    assert not any(is_c2c_control(e) for e in srv.events)
+    return dict(loops=loops,edges=edges)
+
+def switch_case(fm,data,grant,seed=6):
+    random.seed(seed); srv=Server(); srv.shares.add(grant)
+    srv.login(C1); srv.login(C2)
+    sess=srv.peer_start(C1,C2,grant[2],'push','direct',fm,{C1:EP1,C2:EP2})
+    sess=srv.peer_response(C2,sess,True,EP2)
+    rxC=RX(fm,sess['id'],sess['token']); rxC.bound=EP1
+    edges=set()
+    send_all(rxC,fm,data,sess['id'],1,0.01,0.005,EP1,EP2,edges)
+    # direct -> relay_r2 中途切换
+    srv.events.append(('peer_transport_switch',S,C1))
+    srv.events.append(('peer_transport_switch',S,C2))
+    sess['transport']='relay_r2'; sess['relay_endpoint']=EPS
+    rxC.bound=EPS
+    relay=Relay(sess['id'],sess['token'],rxC,EPS,EP2,edges)
+    assert relay.probe(sess['id'],sess['token'],EP1) is True
+    loops=0
+    while rxC.report()[2]>0 and loops<200:
+        rep=rxC.report()
+        srv.relay_peer(sess,'missing_chunks',sess['receiver'],rep)
+        srv.relay_peer(sess,'window_update',sess['receiver'],{'received':rxC.received()})
+        for cid,s0,n in runs(fm,rep,1):
+            send_run(relay,fm,data,sess['id'],cid,s0,n,0.01,0.005,EP1,EPS,edges)
+        loops+=1
+    assert rxC.report()[2]==0 and rxC.ok(data)
+    srv.relay_peer(sess,'peer_complete',sess['receiver'],{'result':1})
+    srv.relay_peer(sess,'complete_ack',sess['sender'],{})
+    assert edges=={(EP1,EP2),(EP1,EPS),(EPS,EP2)}, edges
+    assert not any(is_c2c_control(e) for e in srv.events)
+    return dict(loops=loops,edges=edges)
+
 if __name__=='__main__':
     size=1_000_000; random.seed(0); data=bytes(random.getrandbits(8) for _ in range(size)); fm=FM(size)
     h=hashlib.sha256(data).hexdigest()[:16]
@@ -280,13 +355,28 @@ if __name__=='__main__':
     print(f"  ok=True data-edges={r1['edges']} temp-asset reclaimed=True")
     assert r1['edges']=={(EP1,EPS),(EPS,EP2)}
 
+    r2=r2_case(fm,data,grant)
+    print("\n[6] R2 会话内中转（C1→S→C2）")
+    print(f"  ok=True data-edges={r2['edges']} loops={r2['loops']}")
+    assert r2['edges']=={(EP1,EPS),(EPS,EP2)}
+
+    sw=switch_case(fm,data,grant)
+    print("\n[7] direct → relay_r2 中途切换（位图保留）")
+    print(f"  ok=True data-edges={sw['edges']} loops={sw['loops']}")
+    assert (EP1,EP2) in sw['edges'] and (EP1,EPS) in sw['edges'] and (EPS,EP2) in sw['edges']
+
+    srv=Server(); srv.relay_capacity=False; srv.shares.add(grant); srv.login(C1); srv.login(C2)
+    no=srv.peer_start(C1,C2,h,'push','relay',fm,{C1:EP1,C2:EP2})
+    assert no is None and any(e[0]=='session_abort' and e[3]=='PEER_RELAY_UNAVAILABLE' for e in srv.events)
+    print("\n[8] 中转容量不足：peer_start 被 PEER_RELAY_UNAVAILABLE 拒绝 ✅")
+
     # authorization denial
     srv=Server(); srv.login(C1); srv.login(C2)
     no=srv.peer_start(C1,C2,h,'push','direct',fm,{C1:EP1,C2:EP2})
     assert no is None
     assert any(e[0]=='session_abort' and e[3]=='ACL_DENY' for e in srv.events)
     assert not any(e[0]=='peer_offer' for e in srv.events)
-    print("\n[6] 无 share grant：peer_start 被 ACL_DENY 拒绝，未发 peer_offer ✅")
+    print("\n[9] 无 share grant：peer_start 被 ACL_DENY 拒绝，未发 peer_offer ✅")
 
     # token/source assertions are inside direct_case; re-state
-    print("\n[7] token/源地址：错误 token 不绑定；数据在绑定前/错误源地址均被丢弃 ✅")
+    print("\n[10] token/源地址：错误 token 不绑定；数据在绑定前/错误源地址均被丢弃 ✅")
