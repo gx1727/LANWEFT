@@ -99,10 +99,12 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
   - **Server** —— 可因任意原因终止会话（超时、ACL、状态非法、资源不足等）；
   - **非 Server 的接收侧**仅可使用：`FILE_HASH_MISMATCH`（复核轮后仍失配）、
     `SOURCE_FILE_MISMATCH`（根区间一致但请求摘要不符）、
+    `TRANSFER_STALLED`（停滞升级后仍无缺失块到达，见 12 章）、
     `FILESYSTEM_ERROR` / `STORAGE_FULL`（读写或提交失败）、
     `DATABASE_ERROR`（会话元数据或位图无法持久化）。本地存储失败必须立即报告，不得触发内容重传。
-- 非 Server 的发送侧**不得**主动发布 `session_abort`。
-  发送侧需要终止时，**必须**发布 `session_pause` 或等待 Server 的裁决。
+- **非 Server 的发送侧**仅在**源文件读取失败**时**可以**主动发布 `session_abort`，
+  `reason` 限于 `SOURCE_READ_ERROR` / `FILESYSTEM_ERROR`；其他原因下发送侧**不得**
+  主动终止，**必须**发布 `session_pause` 或等待 Server 的裁决。
 - `session_abort` 的 `reason` 以 `str` 承载 19 章的错误码**符号名**
   （如 `FILE_HASH_MISMATCH`），**不得**填写自由文本（见 06 章「session_abort」）。
 

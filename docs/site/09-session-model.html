@@ -466,8 +466,9 @@ size ≤ chunk_size × (2³² − 1)
 <li><strong>位图</strong>（各 <code>chunk_id</code> 的接收状态）</li>
 <li><strong>会话元数据</strong>（<code>session_id</code> / <code>direction</code> / <code>chunk_size</code> / <code>chunk_count</code> / 临时文件路径）</li>
 <li><strong>复核轮计数</strong>（见 12 章）：已执行的复核轮次数</li>
+<li><strong>对帐计数</strong>（见 12 章）：已执行的摘要对帐次数</li>
 <li>
-<p><strong>对帐计数</strong>（见 12 章）：已执行的摘要对帐次数</p>
+<p><strong>定点重读计数</strong>（见 12 章）：已执行的停滞定点重读次数</p>
 </li>
 <li>
 <p>位图<strong>必须</strong>能写入持久化副本并从该副本恢复；
@@ -491,6 +492,9 @@ size ≤ chunk_size × (2³² − 1)
 <li>客户端在超时前可经 <code>login</code> 的恢复列表恢复；超时后不再恢复数据传输，
   但终态回执仍可交付。</li>
 <li>该阈值对应 19 章的 <code>TIMEOUT_NO_ACTIVITY</code>。</li>
+<li><strong>校验阶段的例外（规范性）</strong>：<code>VERIFY</code> / <code>COMMIT</code> 期间以大文件哈希或提交为主，
+  接收方<strong>必须</strong>通过应答控制面请求维持活动；哈希与提交<strong>不得</strong>阻塞控制循环或心跳
+  （见 12 章「校验阶段的活性」）。停滞检测（<code>TRANSFER_STALLED</code>）<strong>不</strong>在该阶段评估。</li>
 </ul>
 
   <!-- ============ 本章与其它章的关系 ============ -->

@@ -227,6 +227,7 @@
 
 | 日期 | 修订内容 | 章节 |
 |------|---------|------|
+| — | **停滞检测、发送侧终止权与校验阶段活性**：①新增终止类错误码 `TRANSFER_STALLED`（接收方在 `stall_timeout` = 10 秒内无任何缺失块到达时终止）与 `SOURCE_READ_ERROR`（发送方源文件读取失败）；②`missing_chunks.flags.bit6` = **定点重读** —— 首次停滞置位要求发送方重读源文件对应块后重发，每会话至多一次且随位图持久化，再次停滞以 `TRANSFER_STALLED` 终止（12 章新增「停滞检测与升级」）；③非 Server **发送侧**可因源文件读取失败以 `SOURCE_READ_ERROR` / `FILESYSTEM_ERROR` 终止（10 章「终止权」）；④`VERIFY` / `COMMIT` 期间接收方**必须**应答 `mode=request`（空列表报告）且不得阻塞控制循环，避免大文件哈希被 30/60 秒超时误伤；`reconcile_timeout` 下限 30 秒（按文件规模放宽），超时转入复核轮（12 章新增「校验阶段的活性」）。**版本号不变**（变更以本记录为准） | 02、06、09、10、12、19、26、99、site |
 | — | **窗口推进与缺失裁决解耦（事件驱动信用）**：新增控制面消息 `window_update`（`0x1C`，恒由**接收方**发布，定长 16 字节：`session_id` / `generation` / `received_count` / reserved）。窗口推进改由**信用**驱动 —— 接收方在新收到块达到 `credit_batch`（规范取值 `clamp(window/8,16,1024)`）或（活跃期）每 **50 ms** 或修复代号变化时下发 `window_update`；`missing_chunks.missing_count` 同样构成一次信用。空列表裁决不再承担周期推进职责，活性由既有 **1000 ms** 索要机制保证；`missing_chunks` 仅在**存在缺失**时按 50 ms 下发。吞吐上界改为 `min(D, window/(d + K/D))`，固定墙钟周期不再进入除式。新增规范常量 `credit_batch` 与字段 `received_count` / `generation`（02 章）。**版本号不变**（设计阶段，版本号暂不承载兼容承诺；变更以本记录为准） | 00、02、06、11、12、14、18、24、26、99、site |
 | 2026-11-20 | **站点改为分层渲染（site 不再手工转抄源文）**：新增 `scripts/render-site.py`，
   由规范源文渲染站点页面 —— 规范正文（章节 / 表格 / 列表 / 代码块）**自动渲染**，

@@ -84,6 +84,13 @@
   由 <code>reconcile_request</code> / <code>reconcile_response</code> 表达</li>
 <li><strong>对帐区间</strong>：摘要对帐的比较单位，由 <code>(first_chunk, chunk_count)</code> 确定，
   以 chunk 为最小粒度（见 12 章「对帐区间」）</li>
+<li><strong>停滞</strong>（stall）：会话处于 <code>TRANSFERRING</code>、<code>missing_count &gt; 0</code>，
+  且连续 <code>stall_timeout</code> 内没有任何此前缺失的块到达的状态（见 12 章「停滞检测与升级」）</li>
+<li><code>stall_timeout</code>（常量）：停滞判定阈值，<strong>10 秒</strong>（见 12 章）</li>
+<li><code>reconcile_timeout</code>（常量）：等待 <code>reconcile_response</code> 的超时<strong>下限，30 秒</strong>；
+  接收方<strong>应当</strong>按文件规模放宽，超时按「对帐不可用」处理并转入复核轮（见 12 章）</li>
+<li><strong>定点重读</strong>：停滞升级时接收方置 <code>missing_chunks.flags.bit6</code>，
+  要求发送方重新读取源文件的对应块（不复用缓存）后重发；每会话<strong>至多一次</strong>（见 06、12 章）</li>
 <li><code>missing_count</code>（u32）：位图中<strong>未收到</strong>的 chunk 总数（精确值）；
   未携带时由<strong>存在标志位</strong>表示（见 06 章、18 章）</li>
 <li><code>udp_ready</code>：UDP 就绪通知</li>

@@ -47,6 +47,7 @@
 | window_update | 窗口推进**信用**（接收方发布，携带 `generation` / `received_count`）；按收到量事件驱动，替代固定周期的空列表裁决（见 06、11 章） |
 | received_count / credit_batch | 当前代号下已收到的不重复块数 / 信用下发批阈值（见 02、11 章） |
 | 复核轮 | 文件级失配后接收方要求发送方重新读取源文件并全量重发的恢复过程，**至多一次**（见 12 章） |
+| 停滞 / 定点重读 | `missing_count` 在 `stall_timeout`（10 秒）内不动即停滞；首次停滞触发 `flags.bit6` 定点重读，再次停滞以 `TRANSFER_STALLED` 终止（见 12 章） |
 | burst_size | 发送批次大小（发送端本地参数，初值 = `min(256, window)`） |
 | batch_gap_us | 批间隔（微秒，发送端本地参数，初值 2000） |
 | direction | 会话方向（`0` = `upload` / `1` = `download`），决定接收方与发送方 |

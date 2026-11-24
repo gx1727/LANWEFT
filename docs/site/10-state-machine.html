@@ -425,10 +425,12 @@
 <li><strong>Server</strong> —— 可因任意原因终止会话（超时、ACL、状态非法、资源不足等）；</li>
 <li><strong>非 Server 的接收侧</strong>仅可使用：<code>FILE_HASH_MISMATCH</code>（复核轮后仍失配）、
     <code>SOURCE_FILE_MISMATCH</code>（根区间一致但请求摘要不符）、
+    <code>TRANSFER_STALLED</code>（停滞升级后仍无缺失块到达，见 12 章）、
     <code>FILESYSTEM_ERROR</code> / <code>STORAGE_FULL</code>（读写或提交失败）、
     <code>DATABASE_ERROR</code>（会话元数据或位图无法持久化）。本地存储失败必须立即报告，不得触发内容重传。</li>
-<li>非 Server 的发送侧<strong>不得</strong>主动发布 <code>session_abort</code>。
-  发送侧需要终止时，<strong>必须</strong>发布 <code>session_pause</code> 或等待 Server 的裁决。</li>
+<li><strong>非 Server 的发送侧</strong>仅在<strong>源文件读取失败</strong>时<strong>可以</strong>主动发布 <code>session_abort</code>，
+  <code>reason</code> 限于 <code>SOURCE_READ_ERROR</code> / <code>FILESYSTEM_ERROR</code>；其他原因下发送侧<strong>不得</strong>
+  主动终止，<strong>必须</strong>发布 <code>session_pause</code> 或等待 Server 的裁决。</li>
 <li><code>session_abort</code> 的 <code>reason</code> 以 <code>str</code> 承载 19 章的错误码<strong>符号名</strong>
   （如 <code>FILE_HASH_MISMATCH</code>），<strong>不得</strong>填写自由文本（见 06 章「session_abort」）。</li>
 </ul>

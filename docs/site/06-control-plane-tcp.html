@@ -1090,8 +1090,9 @@ RESYNC（仅诊断，不恢复协议状态机）
 <p><strong>摘要对帐消息的发布方（规范性）</strong>：<code>reconcile_request</code> 恒由<strong>接收方</strong>发布，
 <code>reconcile_response</code> 恒由<strong>发送方</strong>发布。
 上传方向为 Server → Client；下载方向为 Client → Server（见 12 章）。</p>
-<p><strong><code>session_abort</code> 的发布方（规范性）</strong>：仅 <strong>Server</strong> 与<strong>接收方</strong>有权发布。
-非 Server 的接收方仅可使用 10 章「终止权」列明的原因；非 Server 的发送方不得发布。
+<p><strong><code>session_abort</code> 的发布方（规范性）</strong>：仅 <strong>Server</strong>、<strong>接收方</strong>与<strong>源文件读取失败的发送方</strong>
+有权发布。非 Server 的接收方仅可使用 10 章「终止权」列明的原因；
+非 Server 的发送方仅可在源文件读取失败时以 <code>SOURCE_READ_ERROR</code> / <code>FILESYSTEM_ERROR</code> 发布。
 详见 10 章「终止权」。</p>
 <p><strong>断线重连的恢复不走</strong> <code>resume_session</code> / <code>resume_ack</code>，
 而是走 <code>login</code> 的恢复列表与 <code>login_ack</code> 的权威快照（见「连接生命周期」与 13 章）。</p>
@@ -1748,7 +1749,7 @@ RESYNC（仅诊断，不恢复协议状态机）
 <td>1</td>
 <td>flags</td>
 <td>u8</td>
-<td>bit0 = <code>missing_count</code> 有效；bit1 = 启动全量复核；bit2–3 = 修复代号（0/1/2，见 08、12 章）；bit4–7 保留</td>
+<td>bit0 = <code>missing_count</code> 有效；bit1 = 启动全量复核；bit2–3 = 修复代号（0/1/2，见 08、12 章）；bit4–5 保留；bit6 = 定点重读；bit7 保留</td>
 </tr>
 <tr>
 <td>10</td>
@@ -1851,6 +1852,15 @@ request 不声明代号（bit2–3 必须为 0）。恢复时先同步代号的�
   重新打开源文件、从 <code>chunk_id</code> = 0 起全量重发，并重置顺序流与在途量基线。</li>
 <li>发送方<strong>必须</strong>对同一会话<strong>最多响应一次</strong>复核轮
   （接收方的发起次数上限见 12 章「上限」；该上限按会话计，<strong>不随连接重建而重置</strong>）。</li>
+</ul>
+<p><strong>定点重读标志 <code>flags.bit6</code>（规范性）</strong>：<code>flags.bit6</code> = 1 表示接收方在<strong>停滞升级</strong>时要求
+发送方对 <code>chunks</code> 中列出的块<strong>重新读取源文件</strong>后重发（见 12 章「停滞检测与升级」）。</p>
+<ul>
+<li>该标志<strong>仅</strong>在 <code>mode = report</code> 时有意义；<code>mode = request</code> 时<strong>必须</strong>为 0。</li>
+<li>发送方收到置位本条时<strong>必须</strong>重新打开源文件并读取 <code>chunks</code> 对应区间，
+  <strong>不得</strong>复用页缓存或内存缓冲中的旧副本，然后重发这些块。</li>
+<li>每会话的定点重读<strong>至多一次</strong>（计数与位图一同持久化，见 12 章）。</li>
+<li>定点重读与摘要对帐、复核轮是<strong>相互独立</strong>的机制，各有各的次数上限。</li>
 </ul>
 <p><strong>裁决与窗口推进（规范性）</strong>：窗口推进由<strong>信用</strong>完成 —— 接收方按 11 章
 「窗口推进信用」在收到新块时下发 <code>window_update</code>；<code>missing_chunks</code>（<code>mode=report</code>）
@@ -3077,9 +3087,10 @@ Client 可用 <code>file_hash</code> 单独定位，也可用 <code>asset_id</co
   完成消息只能由 Server 发布</li>
 <li>在同一连接上重复握手（第二个 <code>login</code>）</li>
 </ul>
-<p><strong>COMPLETED 状态下的应答义务（规范性）</strong>：会话处于 COMPLETED 状态时，
-接收方<strong>必须</strong>应答 <code>missing_chunks</code>（<code>mode=request</code>），
-应答内容为<strong>空列表</strong>的 <code>mode=report</code>。</p>
+<p><strong>COMPLETED / VERIFY / COMMIT 状态下的应答义务（规范性）</strong>：会话处于
+<code>COMPLETED</code>、<code>VERIFY</code> 或 <code>COMMIT</code> 状态时，接收方<strong>必须</strong>应答
+<code>missing_chunks</code>（<code>mode=request</code>），应答内容为<strong>空列表</strong>的 <code>mode=report</code>
+（<code>VERIFY</code> / <code>COMMIT</code> 期间位图已全真；见 12 章「校验阶段的活性」）。</p>
 <p>若最终回执尚未确认，接收方还必须重发该回执。空缺失列表只说明块已收齐，
 <strong>不证明提交成功</strong>；断线后按 13 章交付原结果。</p>
 <h2>重要约束</h2>

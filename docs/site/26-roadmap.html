@@ -444,6 +444,11 @@
 <tbody>
 <tr>
 <td>—</td>
+<td><strong>停滞检测、发送侧终止权与校验阶段活性</strong>：①新增终止类错误码 <code>TRANSFER_STALLED</code>（接收方在 <code>stall_timeout</code> = 10 秒内无任何缺失块到达时终止）与 <code>SOURCE_READ_ERROR</code>（发送方源文件读取失败）；②<code>missing_chunks.flags.bit6</code> = <strong>定点重读</strong> —— 首次停滞置位要求发送方重读源文件对应块后重发，每会话至多一次且随位图持久化，再次停滞以 <code>TRANSFER_STALLED</code> 终止（12 章新增「停滞检测与升级」）；③非 Server <strong>发送侧</strong>可因源文件读取失败以 <code>SOURCE_READ_ERROR</code> / <code>FILESYSTEM_ERROR</code> 终止（10 章「终止权」）；④<code>VERIFY</code> / <code>COMMIT</code> 期间接收方<strong>必须</strong>应答 <code>mode=request</code>（空列表报告）且不得阻塞控制循环，避免大文件哈希被 30/60 秒超时误伤；<code>reconcile_timeout</code> 下限 30 秒（按文件规模放宽），超时转入复核轮（12 章新增「校验阶段的活性」）。<strong>版本号不变</strong>（变更以本记录为准）</td>
+<td>02、06、09、10、12、19、26、99、site</td>
+</tr>
+<tr>
+<td>—</td>
 <td><strong>窗口推进与缺失裁决解耦（事件驱动信用）</strong>：新增控制面消息 <code>window_update</code>（<code>0x1C</code>，恒由<strong>接收方</strong>发布，定长 16 字节：<code>session_id</code> / <code>generation</code> / <code>received_count</code> / reserved）。窗口推进改由<strong>信用</strong>驱动 —— 接收方在新收到块达到 <code>credit_batch</code>（规范取值 <code>clamp(window/8,16,1024)</code>）或（活跃期）每 <strong>50 ms</strong> 或修复代号变化时下发 <code>window_update</code>；<code>missing_chunks.missing_count</code> 同样构成一次信用。空列表裁决不再承担周期推进职责，活性由既有 <strong>1000 ms</strong> 索要机制保证；<code>missing_chunks</code> 仅在<strong>存在缺失</strong>时按 50 ms 下发。吞吐上界改为 <code>min(D, window/(d + K/D))</code>，固定墙钟周期不再进入除式。新增规范常量 <code>credit_batch</code> 与字段 <code>received_count</code> / <code>generation</code>（02 章）。<strong>版本号不变</strong>（设计阶段，版本号暂不承载兼容承诺；变更以本记录为准）</td>
 <td>00、02、06、11、12、14、18、24、26、99、site</td>
 </tr>
