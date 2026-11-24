@@ -170,7 +170,8 @@ socket 的生命周期见 07 章「接收方 socket 生命周期」。</p>
 Server <strong>必须</strong>同时遵守连接级的 <code>connection_window</code>
 （该连接上所有会话的在途量之和，见 11 章）。</p>
 <h3>4. 缺失重传</h3>
-<p>Client 每 50ms 发送 <code>missing_chunks</code>（<code>mode=report</code>）；Server 按 11 章补发缺失块。
+<p>Client 在收到新块时下发 <code>window_update</code>（<code>received_count</code>）推进窗口；
+当存在缺失时每 50ms 发送 <code>missing_chunks</code>（<code>mode=report</code>）；Server 按 11 章补发缺失块。
 收到 Server 的 <code>missing_chunks</code>（<code>mode=request</code>）时，Client <strong>必须</strong>在 50ms 内应答。</p>
 <p><code>mode</code> 为 <code>enum8</code>（<code>0</code> = report、<code>1</code> = request）；
 <code>chunks</code> 为 <code>chunk_list</code>（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>），
@@ -226,9 +227,14 @@ Client 校验 hash 失配时先执行 12 章的摘要对帐，再按该章条件
 <td>Server→Client（<code>mode=request</code>）</td>
 </tr>
 <tr>
+<td>窗口信用</td>
+<td>Server→Client（<strong>接收方</strong> Server 发布 <code>window_update</code>）</td>
+<td>Client→Server（<strong>接收方</strong> Client 发布 <code>window_update</code>）</td>
+</tr>
+<tr>
 <td>裁决节奏</td>
-<td>接收方（Server）每 50ms 下发</td>
-<td>接收方（Client）每 50ms 下发</td>
+<td>存在缺失时接收方（Server）每 50ms 下发</td>
+<td>存在缺失时接收方（Client）每 50ms 下发</td>
 </tr>
 <tr>
 <td>进度上报</td>

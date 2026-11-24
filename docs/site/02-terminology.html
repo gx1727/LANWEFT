@@ -63,6 +63,15 @@
   Client 不得修改，见 11 章）</li>
 <li><code>connection_window</code>（u32）：<strong>连接级</strong>在途上限；
   一条控制连接上所有会话的在途量之和<strong>不得超过</strong>该值（见 11 章）</li>
+<li><code>window_update</code>：窗口推进<strong>信用</strong>消息（<code>0x1C</code>）；恒由<strong>接收方</strong>发布，
+  携带 <code>generation</code> 与 <code>received_count</code>（见 06、11 章）</li>
+<li><code>received_count</code>（u32）：当前修复代号下<strong>已收到</strong>的不重复块数；
+  与 <code>missing_count</code> 满足 <code>received_count + missing_count = chunk_count</code>，
+  在同一代号内<strong>单调不减</strong>（见 06、11、18 章）</li>
+<li><code>generation</code>（u8）：数据修复代号，取值对应 DATA 的 <code>flags.bit4–5</code>
+  （0 初传、1 摘要对帐定点修复、2 全量复核，见 08、12 章）</li>
+<li><code>credit_batch</code>（u32）：接收方下发 <code>window_update</code> 的批阈值；
+  规范取值 <code>clamp(window / 8, 16, 1024)</code> 且不超过 <code>window</code>（见 11 章）</li>
 <li><strong>在途量</strong>：已发出但尚未被对端确认接收的 chunk 数；不得超过 <code>window</code>（见 11 章）</li>
 <li><code>missing_chunks</code>（chunk_list）：缺失数据块列表（<code>u32</code> 条数 + <code>u32</code> 数组，<strong>必须</strong>升序）；
   语义为「<strong>发布方自己尚未收到的块</strong>」</li>

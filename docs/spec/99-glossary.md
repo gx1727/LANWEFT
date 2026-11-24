@@ -44,6 +44,8 @@
 | delivery_offer / delivery_response | 主动投递提议（Server 发布，携带全套会话参数）/ 投递应答（Client 发布，接受或拒绝）；见 09 章 |
 | window | 滑动窗口大小（**会话级在途上限**，Server 下发，Client 不得修改） |
 | connection_window | **连接级**在途上限；同一控制连接上所有会话的在途量之和的上限（见 11 章） |
+| window_update | 窗口推进**信用**（接收方发布，携带 `generation` / `received_count`）；按收到量事件驱动，替代固定周期的空列表裁决（见 06、11 章） |
+| received_count / credit_batch | 当前代号下已收到的不重复块数 / 信用下发批阈值（见 02、11 章） |
 | 复核轮 | 文件级失配后接收方要求发送方重新读取源文件并全量重发的恢复过程，**至多一次**（见 12 章） |
 | burst_size | 发送批次大小（发送端本地参数，初值 = `min(256, window)`） |
 | batch_gap_us | 批间隔（微秒，发送端本地参数，初值 2000） |
@@ -59,6 +61,7 @@
 | download_start / download_accept | C→S / S→C | 下载会话建立 |
 | udp_ready | S→C | UDP 可用性就绪通知 |
 | missing_chunks | 双向 | 缺失块列表报告（`mode=report`，**接收方发布**）/ 索要（`mode=request`，**发送方发布**） |
+| window_update | 双向（**接收方发布**） | 窗口推进信用：`generation` + `received_count`（见 06、11 章） |
 | progress_update | 双向 | 传输进度更新（单位：chunk 数；**接收方发布**） |
 | session_pause / session_abort | 双向 | 会话暂停 / 中止（`session_abort` 发布方受限，见 10 章） |
 | resume_session / resume_ack | C→S / S→C | 暂停后的会话恢复（恢复提示由**接收方**提供，见 13 章） |

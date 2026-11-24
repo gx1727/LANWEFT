@@ -21,7 +21,7 @@
   },
   "report_interval": {
     "chapter": "14",
-    "pattern": "Client \u6bcf (\\d+ms) \u53d1\u9001 `missing_chunks`"
+    "pattern": "(\\d+ms) \u53d1\u9001 `missing_chunks`"
   },
   "progress_interval": {
     "chapter": "14",

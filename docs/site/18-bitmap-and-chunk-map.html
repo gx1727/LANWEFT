@@ -123,6 +123,11 @@
 <li>位图<strong>必须</strong>支持按 <code>chunk_id</code> 升序枚举 —— 缺失列表的分批下发依赖升序
   （见本章「缺失列表的下发上限」）。</li>
 </ul>
+<h2>信用计数的可导出性（规范性）</h2>
+<p>位图<strong>必须</strong>能给出当前代号下<strong>已收到</strong>的不重复块数，供接收方填写
+<code>window_update.received_count</code>（见 06、11 章）。该计数<strong>必须</strong>等于
+<code>chunk_count − missing_count</code>，并在当前代号内<strong>单调不减</strong>；
+复核轮或摘要对帐清位并切换代号后，<strong>必须</strong>从新代号的基线重新计数。</p>
 <h2>刷盘策略（推荐性）</h2>
 <ul>
 <li>建议每 1s 或每 100 chunk 刷盘一次</li>

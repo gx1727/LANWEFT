@@ -2,7 +2,9 @@
     <strong>本章要点</strong>：流控有<strong>两级</strong>在途上限 —— 会话级 <code>window</code>
     （规范默认值 {{VAR:c11_window_default}}）与连接级 <code>connection_window</code>
     （规范默认值 {{VAR:c11_connwin_default}}），二者<strong>必须同时满足</strong>。
-    协议<strong>无逐包 ACK</strong>：发送方推进窗口的<strong>唯一</strong>依据是接收方周期性下发的
-    <code>missing_chunks</code>（<code>mode=report</code>），<strong>空列表裁决也必须下发</strong>，
-    否则窗口填满后协议死锁。AIMD 只是发送端本地策略，<strong>不属于</strong>互操作要求。
+    协议<strong>无逐包 ACK</strong>：窗口推进由接收方下发的<strong>信用</strong>驱动 ——
+    收到新块时按阈值 <code>credit_batch</code> 事件驱动地下发 <code>window_update</code>
+    （<code>received_count</code>），<code>missing_chunks</code> 的 <code>missing_count</code>
+    同样构成信用；缺失列表仅在<strong>确有缺失</strong>时按 50 ms 下发，空列表不再周期强制。
+    空闲时由发送方 1000 ms 索要机制保证活性。AIMD 只是发送端本地策略，<strong>不属于</strong>互操作要求。
   </div>

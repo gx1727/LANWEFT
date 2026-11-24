@@ -43,15 +43,17 @@ UDP_PROBE → UDP_PROBE_ACK → udp_ready
 
 Client 连续发送 UDP chunk；Server 乱序随机写盘
 
-### 缺失统计与重传
+### 缺失统计、信用与重传
 
-接收方每 50ms 下发 `missing_chunks`（`mode=report`）裁决；
-发送方按裁决重传缺失块（重传优先级高于新数据）
+窗口推进由**信用**驱动：接收方在收到新块时下发 `window_update`
+（`received_count`，事件驱动，阈值 `credit_batch`）；
+当本会话**存在缺失**时，接收方每 50ms 下发 `missing_chunks`（`mode=report`）裁决；
+发送方据此推进窗口并重传缺失块（重传优先级高于新数据）。
 
-**裁决循环是发送方推进的唯一依据（规范性）**：接收方**必须**周期性下发裁决，
-**即使缺失列表为空**（空 `chunk_list` = 「可以继续推进」）。
-发送方在 1000ms 内未收到任何裁决时，**必须**发布
-`missing_chunks`（`mode=request`）主动索要。
+**推进依据是信用（规范性）**：窗口推进由 `window_update.received_count`
+（或 `missing_chunks.missing_count`）驱动，二者在同一代号内**必须**一致；
+缺失列表为空时**不**要求周期下发。发送方在 **1000 ms** 内未收到任何信用时，
+**必须**发布 `missing_chunks`（`mode=request`）主动索要。
 
 > **立即裁决（推荐性）**：接收方**可以**在检测到空洞的即刻下发裁决，
 > 不必等待 50ms 周期（见 06 章「missing_chunks」）。

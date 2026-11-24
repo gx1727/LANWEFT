@@ -9,8 +9,8 @@
     <div class="cell bitnum">{{VAR:c12_poll_ms}} ms</div>
     <div class="cell bitnum">{{VAR:c12_session_to}} s</div>
 
-    <div class="cell half f-session">裁决周期 {{VAR:c12_arbitration_ms}} ms · 接收方至少每 {{VAR:c12_arbitration_ms}} ms 下发 <code>missing_chunks</code>（<code>mode=report</code>），<strong>空列表也必须下发</strong></div>
-    <div class="cell half f-len">索要周期 {{VAR:c12_poll_ms}} ms · 发送方每 {{VAR:c12_poll_ms}} ms 至少索要一次裁决（看门狗 / 保底轮询共用同一规则）</div>
+    <div class="cell half f-session">缺失裁决 {{VAR:c12_arbitration_ms}} ms · <strong>存在缺失时</strong>接收方至少每 {{VAR:c12_arbitration_ms}} ms 下发 <code>missing_chunks</code>（<code>mode=report</code>）；窗口推进由 <code>window_update</code> 信用按收到量事件驱动</div>
+    <div class="cell half f-len">索要周期 {{VAR:c12_poll_ms}} ms · 发送方每 {{VAR:c12_poll_ms}} ms 至少索要一次信用/裁决（看门狗 / 保底轮询共用同一规则）</div>
 
     <div class="cell wide f-crc">会话活动超时 {{VAR:c12_session_to}} s · 无任何控制面交互或数据面活动 → 置为 <code>ABORTED</code> 并清理（09 章）</div>
     <div class="cell wide f-muted">控制连接断开 = <strong>中断</strong>（可恢复），<strong>不得</strong>直接置为 ABORTED；位图与临时文件<strong>必须</strong>保留</div>
@@ -18,5 +18,6 @@
 </div>
 
 <div class="caption">
-  三个时间尺度用途不同：裁决周期驱动窗口推进，索要周期是兜底，会话活动超时才终止会话。
+  三个时间尺度用途不同：缺失裁决周期驱动补发，索要周期是兜底，会话活动超时才终止会话；
+  窗口推进由按收到量事件驱动的信用承担，不受固定墙钟周期封顶。
 </div>

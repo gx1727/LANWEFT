@@ -20,10 +20,11 @@
 
   <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
-    <strong>本章要点</strong>：可靠性由「<strong>裁决 + 完整性校验 + 重传 + 中断恢复 + 完成与提交</strong>」五层构成。
-    接收方<strong>必须</strong>至少每 50 ms 下发一次 <code>missing_chunks</code>
-    （<code>mode=report</code>），<strong>包括缺失列表为空的情况</strong>；
-    发送方每 1000 ms 至少索要一次裁决 —— 看门狗与保底轮询使用<strong>同一个</strong>索要规则。
+    <strong>本章要点</strong>：可靠性由「<strong>信用 + 裁决 + 完整性校验 + 重传 + 中断恢复 + 完成与提交</strong>」多层构成。
+    窗口推进由接收方 <code>window_update</code> 信用按收到量事件驱动；
+    当<strong>存在缺失</strong>时接收方<strong>必须</strong>至少每 50 ms 下发一次 <code>missing_chunks</code>
+    （<code>mode=report</code>）；发送方每 1000 ms 至少索要一次信用/裁决 ——
+    看门狗与保底轮询使用<strong>同一个</strong>索要规则。
     控制连接断开<strong>不得</strong>直接置为 <code>ABORTED</code>；文件级失配<strong>必须</strong>走恢复阶梯
     <strong>① 摘要对帐 → ② 复核轮 → ③ 中止</strong>，<strong>每一级至多一次</strong>。
   </div>
@@ -90,8 +91,8 @@
     <div class="cell bitnum">1000 ms</div>
     <div class="cell bitnum">60 s</div>
 
-    <div class="cell half f-session">裁决周期 50 ms · 接收方至少每 50 ms 下发 <code>missing_chunks</code>（<code>mode=report</code>），<strong>空列表也必须下发</strong></div>
-    <div class="cell half f-len">索要周期 1000 ms · 发送方每 1000 ms 至少索要一次裁决（看门狗 / 保底轮询共用同一规则）</div>
+    <div class="cell half f-session">缺失裁决 50 ms · <strong>存在缺失时</strong>接收方至少每 50 ms 下发 <code>missing_chunks</code>（<code>mode=report</code>）；窗口推进由 <code>window_update</code> 信用按收到量事件驱动</div>
+    <div class="cell half f-len">索要周期 1000 ms · 发送方每 1000 ms 至少索要一次信用/裁决（看门狗 / 保底轮询共用同一规则）</div>
 
     <div class="cell wide f-crc">会话活动超时 60 s · 无任何控制面交互或数据面活动 → 置为 <code>ABORTED</code> 并清理（09 章）</div>
     <div class="cell wide f-muted">控制连接断开 = <strong>中断</strong>（可恢复），<strong>不得</strong>直接置为 ABORTED；位图与临时文件<strong>必须</strong>保留</div>
@@ -99,7 +100,8 @@
 </div>
 
 <div class="caption">
-  三个时间尺度用途不同：裁决周期驱动窗口推进，索要周期是兜底，会话活动超时才终止会话。
+  三个时间尺度用途不同：缺失裁决周期驱动补发，索要周期是兜底，会话活动超时才终止会话；
+  窗口推进由按收到量事件驱动的信用承担，不受固定墙钟周期封顶。
 </div>
 
 
@@ -146,9 +148,13 @@
 <li>中断与恢复：不回滚已写入；恢复后加载位图并补传缺失</li>
 <li>完成与提交：bitmap 全真 → 校验 hash → 原子重命名 → 发布完成消息</li>
 </ul>
-<p><strong>裁决是唯一的推进依据（规范性）</strong>：接收方<strong>必须</strong>至少每 50ms 下发一次 <code>missing_chunks</code>
-（<code>mode=report</code>），<strong>包括缺失列表为空的情况</strong>；发送方据此推进窗口。
-详见 11 章「窗口推进判据」。</p>
+<p><strong>推进依据：信用 + 裁决（规范性）</strong>：窗口推进由<strong>信用</strong>驱动 —— 接收方在收到新块时
+按 11 章「窗口推进信用」下发 <code>window_update</code>，其 <code>received_count</code> 构成推进依据；
+<code>missing_chunks</code>（<code>mode=report</code>）的 <code>missing_count</code> 同样构成信用。
+当本会话<strong>存在未收到的块</strong>时，接收方<strong>必须</strong>至少每 50ms 下发一次
+<code>missing_chunks</code>（<code>mode=report</code>）以便补发。
+缺失列表为空时<strong>不承担</strong>周期性推进职责，活性由 11 章判据第 4 条的 <strong>1000 ms</strong>
+索要机制保证。详见 11 章。</p>
 <p><code>missing_chunks</code> 的 <code>mode</code> 为 <code>enum8</code>（<code>0</code> = report、<code>1</code> = request）；
 <code>chunks</code> 为 <code>chunk_list</code>（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>），
 「缺失列表为空」即 <code>chunk_list</code> 的条数为 <code>0</code>；<code>missing_count</code> 为位图中

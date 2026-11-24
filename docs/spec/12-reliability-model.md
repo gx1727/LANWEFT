@@ -8,9 +8,13 @@
 - 中断与恢复：不回滚已写入；恢复后加载位图并补传缺失
 - 完成与提交：bitmap 全真 → 校验 hash → 原子重命名 → 发布完成消息
 
-**裁决是唯一的推进依据（规范性）**：接收方**必须**至少每 50ms 下发一次 `missing_chunks`
-（`mode=report`），**包括缺失列表为空的情况**；发送方据此推进窗口。
-详见 11 章「窗口推进判据」。
+**推进依据：信用 + 裁决（规范性）**：窗口推进由**信用**驱动 —— 接收方在收到新块时
+按 11 章「窗口推进信用」下发 `window_update`，其 `received_count` 构成推进依据；
+`missing_chunks`（`mode=report`）的 `missing_count` 同样构成信用。
+当本会话**存在未收到的块**时，接收方**必须**至少每 50ms 下发一次
+`missing_chunks`（`mode=report`）以便补发。
+缺失列表为空时**不承担**周期性推进职责，活性由 11 章判据第 4 条的 **1000 ms**
+索要机制保证。详见 11 章。
 
 `missing_chunks` 的 `mode` 为 `enum8`（`0` = report、`1` = request）；
 `chunks` 为 `chunk_list`（`u32` 条数 + `u32` `chunk_id` 数组，**升序**），

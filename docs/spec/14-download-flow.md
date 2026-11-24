@@ -49,7 +49,8 @@ Server **必须**同时遵守连接级的 `connection_window`
 
 ### 4. 缺失重传
 
-Client 每 50ms 发送 `missing_chunks`（`mode=report`）；Server 按 11 章补发缺失块。
+Client 在收到新块时下发 `window_update`（`received_count`）推进窗口；
+当存在缺失时每 50ms 发送 `missing_chunks`（`mode=report`）；Server 按 11 章补发缺失块。
 收到 Server 的 `missing_chunks`（`mode=request`）时，Client **必须**在 50ms 内应答。
 
 `mode` 为 `enum8`（`0` = report、`1` = request）；
@@ -82,7 +83,8 @@ Client 校验 hash 失配时先执行 12 章的摘要对帐，再按该章条件
 | 完成通知 | upload_complete（**Server** 发布） | download_complete（**Client** 发布） |
 | 缺失报告 | Server→Client（Server 报告自己缺的块） | Client→Server（Client 报告自己缺的块） |
 | 缺失索要 | Client→Server（`mode=request`） | Server→Client（`mode=request`） |
-| 裁决节奏 | 接收方（Server）每 50ms 下发 | 接收方（Client）每 50ms 下发 |
+| 窗口信用 | Server→Client（**接收方** Server 发布 `window_update`） | Client→Server（**接收方** Client 发布 `window_update`） |
+| 裁决节奏 | 存在缺失时接收方（Server）每 50ms 下发 | 存在缺失时接收方（Client）每 50ms 下发 |
 | 进度上报 | Server→Client（**Server** 发布 `received`） | Client→Server（**Client** 发布 `received`） |
 | 恢复提示来源 | Server 自有位图（Client 不携带） | Client 自有位图（Client **必须**携带） |
 
