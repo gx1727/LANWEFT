@@ -138,7 +138,7 @@
 <tr>
 <td>missing_chunks</td>
 <td>双向</td>
-<td>缺失 chunk 列表报告 / 索要（<code>mode=report</code> / <code>mode=request</code>）</td>
+<td>两级缺失（symbol）报告 / 索要（<code>mode=report</code> / <code>mode=request</code>）</td>
 </tr>
 <tr>
 <td>download_complete</td>
@@ -170,12 +170,13 @@ socket 的生命周期见 07 章「接收方 socket 生命周期」。</p>
 Server <strong>必须</strong>同时遵守连接级的 <code>connection_window</code>
 （该连接上所有会话的在途量之和，见 11 章）。</p>
 <h3>4. 缺失重传</h3>
-<p>Client 在收到新块时下发 <code>window_update</code>（<code>received_count</code>）推进窗口；
+<p>Client 在收到新 symbol 时下发 <code>window_update</code>（<code>received_symbols</code>）推进窗口；
 当存在缺失时每 50ms 发送 <code>missing_chunks</code>（<code>mode=report</code>）；Server 按 11 章补发缺失块。
 收到 Server 的 <code>missing_chunks</code>（<code>mode=request</code>）时，Client <strong>必须</strong>在 50ms 内应答。</p>
 <p><code>mode</code> 为 <code>enum8</code>（<code>0</code> = report、<code>1</code> = request）；
-<code>chunks</code> 为 <code>chunk_list</code>（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>），
-恒为「发布方自己尚未收到的块」（见 06 章「missing_chunks」）。</p>
+<code>chunks</code> 为<strong>完全缺失块</strong>列表（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>），
+<code>partial[]</code> 为<strong>部分缺失块</strong>的 symbol 掩码（每条 <code>chunk_id</code> u32 + <code>missing_mask</code> u64）；
+两者合起来恒为「发布方自己尚未收到的 symbol」（见 06 章「missing_chunks」）。</p>
 <h3>5. 进度上报</h3>
 <p>Client 每 500ms 发布 <code>progress_update</code>（<code>received</code> / <code>total</code> 为 chunk 数，
 均为 <code>u64</code>），Server 据此估算链路丢包率并驱动 AIMD（见 11 章）。</p>

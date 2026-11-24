@@ -450,7 +450,7 @@
 <tbody>
 <tr>
 <td>位图出现缺失</td>
-<td><code>missing_chunks</code>（<code>mode=report</code>），携带缺失 chunk 列表</td>
+<td><code>missing_chunks</code>（<code>mode=report</code>），携带完全缺失块与部分缺失 symbol 掩码</td>
 </tr>
 <tr>
 <td>位图全真 → VERIFY</td>
@@ -475,8 +475,8 @@
 </tbody>
 </table></div>
 <p><code>missing_chunks</code> 的 <code>mode</code> 为 <code>enum8</code>（<code>0</code> = report、<code>1</code> = request）；
-  <code>chunks</code> 为 <code>chunk_list</code>（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>），
-  接收方在 <code>mode=report</code> 时给出的是<strong>自己尚未收到</strong>的块
+  <code>chunks</code> 为完全缺失块列表、<code>partial[]</code> 为部分缺失块的 <code>u64</code> symbol 掩码，
+  接收方在 <code>mode=report</code> 时给出的是<strong>自己尚未收到</strong>的 symbol
   （见 06 章「missing_chunks」）。</p>
 <ul>
 <li><strong>恢复阶梯（规范性）</strong>：接收侧在 VERIFY 阶段检测到文件级失配时，

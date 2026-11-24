@@ -97,7 +97,7 @@
     </div>
   </div>
 
-  <h3>missing_chunks（<code>0x07</code>）· 定长区 20 字节</h3>
+  <h3>missing_chunks（<code>0x07</code>）· 定长区 24 字节</h3>
   <div class="diagram">
     <div class="fields" style="--cols:8">
       <div class="cell bitnum">0</div>
@@ -112,9 +112,10 @@
       <div class="cell f-type">mode</div>
       <div class="cell f-flags">flags</div>
       <div class="cell span2 f-muted">reserved</div>
-      <div class="cell span4 f-len">missing_count (u32)</div>
-      <div class="cell span4 f-len">chunk_count (u32)</div>
-      <div class="cell wide f-body">变长区：chunks (chunk_list = u32 条数 + 条数 × u32 chunk_id，升序)</div>
+      <div class="cell span4 f-len">missing_count (u32) · symbol 总数</div>
+      <div class="cell span4 f-len">chunk_count (u32) · 完全缺失块数</div>
+      <div class="cell span4 f-len">partial_count (u32) · 部分缺失块数</div>
+      <div class="cell wide f-body">变长区：chunks (chunk_list) ‖ partial[]（每条 chunk_id u32 + missing_mask u64）</div>
     </div>
   </div>
 
@@ -150,7 +151,7 @@
         <tr><td class="num">0x04</td><td class="mono">upload_accept</td><td>Server→Client</td><td class="num">32 B</td><td class="mono">file_hash</td><td>接受上传，返回会话参数</td></tr>
         <tr><td class="num">0x05</td><td class="mono">download_start</td><td>Client→Server</td><td class="num">28 B</td><td class="mono">file_hash, file_name</td><td>发起下载</td></tr>
         <tr><td class="num">0x06</td><td class="mono">download_accept</td><td>Server→Client</td><td class="num">32 B</td><td class="mono">file_hash</td><td>接受下载，返回会话参数</td></tr>
-        <tr><td class="num">0x07</td><td class="mono">missing_chunks</td><td>双向</td><td class="num">20 B</td><td class="mono">chunks</td><td>缺失 chunk 报告 / 索要</td></tr>
+        <tr><td class="num">0x07</td><td class="mono">missing_chunks</td><td>双向</td><td class="num">24 B</td><td class="mono">chunks, partial[]</td><td>两级缺失（symbol）报告 / 索要</td></tr>
         <tr><td class="num">0x08</td><td class="mono">resume_session</td><td>Client→Server</td><td class="num">20 B</td><td class="mono">—</td><td>恢复会话（显式暂停后的恢复）</td></tr>
         <tr><td class="num">0x09</td><td class="mono">resume_ack</td><td>Server→Client</td><td class="num">28 B</td><td class="mono">code</td><td>恢复确认与权威状态</td></tr>
         <tr><td class="num">0x0A</td><td class="mono">progress_update</td><td>双向</td><td class="num">24 B</td><td class="mono">—</td><td>传输进度更新（发布方恒为接收方）</td></tr>
@@ -171,7 +172,7 @@
         <tr><td class="num">0x19</td><td class="mono">delivery_offer</td><td>Server→Client</td><td class="num">48 B</td><td class="mono">file_hash, file_name</td><td>主动投递提议（携带全套会话参数）</td></tr>
         <tr><td class="num">0x1A</td><td class="mono">delivery_response</td><td>Client→Server</td><td class="num">12 B</td><td class="mono">code, file_hash</td><td>投递应答（接受 / 拒绝）</td></tr>
         <tr><td class="num">0x1B</td><td class="mono">complete_ack</td><td>双向</td><td class="num">8 B</td><td class="mono">—</td><td>数据发送方确认已持久化接收方的完成回执</td></tr>
-        <tr><td class="num">0x1C</td><td class="mono">window_update</td><td>双向<br><span class="c-muted">接收方发布</span></td><td class="num">16 B</td><td class="mono">—</td><td>窗口推进信用（<code>generation</code> / <code>received_count</code>）</td></tr>
+        <tr><td class="num">0x1C</td><td class="mono">window_update</td><td>双向<br><span class="c-muted">接收方发布</span></td><td class="num">16 B</td><td class="mono">—</td><td>窗口推进信用（<code>generation</code> / <code>received_symbols</code> / <code>max_ok_payload</code>）</td></tr>
         <tr><td class="num c-muted">0x00, 0x1D–0xFF</td><td class="c-muted">—</td><td class="c-muted">—</td><td class="num c-muted">—</td><td class="c-muted">—</td><td class="c-muted">保留，接收方必须忽略</td></tr>
       </tbody>
     </table>
@@ -228,9 +229,10 @@
           <td class="mono">FILE_TOO_LARGE</td>
           <td><code>session_abort</code> · <code>reason</code></td>
           <td>
-            声明的文件大小超出该会话 <code>chunk_size</code> 可表示的上限时，Server <strong>必须</strong>以
+            声明的文件大小超出 <code>chunk_count</code> / <code>symbol_count</code> 的 u32 上限，
+            或块参数非法时，Server <strong>必须</strong>以
             <code>session_abort</code>（<code>reason</code> = <code>FILE_TOO_LARGE</code>）拒绝，
-            且<strong>不得</strong>创建会话（见 09 章「文件大小上限」）。
+            且<strong>不得</strong>创建会话（见 09 章「文件大小上限与块参数校验」）。
           </td>
         </tr>
         <tr>
@@ -938,7 +940,7 @@ RESYNC（仅诊断，不恢复协议状态机）
 <td><code>0x07</code></td>
 <td>missing_chunks</td>
 <td>双向</td>
-<td>缺失 chunk 列表报告 / 索要；<strong>报告方恒为接收方</strong></td>
+<td>两级缺失（完全缺失块 + 部分缺失 symbol 掩码）报告 / 索要；<strong>报告方恒为接收方</strong></td>
 </tr>
 <tr>
 <td><code>0x08</code></td>
@@ -1193,7 +1195,7 @@ RESYNC（仅诊断，不恢复协议状态机）
 <td>4</td>
 <td>missing_count</td>
 <td>u32</td>
-<td>恢复提示（<strong>仅接收方提供</strong>）；<code>flags.bit1 = 0</code> 时<strong>必须</strong>为 0</td>
+<td>恢复提示（<strong>仅接收方提供</strong>）：缺失 <strong>symbol 总数</strong>（精确值）；<code>flags.bit1 = 0</code> 时<strong>必须</strong>为 0</td>
 </tr>
 <tr>
 <td>16</td>
@@ -1372,35 +1374,35 @@ RESYNC（仅诊断，不恢复协议状态机）
 <td>4</td>
 <td>chunk_size</td>
 <td>u32</td>
-<td>会话参数</td>
+<td>逻辑块大小（<code>symbol_size</code> 的整数倍，<code>1 ≤ S ≤ 64</code>）</td>
 </tr>
 <tr>
 <td>20</td>
 <td>4</td>
 <td>window</td>
 <td>u32</td>
-<td>会话参数</td>
+<td>会话级在途 <strong>symbol</strong> 上限</td>
 </tr>
 <tr>
 <td>24</td>
 <td>4</td>
 <td>connection_window</td>
 <td>u32</td>
-<td><strong>连接级</strong>在途上限（见 11 章）</td>
+<td><strong>连接级</strong>在途 <strong>symbol</strong> 上限（见 11 章）</td>
 </tr>
 <tr>
 <td>28</td>
 <td>4</td>
 <td>next_chunk_id</td>
 <td>u32</td>
-<td><strong>续传顺序起点</strong>：<strong>接收方</strong>位图中第一个尚未收到的 <code>chunk_id</code></td>
+<td><strong>续传顺序起点</strong>：<strong>接收方</strong>位图中第一个尚未<strong>收全</strong>的 <code>chunk_id</code></td>
 </tr>
 <tr>
 <td>32</td>
 <td>4</td>
 <td>missing_count</td>
 <td>u32</td>
-<td><strong>接收方</strong>位图中尚未收到的 chunk 总数（精确值）</td>
+<td><strong>接收方</strong>位图中尚未收到的 <strong>symbol 总数</strong>（精确值）</td>
 </tr>
 <tr>
 <td>36</td>
@@ -1516,28 +1518,28 @@ RESYNC（仅诊断，不恢复协议状态机）
 <td>4</td>
 <td>chunk_count</td>
 <td>u32</td>
-<td>总 chunk 数量 = ceil(size / chunk_size)</td>
+<td>总块数 = <code>ceil(size / chunk_size)</code></td>
 </tr>
 <tr>
 <td>12</td>
 <td>4</td>
 <td>window</td>
 <td>u32</td>
-<td>滑动窗口大小（<strong>在途上限</strong>），由 Server 下发；<strong>Client 不得擅自修改</strong>；<strong>规范默认 8192</strong>（见 11 章）</td>
+<td>滑动窗口大小（<strong>在途 symbol 上限</strong>），由 Server 下发；<strong>Client 不得擅自修改</strong>；<strong>规范默认 8192</strong>（见 11 章）</td>
 </tr>
 <tr>
 <td>16</td>
 <td>4</td>
 <td>connection_window</td>
 <td>u32</td>
-<td><strong>连接级</strong>在途上限；由 Server 下发；<strong>Client 不得擅自修改</strong>；<strong>规范默认 16384</strong>（见 11 章）</td>
+<td><strong>连接级</strong>在途 <strong>symbol</strong> 上限；由 Server 下发；<strong>Client 不得擅自修改</strong>；<strong>规范默认 16384</strong>（见 11 章）</td>
 </tr>
 <tr>
 <td>20</td>
 <td>4</td>
 <td>chunk_size</td>
 <td>u32</td>
-<td>协商确定的 chunk 大小</td>
+<td>协商确定的<strong>逻辑块</strong>大小（<code>symbol_size</code> 的整数倍，<code>1 ≤ S ≤ 64</code>）</td>
 </tr>
 <tr>
 <td>24</td>
@@ -1605,7 +1607,7 @@ RESYNC（仅诊断，不恢复协议状态机）
 <td>4</td>
 <td>chunk_size</td>
 <td>u32</td>
-<td>期望的 chunk 大小（字节）</td>
+<td>期望的<strong>逻辑块</strong>大小（<code>symbol_size</code> 的整数倍，<code>1 ≤ S ≤ 64</code>）</td>
 </tr>
 <tr>
 <td>20</td>
@@ -1653,28 +1655,28 @@ RESYNC（仅诊断，不恢复协议状态机）
 <td>4</td>
 <td>chunk_count</td>
 <td>u32</td>
-<td>总 chunk 数量 = ceil(size / chunk_size)</td>
+<td>总块数 = <code>ceil(size / chunk_size)</code></td>
 </tr>
 <tr>
 <td>12</td>
 <td>4</td>
 <td>window</td>
 <td>u32</td>
-<td>滑动窗口大小（<strong>在途上限</strong>），由 Server 下发；<strong>Client 不得擅自修改</strong>；<strong>规范默认 8192</strong>（见 11 章）</td>
+<td>滑动窗口大小（<strong>在途 symbol 上限</strong>），由 Server 下发；<strong>Client 不得擅自修改</strong>；<strong>规范默认 8192</strong>（见 11 章）</td>
 </tr>
 <tr>
 <td>16</td>
 <td>4</td>
 <td>connection_window</td>
 <td>u32</td>
-<td><strong>连接级</strong>在途上限；由 Server 下发；<strong>Client 不得擅自修改</strong>；<strong>规范默认 16384</strong>（见 11 章）</td>
+<td><strong>连接级</strong>在途 <strong>symbol</strong> 上限；由 Server 下发；<strong>Client 不得擅自修改</strong>；<strong>规范默认 16384</strong>（见 11 章）</td>
 </tr>
 <tr>
 <td>20</td>
 <td>4</td>
 <td>chunk_size</td>
 <td>u32</td>
-<td>协商确定的 chunk 大小；Client <strong>必须</strong>用它核算 <code>chunk_count</code></td>
+<td>协商确定的<strong>逻辑块</strong>大小；Client <strong>必须</strong>用它核算 <code>chunk_count</code></td>
 </tr>
 <tr>
 <td>24</td>
@@ -1718,7 +1720,7 @@ RESYNC（仅诊断，不恢复协议状态机）
 缺端口则数据通路无法建立（Server 不得向未知端口发送 UDP，见 20 章），
 缺 <code>chunk_size</code> 则接收方无法核算 <code>chunk_count = ceil(size / chunk_size)</code>。</p>
 <h3>missing_chunks（<code>0x07</code>）</h3>
-<p><strong>定长区（20 字节）</strong></p>
+<p><strong>定长区（24 字节）</strong></p>
 <div class="card"><table>
 <thead>
 <tr>
@@ -1763,26 +1765,74 @@ RESYNC（仅诊断，不恢复协议状态机）
 <td>4</td>
 <td>missing_count</td>
 <td>u32</td>
-<td>位图中<strong>尚未收到</strong>的 chunk <strong>总数</strong>（精确值）；<code>flags.bit0 = 0</code> 时<strong>必须</strong>为 0</td>
+<td>位图中<strong>尚未收到</strong>的 <strong>symbol 总数</strong>（精确值）；<code>flags.bit0 = 0</code> 时<strong>必须</strong>为 0</td>
 </tr>
 <tr>
 <td>16</td>
 <td>4</td>
 <td>chunk_count</td>
 <td>u32</td>
-<td>本批 <code>chunks</code> 条目数</td>
+<td><code>chunks</code> 中的<strong>完全缺失块</strong>条目数</td>
+</tr>
+<tr>
+<td>20</td>
+<td>4</td>
+<td>partial_count</td>
+<td>u32</td>
+<td><code>partial[]</code> 中的<strong>部分缺失块</strong>条目数</td>
 </tr>
 </tbody>
 </table></div>
 <p><strong>变长区（顺序固定）</strong></p>
 <ol>
 <li><code>chunks</code>：<code>chunk_list</code>，条目<strong>必须</strong>按 <code>chunk_id</code> 升序；单条<strong>不得超过 4096 条</strong>（见 18 章）。</li>
+<li><code>partial[]</code>：<code>partial_count</code> 条记录，每条 <strong>12 字节</strong>：</li>
 </ol>
-<p><strong><code>chunks</code> 的语义（规范性）</strong>：<code>chunks</code> 恒为「<strong>发布方自己尚未收到的块</strong>」，
-而不是「我已有的块」。</p>
+<div class="card"><table>
+<thead>
+<tr>
+<th>偏移</th>
+<th>大小</th>
+<th>字段</th>
+<th>类型</th>
+<th>说明</th>
+</tr>
+</thead>
+<tbody>
+<tr>
+<td>0</td>
+<td>4</td>
+<td>chunk_id</td>
+<td>u32</td>
+<td>部分缺失的逻辑块</td>
+</tr>
+<tr>
+<td>4</td>
+<td>8</td>
+<td>missing_mask</td>
+<td>u64</td>
+<td>块内缺失 symbol 掩码：bit <code>i</code> = 1 表示第 <code>i</code> 个 symbol <strong>尚未收到</strong></td>
+</tr>
+</tbody>
+</table></div>
+<p><code>partial_count</code> <strong>不得</strong>超过 <strong>1024</strong>；<code>chunk_count</code> 与 <code>partial_count</code> 只统计
+<strong>本条报告</strong>的条目，两者之和<strong>不得</strong>超过该会话当前未完成的块数。
+缺失列表<strong>可以</strong>分批：未列入本条的块在后续报告中继续上报（见 18 章）。</p>
+<p><strong>两级缺失语义（规范性）</strong>：缺失以 <strong>symbol</strong> 为单位记账，以 <strong>chunk</strong> 为单位上报：</p>
 <ul>
-<li>上传方向 Server→Client：Server 报告「我还缺这些块」，Client 收到后<strong>重传</strong>这些块。</li>
-<li>下载方向 Client→Server：Client 报告「我还缺这些块」，Server 收到后<strong>重传</strong>这些块。</li>
+<li><code>chunks</code>：<strong>一个 symbol 都没收到</strong>的块（完全缺失）；这些块按 <code>chunk_count</code> 列出。</li>
+<li><code>partial[]</code>：<strong>收到了至少一个、但未收全</strong>的块；<code>missing_mask</code> 精确指出还缺哪些 symbol。</li>
+<li><code>missing_count</code>：二者合计的<strong>缺失 symbol 精确总数</strong> =
+  <code>Σ(完全缺失块的 S) + Σ(popcount(partial[].missing_mask))</code>。
+  发送方据此推算对端已收数与在途量（见 11 章），因此该值<strong>不得</strong>是估计值。</li>
+</ul>
+<p><strong><code>chunks</code> / <code>partial[]</code> 的语义（规范性）</strong>：二者恒为「<strong>发布方自己尚未收到的部分</strong>」，
+而不是「我已有的部分」。</p>
+<ul>
+<li><code>chunks</code>：<strong>一个 symbol 都没收到</strong>的完全缺失块。</li>
+<li><code>partial[]</code>：<strong>收到了一部分、尚未收全</strong>的块；<code>missing_mask</code> 指出还缺哪些 symbol。</li>
+<li>上传方向 Server→Client：Server 报告「我还缺这些 symbol」，Client 收到后<strong>重传</strong>。</li>
+<li>下载方向 Client→Server：Client 报告「我还缺这些 symbol」，Server 收到后<strong>重传</strong>。</li>
 </ul>
 <p>两种方向下语义一致：<strong>接收方报告缺失，发送方补发</strong>。</p>
 <div class="card"><table>
@@ -1790,21 +1840,21 @@ RESYNC（仅诊断，不恢复协议状态机）
 <tr>
 <th>mode</th>
 <th>语义</th>
-<th>chunks</th>
+<th>载荷</th>
 <th>收到方的处理</th>
 </tr>
 </thead>
 <tbody>
 <tr>
 <td><code>report</code></td>
-<td><strong>发布方</strong>报告自己尚未收到的 chunk</td>
-<td>非空或空列表</td>
-<td>按 <code>chunks</code> 重传这些块；条数为 0 <strong>且未置复核轮标志</strong>时表示「我这边没有缺失，可继续推进」；置复核轮标志时空列表表示「全部块」（见下）</td>
+<td><strong>发布方</strong>报告自己尚未收到的 symbol</td>
+<td><code>chunks</code> 与 <code>partial[]</code></td>
+<td>按两级列表重传；两者皆空 <strong>且未置复核轮标志</strong>时表示「我这边没有缺失，可继续推进」；置复核轮标志时表示「全部块」（见下）</td>
 </tr>
 <tr>
 <td><code>request</code></td>
 <td>发送方索要对端的缺失列表</td>
-<td><strong>必须</strong>为空列表</td>
+<td><code>chunks</code> 与 <code>partial[]</code> <strong>必须</strong>为空</td>
 <td>对端<strong>必须</strong>在 50ms 内以 <code>mode=report</code> 的 <code>missing_chunks</code> 应答</td>
 </tr>
 </tbody>
@@ -1815,7 +1865,7 @@ RESYNC（仅诊断，不恢复协议状态机）
 <tr>
 <th>direction</th>
 <th><code>mode=report</code> 的发布方</th>
-<th><code>chunks</code> 的含义</th>
+<th>载荷含义</th>
 <th>收到方的处理</th>
 </tr>
 </thead>
@@ -1823,22 +1873,23 @@ RESYNC（仅诊断，不恢复协议状态机）
 <tr>
 <td><code>upload</code></td>
 <td><strong>Server</strong>（接收方）</td>
-<td>Server 尚未收到的块</td>
-<td>Client 重传这些块</td>
+<td>Server 尚未收到的 symbol</td>
+<td>Client 重传这些 symbol</td>
 </tr>
 <tr>
 <td><code>download</code></td>
 <td><strong>Client</strong>（接收方）</td>
-<td>Client 尚未收到的块</td>
-<td>Server 重传这些块</td>
+<td>Client 尚未收到的 symbol</td>
+<td>Server 重传这些 symbol</td>
 </tr>
 </tbody>
 </table></div>
 <p>发送方（上传方向 Client / 下载方向 Server）<strong>不得</strong>发布 <code>mode=report</code>。
 发送方要了解对端的缺失情况，<strong>必须</strong>使用 <code>mode=request</code> 索要。</p>
 <p><strong><code>missing_count</code> 的取值（规范性）</strong>：<code>missing_count</code> <strong>必须</strong>是位图中<strong>尚未收到</strong>的
-chunk <strong>精确总数</strong>（<strong>不是</strong>本批 <code>chunks</code> 的长度）。发送方据此推算对端已收数与在途量
-（见 11 章），因此该值<strong>不得</strong>是估计值或近似值。<code>mode=request</code> 时<strong>必须</strong>为 0。</p>
+<strong>symbol 精确总数</strong>（<strong>不是</strong> <code>chunks</code> 的条数，也<strong>不是</strong> <code>partial_count</code>）。
+发送方据此推算对端已收数与在途量（见 11 章），因此该值<strong>不得</strong>是估计值或近似值。
+<code>mode=request</code> 时<strong>必须</strong>为 0。</p>
 <p><strong>复核轮标志 <code>flags.bit1</code>（规范性）</strong>：<code>flags.bit1</code> = 1 表示本条裁决是<strong>复核轮</strong>
 的启动裁决（见 12 章「复核轮」）。每条 report 都携带当前代号；
 bit1 置位时必须为代号 2。其后同轮普通裁决只带代号、不再置 bit1。
@@ -1846,19 +1897,20 @@ request 不声明代号（bit2–3 必须为 0）。恢复时先同步代号的�
 <ul>
 <li>该标志<strong>仅</strong>在 <code>mode = report</code> 时有意义；<code>mode = request</code> 时<strong>必须</strong>为 0。</li>
 <li>复核轮中，接收方<strong>必须</strong>已清空位图，<strong>必须</strong>要求发送方<strong>全量重发</strong>：</li>
-<li><code>chunks</code> <strong>必须</strong>为空列表（含义为「全部块」，而非「没有缺失」）；</li>
-<li><code>missing_count</code> <strong>必须</strong>等于该会话的 <code>chunk_count</code>（<code>flags.bit0</code> <strong>必须</strong>为 1）。</li>
+<li><code>chunks</code> 与 <code>partial[]</code> <strong>必须</strong>为空（含义为「全部块」，而非「没有缺失」）；</li>
+<li><code>missing_count</code> <strong>必须</strong>等于该会话的 <code>symbol_count</code>（<code>flags.bit0</code> <strong>必须</strong>为 1）。</li>
 <li>发送方收到该标志时<strong>必须</strong>按 12 章「复核轮」执行：
   重新打开源文件、从 <code>chunk_id</code> = 0 起全量重发，并重置顺序流与在途量基线。</li>
 <li>发送方<strong>必须</strong>对同一会话<strong>最多响应一次</strong>复核轮
   （接收方的发起次数上限见 12 章「上限」；该上限按会话计，<strong>不随连接重建而重置</strong>）。</li>
 </ul>
 <p><strong>定点重读标志 <code>flags.bit6</code>（规范性）</strong>：<code>flags.bit6</code> = 1 表示接收方在<strong>停滞升级</strong>时要求
-发送方对 <code>chunks</code> 中列出的块<strong>重新读取源文件</strong>后重发（见 12 章「停滞检测与升级」）。</p>
+发送方对 <code>chunks</code> 与 <code>partial[]</code> 涉及的 symbol <strong>重新读取源文件</strong>后重发
+（见 12 章「停滞检测与升级」）。</p>
 <ul>
 <li>该标志<strong>仅</strong>在 <code>mode = report</code> 时有意义；<code>mode = request</code> 时<strong>必须</strong>为 0。</li>
-<li>发送方收到置位本条时<strong>必须</strong>重新打开源文件并读取 <code>chunks</code> 对应区间，
-  <strong>不得</strong>复用页缓存或内存缓冲中的旧副本，然后重发这些块。</li>
+<li>发送方收到置位本条时<strong>必须</strong>重新打开源文件并读取对应 symbol 区间，
+  <strong>不得</strong>复用页缓存或内存缓冲中的旧副本，然后重发这些 symbol。</li>
 <li>每会话的定点重读<strong>至多一次</strong>（计数与位图一同持久化，见 12 章）。</li>
 <li>定点重读与摘要对帐、复核轮是<strong>相互独立</strong>的机制，各有各的次数上限。</li>
 </ul>
@@ -1871,7 +1923,7 @@ request 不声明代号（bit2–3 必须为 0）。恢复时先同步代号的�
 它并不缺任何块。<code>request</code> 是它向接收方（Server）索要缺失裁决的唯一途径，
 也是 11 章兜底索要机制与 12 章看门狗的载体。</p>
 </blockquote>
-<p><strong>空列表的两种含义（规范性）</strong>：<code>chunks</code> 为空列表时，其含义由<strong>复核轮标志</strong>区分：</p>
+<p><strong>空列表的两种含义（规范性）</strong>：<code>chunks</code> 与 <code>partial[]</code> 皆为空时，其含义由<strong>复核轮标志</strong>区分：</p>
 <div class="card"><table>
 <thead>
 <tr>
@@ -1883,7 +1935,7 @@ request 不声明代号（bit2–3 必须为 0）。恢复时先同步代号的�
 <tbody>
 <tr>
 <td><code>flags.bit1</code> = 0</td>
-<td>本会话<strong>没有缺失块</strong></td>
+<td>本会话<strong>没有缺失 symbol</strong></td>
 <td>继续推进新数据</td>
 </tr>
 <tr>
@@ -1926,13 +1978,20 @@ request 不声明代号（bit2–3 必须为 0）。恢复时先同步代号的�
 <tr>
 <td>9</td>
 <td>4</td>
-<td>received_count</td>
+<td>received_symbols</td>
 <td>u32</td>
-<td>本代内<strong>已收到</strong>的不重复块数；在当前代号内<strong>单调不减</strong></td>
+<td>本代内<strong>已收到</strong>的不重复 <strong>symbol 数</strong>；在当前代号内<strong>单调不减</strong></td>
 </tr>
 <tr>
 <td>13</td>
-<td>3</td>
+<td>2</td>
+<td>max_ok_payload</td>
+<td>u16</td>
+<td>最近成功收到的<strong>最大载荷长度</strong> <code>L</code>（字节）；<code>0</code> = 未知。供发送方选择 <code>K</code>（见 11 章）</td>
+</tr>
+<tr>
+<td>15</td>
+<td>1</td>
 <td>reserved</td>
 <td>—</td>
 <td>保留</td>
@@ -1940,13 +1999,15 @@ request 不声明代号（bit2–3 必须为 0）。恢复时先同步代号的�
 </tbody>
 </table></div>
 <p>无变长区。</p>
-<p><strong>语义（规范性）</strong>：<code>received_count</code> 是接收位图在<strong>当前代号</strong>下的精确计数，
-与 <code>missing_chunks.missing_count</code> 满足 <code>received_count + missing_count = chunk_count</code>。
-发送方以最近收到的 <code>received_count</code>（<code>window_update</code>）或由 <code>missing_count</code> 推出的
-<code>chunk_count − missing_count</code>（<code>missing_chunks</code>）更新已收数 <code>R</code>；两者表达同一事实，
+<p><strong>语义（规范性）</strong>：<code>received_symbols</code> 是接收位图在<strong>当前代号</strong>下的精确 symbol 计数，
+与 <code>missing_chunks.missing_count</code> 满足
+<code>received_symbols + missing_count = symbol_count</code>，其中
+<code>symbol_count = ceil(size / symbol_size)</code>。发送方以最近收到的 <code>received_symbols</code>
+（<code>window_update</code>）或由 <code>missing_count</code> 推出的 <code>symbol_count − missing_count</code>
+（<code>missing_chunks</code>）更新已收 symbol 数 <code>R</code>；两者表达同一事实，
 在任一代号内取值<strong>必须</strong>一致。</p>
 <p><strong>代号（规范性）</strong>：<code>generation</code> 与 DATA 的修复代号同域。接收方清零位图并切换代号后，
-<code>received_count</code> <strong>必须</strong>从该代号的新基线重新计数；发送方<strong>必须</strong>忽略所有
+<code>received_symbols</code> <strong>必须</strong>从该代号的新基线重新计数；发送方<strong>必须</strong>忽略所有
 <code>generation</code> 与其当前代号不符的 <code>window_update</code>，按 12 章「数据修复代号」处理。</p>
 <p><strong>为何需要独立消息（说明）</strong>：<code>missing_chunks</code> 同时承担「推进窗口」与「指认丢块」两职，
 导致缺失列表为空时也必须按裁决周期下发，且吞吐被固定的墙钟周期封顶。
@@ -1984,7 +2045,7 @@ request 不声明代号（bit2–3 必须为 0）。恢复时先同步代号的�
 <td>4</td>
 <td>missing_count</td>
 <td>u32</td>
-<td>恢复提示（<strong>仅接收方提供</strong>）；<code>flags.bit1 = 0</code> 时<strong>必须</strong>为 0</td>
+<td>恢复提示（<strong>仅接收方提供</strong>）：缺失 <strong>symbol 总数</strong>（精确值）；<code>flags.bit1 = 0</code> 时<strong>必须</strong>为 0</td>
 </tr>
 <tr>
 <td>16</td>
@@ -2068,14 +2129,14 @@ Client 是会话对端，Server 不主动发起恢复。</p>
 <td>4</td>
 <td>next_chunk_id</td>
 <td>u32</td>
-<td><strong>续传顺序起点</strong>：<strong>接收方</strong>位图中<strong>第一个尚未收到的 chunk_id</strong>；位图已全真时为 <code>chunk_count</code></td>
+<td><strong>续传顺序起点</strong>：<strong>接收方</strong>位图中<strong>第一个尚未收全的 chunk_id</strong>；位图已全真时为 <code>chunk_count</code></td>
 </tr>
 <tr>
 <td>16</td>
 <td>4</td>
 <td>missing_count</td>
 <td>u32</td>
-<td><strong>接收方</strong>位图中尚未收到的 chunk 总数（精确值）</td>
+<td><strong>接收方</strong>位图中尚未收到的 <strong>symbol 总数</strong>（精确值）</td>
 </tr>
 <tr>
 <td>20</td>
@@ -2096,7 +2157,7 @@ Client 是会话对端，Server 不主动发起恢复。</p>
 <td>4</td>
 <td>connection_window</td>
 <td>u32</td>
-<td><strong>连接级</strong>在途上限；由 Server 下发（见 11 章）</td>
+<td><strong>连接级</strong>在途 <strong>symbol</strong> 上限；由 Server 下发（见 11 章）</td>
 </tr>
 </tbody>
 </table></div>
@@ -2136,20 +2197,20 @@ Client 是会话对端，Server 不主动发起恢复。</p>
 <td>8</td>
 <td>received</td>
 <td>u64</td>
-<td>已接收的 chunk <strong>数量</strong>（不是字节数）</td>
+<td>已接收的 <strong>symbol 数量</strong>（不是字节数）</td>
 </tr>
 <tr>
 <td>16</td>
 <td>8</td>
 <td>total</td>
 <td>u64</td>
-<td>本会话的 <code>chunk_count</code></td>
+<td>本会话的 <code>symbol_count</code></td>
 </tr>
 </tbody>
 </table></div>
 <p><strong>发布方（规范性）</strong>：<code>progress_update</code> 由<strong>接收方</strong>发布 ——
 上传方向是 Server，下载方向是 Client。
-原因：<code>received</code> 表达的是<strong>本端已接收</strong>的 chunk 数，只有持有位图的接收方才知道该值；
+原因：<code>received</code> 表达的是<strong>本端已接收</strong>的 symbol 数，只有持有位图的接收方才知道该值；
 发送方需要它来估算链路丢包率并驱动 AIMD（见 11 章）。</p>
 <ul>
 <li>周期：接收方约每 <strong>500ms</strong> 发布一次。</li>
@@ -2932,28 +2993,28 @@ Client 可用 <code>file_hash</code> 单独定位，也可用 <code>asset_id</co
 <td>4</td>
 <td>chunk_count</td>
 <td>u32</td>
-<td>总 chunk 数量 = ceil(size / chunk_size)</td>
+<td>总块数 = <code>ceil(size / chunk_size)</code></td>
 </tr>
 <tr>
 <td>28</td>
 <td>4</td>
 <td>window</td>
 <td>u32</td>
-<td>滑动窗口大小（<strong>会话级在途上限</strong>），见 11 章</td>
+<td>滑动窗口大小（<strong>会话级在途 symbol 上限</strong>），见 11 章</td>
 </tr>
 <tr>
 <td>32</td>
 <td>4</td>
 <td>connection_window</td>
 <td>u32</td>
-<td><strong>连接级</strong>在途上限，见 11 章</td>
+<td><strong>连接级</strong>在途 <strong>symbol</strong> 上限，见 11 章</td>
 </tr>
 <tr>
 <td>36</td>
 <td>4</td>
 <td>chunk_size</td>
 <td>u32</td>
-<td>协商确定的 chunk 大小</td>
+<td>协商确定的<strong>逻辑块</strong>大小（<code>symbol_size</code> 的整数倍，<code>1 ≤ S ≤ 64</code>）</td>
 </tr>
 <tr>
 <td>40</td>
@@ -3105,7 +3166,8 @@ Client 可用 <code>file_hash</code> 单独定位，也可用 <code>asset_id</co
    （TCP 本身提供可靠有序投递，重复只可能来自实现层重发）</li>
 <li><strong>一条控制连接只承载一个 <code>device_id</code></strong>；连接与设备的绑定在握手时确定，<strong>不得</strong>在连接存续期间变更</li>
 <li><strong>完成消息由接收方发布</strong>：<code>upload_complete</code> 由 Server 发布，<code>download_complete</code> 由 Client 发布</li>
-<li><strong><code>missing_chunks.chunks</code> 恒为「发布方自己尚未收到的块」</strong>；请求对端缺失列表时用 <code>mode=request</code></li>
+<li><strong><code>missing_chunks</code> 的两级缺失</strong>：<code>chunks</code> 为<strong>完全缺失块</strong>、<code>partial[]</code> 为<strong>部分缺失块的 symbol 掩码</strong>，
+   <code>missing_count</code> 为<strong>缺失 symbol 精确总数</strong>；请求对端缺失列表时用 <code>mode=request</code></li>
 <li><strong>错误码必须上线路</strong>：19 章的错误码通过 <code>session_abort.reason</code> 与完成类消息的 <code>code</code> 字段承载</li>
 <li><strong>数据面端口必须出现在 accept 消息中</strong>：<code>upload_accept</code> 与 <code>download_accept</code> <strong>必须</strong>携带 <code>udp_port</code></li>
 <li><strong>控制消息必须幂等</strong>：实现可能因超时重发而重复投递控制消息，
@@ -3135,8 +3197,8 @@ Client 可用 <code>file_hash</code> 单独定位，也可用 <code>asset_id</co
     不满足<strong>必须</strong>关闭连接</li>
 <li><strong>失步必须断连</strong>：失步<strong>不得</strong>就地续解，<strong>必须</strong>按 13 章走断线重连恢复</li>
 <li><strong>窗口推进信用</strong>：<code>window_update</code> 恒由<strong>接收方</strong>发布，携带当前代号的
-    <code>received_count</code>；<code>missing_chunks</code> 的 <code>missing_count</code> 同样构成信用。
-    发送方以两者中<strong>最新</strong>的计数推进窗口，二者在同一代号内<strong>必须</strong>一致
+    <code>received_symbols</code> 与 <code>max_ok_payload</code>；<code>missing_chunks</code> 的 <code>missing_count</code>
+    同样构成信用。发送方以两者中<strong>最新</strong>的计数推进窗口，二者在同一代号内<strong>必须</strong>一致
     （见 11 章「窗口推进信用」）</li>
 </ol>
 <h2>与状态机关系</h2>

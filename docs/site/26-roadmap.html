@@ -335,8 +335,9 @@
 <ul>
 <li><strong>结论</strong>：<strong>已实施</strong>。TCP 数据面帧格式见 07 章「TCP 数据面线路格式」。</li>
 <li><strong>落地形态</strong>：<code>u32 magic</code> + <code>u32 frame_len</code> + <code>u32 header_crc32</code> +
-  <code>u64 session_id</code> + <code>u32 chunk_id</code> + <code>u16 payload_len</code> + <code>u16 flags</code> + payload；
-  全部小端序；帧头 <strong>28 字节</strong>；<strong>不携带载荷级 crc32</strong>（TCP 已提供字节流校验），
+  <code>u64 session_id</code> + <code>u32 chunk_id</code> + <code>u16 chunk_symbol</code> + <code>u16 flags</code> + payload；
+  全部小端序；帧头 <strong>28 字节</strong>；载荷长度由 <code>frame_len</code> 反推；
+  <strong>不携带载荷级 crc32</strong>（TCP 已提供字节流校验），
   但帧头携带 <code>header_crc32</code> 用于帧同步与失步检测。</li>
 <li><strong>绑定帧</strong>：<code>FLAG_BIND</code> 帧承载 <code>session_id</code>，用于把 TCP 数据面连接绑定到
   具体会话并完成权限校验（见 07 章）。</li>
@@ -442,6 +443,11 @@
 </tr>
 </thead>
 <tbody>
+<tr>
+<td>—</td>
+<td><strong>两级单位：chunk 与 symbol 解耦</strong>：①<code>symbol_size</code> = <strong>1200 字节</strong>（常量，线缆/修复粒度），<code>chunk_size</code> 为其整数倍、<code>1 ≤ S ≤ 64</code>、规范默认 <strong>64800</strong>（S=54）；②UDP 数据包与 TCP 数据面帧把 <code>payload_len</code> 改为 <code>chunk_symbol</code>（块内 symbol 起始索引，头长不变 16/28），载荷长度 <code>L</code> 由传输层长度反推（UDP：总长−20；TCP：<code>frame_len−28</code>），<code>K = ceil(L/1200)</code>；③两级位图：<strong>块完成位图</strong>（1 bit/chunk）+ 未完成块的 <strong>u64 symbol 掩码</strong>，<code>missing_chunks</code> 改为「完全缺失块列表 + <code>partial[]</code> 掩码」，<code>missing_count</code> 改为<strong>缺失 symbol 精确总数</strong>；④流控/信用/进度/停滞全部改为按 <strong>symbol</strong> 计（<code>window</code>/<code>connection_window</code>/<code>window_update.received_symbols</code>）；⑤<code>window_update</code> 增加 <code>max_ok_payload</code>（u16）承载路径反馈，配合 11 章「变长数据报与 K」：<code>Kmax = floor((min(路径MTU,65507)−20)/1200)</code>，标准 1500 MTU 下 <code>Kmax=1</code>；⑥文件大小上限改由 <code>chunk_count</code> 与 <code>symbol_count</code> 共同约束（仍 ≤ 4 TiB）。<strong>版本号不变</strong>（变更以本记录为准）</td>
+<td>02、06、07、08、09、10、11、12、13、17、18、19、26、99、site</td>
+</tr>
 <tr>
 <td>—</td>
 <td><strong>停滞检测、发送侧终止权与校验阶段活性</strong>：①新增终止类错误码 <code>TRANSFER_STALLED</code>（接收方在 <code>stall_timeout</code> = 10 秒内无任何缺失块到达时终止）与 <code>SOURCE_READ_ERROR</code>（发送方源文件读取失败）；②<code>missing_chunks.flags.bit6</code> = <strong>定点重读</strong> —— 首次停滞置位要求发送方重读源文件对应块后重发，每会话至多一次且随位图持久化，再次停滞以 <code>TRANSFER_STALLED</code> 终止（12 章新增「停滞检测与升级」）；③非 Server <strong>发送侧</strong>可因源文件读取失败以 <code>SOURCE_READ_ERROR</code> / <code>FILESYSTEM_ERROR</code> 终止（10 章「终止权」）；④<code>VERIFY</code> / <code>COMMIT</code> 期间接收方<strong>必须</strong>应答 <code>mode=request</code>（空列表报告）且不得阻塞控制循环，避免大文件哈希被 30/60 秒超时误伤；<code>reconcile_timeout</code> 下限 30 秒（按文件规模放宽），超时转入复核轮（12 章新增「校验阶段的活性」）。<strong>版本号不变</strong>（变更以本记录为准）</td>

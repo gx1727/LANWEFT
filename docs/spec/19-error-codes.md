@@ -72,8 +72,9 @@
 - `CLIENT_ID_INVALID`：client_id 非法
 - `LOGIN_FAILED`：登录认证失败
 - `PROTO_VERSION_UNSUPPORTED`：协议版本不受支持（见 06 章 `login` / `login_ack`）
-- `FILE_TOO_LARGE`：声明的文件大小超出该会话 `chunk_size` 可表示的上限
-  （见 09 章「文件大小上限」）；Server **必须**以 `session_abort`
+- `FILE_TOO_LARGE`：声明的文件大小超出 `chunk_count` / `symbol_count` 的 u32 上限，
+  或 `chunk_size` 不是 `symbol_size` 的整数倍 / `S` 超出 `[1, 64]`
+  （见 09 章「文件大小上限与块参数校验」）；Server **必须**以 `session_abort`
   （`reason` = `FILE_TOO_LARGE`）拒绝该请求，且**不得**创建会话
 
 ### TIMEOUT

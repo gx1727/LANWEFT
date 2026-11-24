@@ -229,7 +229,8 @@
   二进制表示：定长区 <code>resume_count</code>（<code>u16</code>）给出条目数（无待恢复会话时为 <code>0</code>），
   变长区按顺序给出 <code>resume_count</code> 条 <strong>20 字节定长</strong>记录，
   每条含 <code>session_id</code>（<code>u64</code>）/ <code>next_chunk_id</code>（<code>u32</code>）/ <code>missing_count</code>（<code>u32</code>）/
-  <code>flags</code>（<code>u8</code>：bit0 = <code>next_chunk_id</code> 有效，bit1 = <code>missing_count</code> 有效）。</li>
+  <code>flags</code>（<code>u8</code>：bit0 = <code>next_chunk_id</code> 有效，bit1 = <code>missing_count</code> 有效）；
+  <code>next_chunk_id</code> 为<strong>块级</strong>续传起点，<code>missing_count</code> 为<strong>缺失 symbol 总数</strong>。</li>
 <li>续传起点来自<strong>接收方</strong>的位图，因此<strong>只有接收方才可能提供</strong>它：</li>
 <li><strong>上传方向</strong>（接收方 = Server）：Client <strong>必须</strong>不提供恢复提示
     （记录 <code>flags</code> 的 bit0 / bit1 = 0，相应字段<strong>必须</strong>取 <code>0</code>），
@@ -358,11 +359,11 @@
 </tr>
 <tr>
 <td><code>next_chunk_id</code></td>
-<td><strong>续传顺序起点</strong>：<strong>接收方</strong>位图中<strong>第一个尚未收到的 chunk_id</strong>；位图已全真时为 <code>chunk_count</code>（<code>u32</code>）</td>
+<td><strong>续传顺序起点</strong>：<strong>接收方</strong>位图中<strong>第一个尚未收全的 chunk_id</strong>；位图已全真时为 <code>chunk_count</code>（<code>u32</code>）</td>
 </tr>
 <tr>
 <td><code>missing_count</code></td>
-<td><strong>接收方</strong>位图中尚未收到的 chunk 总数（精确值，<code>u32</code>）</td>
+<td><strong>接收方</strong>位图中尚未收到的 <strong>symbol 总数</strong>（精确值，<code>u32</code>）</td>
 </tr>
 <tr>
 <td><code>udp_port</code></td>
@@ -370,7 +371,7 @@
 </tr>
 </tbody>
 </table></div>
-<p><strong><code>next_chunk_id</code> 的定义（规范性）</strong>：<strong>接收方</strong>位图中<strong>第一个尚未收到</strong>的 <code>chunk_id</code>。</p>
+<p><strong><code>next_chunk_id</code> 的定义（规范性）</strong>：<strong>接收方</strong>位图中<strong>第一个尚未收全</strong>的 <code>chunk_id</code>。</p>
 <p>本协议显式支持乱序写与随机访问（见 01、17 章），位图可能出现<strong>空洞</strong> ——
 存在低于最大已收 id 的缺失块。若以 <code>max_received_id + 1</code> 作为续传起点，
 空洞块将<strong>永远不会被重传</strong>，文件级 Blake3 校验必然失配并导致会话中止。
@@ -379,8 +380,8 @@
 <p><code>next_chunk_id</code> 只决定<strong>顺序发送流</strong>从哪里继续；位图中低于当前发送位置的空洞
 由周期下发的 <code>missing_chunks</code>（<code>mode=report</code>）负责指认：</p>
 <ul>
-<li>接收方<strong>必须</strong>在裁决中报告<strong>全部</strong>未收到的 chunk_id，而不只是从
-  <code>next_chunk_id</code> 开始的连续区间。</li>
+<li>接收方<strong>必须</strong>在裁决中报告<strong>全部</strong>未收到的 symbol（完全缺失块 + 部分缺失掩码），
+  而不只是从 <code>next_chunk_id</code> 开始的连续区间。</li>
 <li>发送方<strong>必须</strong>优先重传裁决报告的缺失块，优先级高于新数据。</li>
 <li>包级校验失败（<code>crc32</code>）的块同样计入「未收到」，并按本节的<strong>定点补发</strong>处理
   （见 12 章「缺失块的定点补发」）。</li>
@@ -394,7 +395,7 @@
   <strong>不得</strong>因连接重建而获得第二次复核轮机会。</li>
 <li>暂停恢复或重连后，可传输会话的接收方须先发一条普通 report（bit1=0），携带
   已持久化的修复代号及精确 <code>missing_count</code>；发送方收到前不得发 DATA。
-  发送方按该报告重建 <code>S = R = chunk_count − missing_count</code>，从恢复起点续传。
+  发送方按该报告重建 <code>Sent = R = symbol_count − missing_count</code>，从恢复起点续传。
   若代号为 2，须重新打开源文件，但不得重新清位或从零启动第二次全量复核。
   即使启动裁决在断线前未送达，首次恢复报告也足以确定当前代号。</li>
 </ul>

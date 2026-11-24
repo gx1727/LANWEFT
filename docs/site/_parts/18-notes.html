@@ -2,8 +2,8 @@
   <strong>幂等性</strong>：重复标记同一 <code>chunk_id</code> <strong>必须</strong>是幂等的
   （第二次标记不改变状态）；因此重放保护在 <code>session_id</code> 校验与越界拒收之外，
   由位图幂等性兜底（重复 chunk 静默丢弃，见 20 章）。<br>
-  <strong>复核轮</strong>：复核轮启动时接收方<strong>必须</strong>把位图<strong>全部</strong>重置为「未收到」，
-  并<strong>必须</strong>重新计数（见 12 章）。
+  <strong>复核轮</strong>：复核轮启动时接收方<strong>必须</strong>把两级位图<strong>全部</strong>重置
+  （块完成位清零、丢弃所有 symbol 掩码），并<strong>必须</strong>重新计数（见 12 章）。
 </div>
 
 <div class="note warn">

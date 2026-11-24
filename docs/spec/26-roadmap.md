@@ -127,8 +127,9 @@
 
 - **结论**：**已实施**。TCP 数据面帧格式见 07 章「TCP 数据面线路格式」。
 - **落地形态**：`u32 magic` + `u32 frame_len` + `u32 header_crc32` +
-  `u64 session_id` + `u32 chunk_id` + `u16 payload_len` + `u16 flags` + payload；
-  全部小端序；帧头 **28 字节**；**不携带载荷级 crc32**（TCP 已提供字节流校验），
+  `u64 session_id` + `u32 chunk_id` + `u16 chunk_symbol` + `u16 flags` + payload；
+  全部小端序；帧头 **28 字节**；载荷长度由 `frame_len` 反推；
+  **不携带载荷级 crc32**（TCP 已提供字节流校验），
   但帧头携带 `header_crc32` 用于帧同步与失步检测。
 - **绑定帧**：`FLAG_BIND` 帧承载 `session_id`，用于把 TCP 数据面连接绑定到
   具体会话并完成权限校验（见 07 章）。
@@ -227,6 +228,7 @@
 
 | 日期 | 修订内容 | 章节 |
 |------|---------|------|
+| — | **两级单位：chunk 与 symbol 解耦**：①`symbol_size` = **1200 字节**（常量，线缆/修复粒度），`chunk_size` 为其整数倍、`1 ≤ S ≤ 64`、规范默认 **64800**（S=54）；②UDP 数据包与 TCP 数据面帧把 `payload_len` 改为 `chunk_symbol`（块内 symbol 起始索引，头长不变 16/28），载荷长度 `L` 由传输层长度反推（UDP：总长−20；TCP：`frame_len−28`），`K = ceil(L/1200)`；③两级位图：**块完成位图**（1 bit/chunk）+ 未完成块的 **u64 symbol 掩码**，`missing_chunks` 改为「完全缺失块列表 + `partial[]` 掩码」，`missing_count` 改为**缺失 symbol 精确总数**；④流控/信用/进度/停滞全部改为按 **symbol** 计（`window`/`connection_window`/`window_update.received_symbols`）；⑤`window_update` 增加 `max_ok_payload`（u16）承载路径反馈，配合 11 章「变长数据报与 K」：`Kmax = floor((min(路径MTU,65507)−20)/1200)`，标准 1500 MTU 下 `Kmax=1`；⑥文件大小上限改由 `chunk_count` 与 `symbol_count` 共同约束（仍 ≤ 4 TiB）。**版本号不变**（变更以本记录为准） | 02、06、07、08、09、10、11、12、13、17、18、19、26、99、site |
 | — | **停滞检测、发送侧终止权与校验阶段活性**：①新增终止类错误码 `TRANSFER_STALLED`（接收方在 `stall_timeout` = 10 秒内无任何缺失块到达时终止）与 `SOURCE_READ_ERROR`（发送方源文件读取失败）；②`missing_chunks.flags.bit6` = **定点重读** —— 首次停滞置位要求发送方重读源文件对应块后重发，每会话至多一次且随位图持久化，再次停滞以 `TRANSFER_STALLED` 终止（12 章新增「停滞检测与升级」）；③非 Server **发送侧**可因源文件读取失败以 `SOURCE_READ_ERROR` / `FILESYSTEM_ERROR` 终止（10 章「终止权」）；④`VERIFY` / `COMMIT` 期间接收方**必须**应答 `mode=request`（空列表报告）且不得阻塞控制循环，避免大文件哈希被 30/60 秒超时误伤；`reconcile_timeout` 下限 30 秒（按文件规模放宽），超时转入复核轮（12 章新增「校验阶段的活性」）。**版本号不变**（变更以本记录为准） | 02、06、09、10、12、19、26、99、site |
 | — | **窗口推进与缺失裁决解耦（事件驱动信用）**：新增控制面消息 `window_update`（`0x1C`，恒由**接收方**发布，定长 16 字节：`session_id` / `generation` / `received_count` / reserved）。窗口推进改由**信用**驱动 —— 接收方在新收到块达到 `credit_batch`（规范取值 `clamp(window/8,16,1024)`）或（活跃期）每 **50 ms** 或修复代号变化时下发 `window_update`；`missing_chunks.missing_count` 同样构成一次信用。空列表裁决不再承担周期推进职责，活性由既有 **1000 ms** 索要机制保证；`missing_chunks` 仅在**存在缺失**时按 50 ms 下发。吞吐上界改为 `min(D, window/(d + K/D))`，固定墙钟周期不再进入除式。新增规范常量 `credit_batch` 与字段 `received_count` / `generation`（02 章）。**版本号不变**（设计阶段，版本号暂不承载兼容承诺；变更以本记录为准） | 00、02、06、11、12、14、18、24、26、99、site |
 | 2026-11-20 | **站点改为分层渲染（site 不再手工转抄源文）**：新增 `scripts/render-site.py`，

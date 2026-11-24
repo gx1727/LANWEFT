@@ -37,9 +37,10 @@
           <td class="mono">FILE_TOO_LARGE</td>
           <td><code>session_abort</code> · <code>reason</code></td>
           <td>
-            声明的文件大小超出该会话 <code>chunk_size</code> 可表示的上限时，Server <strong>必须</strong>以
+            声明的文件大小超出 <code>chunk_count</code> / <code>symbol_count</code> 的 u32 上限，
+            或块参数非法时，Server <strong>必须</strong>以
             <code>session_abort</code>（<code>reason</code> = <code>FILE_TOO_LARGE</code>）拒绝，
-            且<strong>不得</strong>创建会话（见 09 章「文件大小上限」）。
+            且<strong>不得</strong>创建会话（见 09 章「文件大小上限与块参数校验」）。
           </td>
         </tr>
         <tr>

@@ -64,8 +64,9 @@
         <tr>
           <td class="mono">FILE_TOO_LARGE</td>
           <td>
-            声明的文件大小超出该会话 <code>chunk_size</code> 可表示的上限
-            （即 <code>ceil(size / chunk_size) ≤ 2³² − 1</code> 不成立）。
+            声明的文件大小超出 <code>chunk_count</code> / <code>symbol_count</code> 的 u32 上限，
+            或 <code>chunk_size</code> 不是 1200 的整数倍 / <code>S</code> 超出 <code>[1, 64]</code>
+            （见 09 章「文件大小上限与块参数校验」）。
             Server <strong>必须</strong>以 <code>session_abort</code>（<code>reason</code> = <code>FILE_TOO_LARGE</code>）拒绝该请求，
             且<strong>不得</strong>创建会话。
           </td>
@@ -156,24 +157,34 @@
 <td>会话状态（见 10 章）</td>
 </tr>
 <tr>
+<td>symbol_size</td>
+<td>常量</td>
+<td>线缆/修复单位，<strong>1200 字节</strong>（见 08 章）</td>
+</tr>
+<tr>
 <td>chunk_size</td>
 <td>u32</td>
-<td>Chunk 大小（字节）</td>
+<td><strong>逻辑块</strong>大小（字节），<code>symbol_size</code> 的整数倍，<code>1 ≤ S ≤ 64</code></td>
 </tr>
 <tr>
 <td>window</td>
 <td>u32</td>
-<td>滑动窗口大小（<strong>会话级在途上限</strong>，见 11 章）</td>
+<td>滑动窗口大小（<strong>会话级在途 symbol 上限</strong>，见 11 章）</td>
 </tr>
 <tr>
 <td>connection_window</td>
 <td>u32</td>
-<td><strong>连接级</strong>在途上限（见 11 章）</td>
+<td><strong>连接级</strong>在途 <strong>symbol</strong> 上限（见 11 章）</td>
 </tr>
 <tr>
 <td>chunk_count</td>
 <td>u32</td>
-<td>总 chunk 数量 = ceil(size / chunk_size)</td>
+<td>总块数 = <code>ceil(size / chunk_size)</code></td>
+</tr>
+<tr>
+<td>symbol_count</td>
+<td>u32</td>
+<td>总 symbol 数 = <code>ceil(size / symbol_size)</code></td>
 </tr>
 <tr>
 <td>udp_port</td>
@@ -219,30 +230,30 @@
 </tr>
 </tbody>
 </table></div>
-<h2>文件大小上限（规范性）</h2>
-<p><code>chunk_count</code> 与 <code>chunk_id</code> 均为 <strong>u32</strong>（见 08 章），
-因此单个文件的大小<strong>必须</strong>满足：</p>
-<pre class="codeblock"><code>chunk_count = ceil(size / chunk_size) ≤ 2³² − 1
-size ≤ chunk_size × (2³² − 1)
+<h2>文件大小上限与块参数校验（规范性）</h2>
+<p><code>chunk_count</code>、<code>symbol_count</code> 与 <code>chunk_id</code> 均为 <strong>u32</strong>（见 08 章），
+因此单个文件的大小<strong>必须</strong>同时满足：</p>
+<pre class="codeblock"><code>chunk_count  = ceil(size / chunk_size)  ≤ 2³² − 1
+symbol_count = ceil(size / symbol_size) ≤ 2³² − 1     // symbol_size = 1200
+size ≤ 1200 × (2³² − 1) ≈ 5.15 TB
 </code></pre>
 <ul>
-<li><code>chunk_size</code> 的<strong>建议</strong>取值范围为 1024–1350、<strong>上限 1400</strong>（见 08 章），
-  因此文件大小上限随协商结果落在 <strong>4 TiB − 1024 字节</strong>（<code>chunk_size</code> = 1024）
-  与 <strong>约 5.6 TB</strong>（<code>chunk_size</code> = 1400）之间。</li>
+<li><code>chunk_size</code> <strong>必须</strong>是 <code>symbol_size</code>（1200）的整数倍，且
+  <code>S = chunk_size / symbol_size</code> <strong>必须</strong>满足 <code>1 ≤ S ≤ 64</code>；规范默认 <strong>64800</strong>（S = 54）。</li>
 <li><strong>Client 必须</strong>在 <code>upload_start</code> / <code>download_start</code> 中声明的 <code>size</code>
-  <strong>不超过 4 TiB − 1024 字节</strong>（以最小 <code>chunk_size</code> 计算的<strong>全局</strong>上限，
-  与本次协商结果无关）。</li>
-<li><strong>Server 必须</strong>在接受会话前校验 <code>ceil(size / chunk_size) ≤ 2³² − 1</code>；
+  <strong>不超过 4 TiB − 1024 字节</strong>（保守的全局上限，与本次协商结果无关）。</li>
+<li><strong>Server 必须</strong>在接受会话前校验：<code>chunk_size % 1200 == 0</code>、<code>1 ≤ S ≤ 64</code>、
+  <code>ceil(size / chunk_size) ≤ 2³² − 1</code>、<code>ceil(size / 1200) ≤ 2³² − 1</code>；
   不满足时<strong>必须</strong>以 <code>session_abort</code>（<code>reason</code> = <code>FILE_TOO_LARGE</code>）拒绝该请求，
   且<strong>不得</strong>创建会话（见 19 章）。</li>
 <li><strong>Server 必须</strong>在 <code>upload_accept</code> / <code>download_accept</code> 中下发的 <code>chunk_count</code>
   与 <code>size</code> / <code>chunk_size</code> <strong>自洽</strong>；Client <strong>必须</strong>核对
-  <code>chunk_count == ceil(size / chunk_size)</code>，不一致即按 <code>SERIALIZATION_ERROR</code>
-  视为协议错误。</li>
+  <code>chunk_count == ceil(size / chunk_size)</code> 与 <code>chunk_size % 1200 == 0</code>，不一致即按
+  <code>SERIALIZATION_ERROR</code> 视为协议错误。</li>
 </ul>
 <blockquote>
-<p><strong>为何必须显式声明上限（说明）</strong>：<code>size</code> 以 u64 承载而 <code>chunk_count</code> / <code>chunk_id</code>
-以 u32 承载，若不校验则会出现「声明的大小可表示、块号却溢出」的静默不一致。
+<p><strong>为何必须显式声明上限（说明）</strong>：<code>size</code> 以 u64 承载而 <code>chunk_count</code> / <code>symbol_count</code>
+以 u32 承载，若不校验则会出现「声明的大小可表示、编号却溢出」的静默不一致。
 上限必须由两端<strong>共同</strong>校验，而非仅由一端假定。</p>
 </blockquote>
 <h2>与控制连接的关系（规范性）</h2>
@@ -463,8 +474,8 @@ size ≤ chunk_size × (2³² − 1)
 <p>接收方<strong>必须</strong>持久化以下状态，使其在进程重启或设备重启后仍可恢复：</p>
 <ul>
 <li><strong>临时文件</strong>（含已写入的数据）</li>
-<li><strong>位图</strong>（各 <code>chunk_id</code> 的接收状态）</li>
-<li><strong>会话元数据</strong>（<code>session_id</code> / <code>direction</code> / <code>chunk_size</code> / <code>chunk_count</code> / 临时文件路径）</li>
+<li><strong>两级位图</strong>：块完成位图 + 未完成块的 <code>u64</code> symbol 掩码（见 18 章）</li>
+<li><strong>会话元数据</strong>（<code>session_id</code> / <code>direction</code> / <code>chunk_size</code> / <code>chunk_count</code> / <code>symbol_count</code> / 临时文件路径）</li>
 <li><strong>复核轮计数</strong>（见 12 章）：已执行的复核轮次数</li>
 <li><strong>对帐计数</strong>（见 12 章）：已执行的摘要对帐次数</li>
 <li>

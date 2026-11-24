@@ -20,8 +20,8 @@
 
   <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
-    <strong>本章要点</strong>：内存占用<strong>与文件大小解耦</strong>，只与 <code>chunk_size</code> 成正比；
-    接收方按 <code>chunk_id × chunk_size</code> 的偏移<strong>乱序写盘</strong>，重复写入<strong>必须</strong>幂等。
+    <strong>本章要点</strong>：数据面缓冲占用<strong>与文件大小解耦</strong>，只与 <code>symbol_size</code> / 批次大小成正比；
+    接收方按 <code>chunk_id × chunk_size + chunk_symbol × symbol_size</code> 的偏移<strong>乱序写盘</strong>，重复写入<strong>必须</strong>幂等。
     写入顺序是<strong>规范性</strong>的：<strong>先校验 <code>crc32</code>，再写盘，最后标记位图</strong>；
     校验失败的块<strong>必须</strong>在写盘前丢弃。
     提交时以同一文件系统目录内的 <code>rename(2)</code> <strong>原子重命名</strong>，
@@ -34,7 +34,7 @@
 
 <div class="diagram">
   <div class="fields" style="--cols:8">
-    <div class="cell wide ruler-title">乱序写盘：offset = chunk_id × chunk_size</div>
+    <div class="cell wide ruler-title">乱序写盘：offset = chunk_id × chunk_size + chunk_symbol × symbol_size</div>
     <div class="cell bitnum">chunk 0</div>
     <div class="cell bitnum">chunk 1</div>
     <div class="cell bitnum">chunk 2</div>
@@ -56,8 +56,9 @@
 </div>
 
 <div class="caption">
-  第 <code>chunk_id</code> 块的数据<strong>必须</strong>写在文件偏移 <code>chunk_id × chunk_size</code> 处；
-  最后一个 chunk 的实际长度<strong>可以</strong>小于 <code>chunk_size</code>。
+  第 <code>chunk_id</code> 块第 <code>chunk_symbol</code> 个 symbol 的数据<strong>必须</strong>写在文件偏移
+  <code>chunk_id × chunk_size + chunk_symbol × symbol_size</code> 处；
+  最后一个块、最后一段的实际长度<strong>可以</strong>小于 <code>chunk_size</code> / <code>symbol_size</code>。
   图中刻度为<strong>示意</strong>（<code>chunk_size</code> 的倍数），不含任何手敲的规范数值。
 </div>
 
@@ -71,9 +72,9 @@
 
     <div class="cell f-crc">① 校验 crc32</div>
     <div class="cell f-muted">校验失败 → <strong>写盘前丢弃</strong>，不得让未通过校验的数据进入临时文件（见 12 章）</div>
-    <div class="cell f-payload">② 写盘（偏移 = chunk_id × chunk_size）</div>
-    <div class="cell f-muted">重复写同一 chunk_id <strong>必须</strong>幂等（允许重复覆盖）</div>
-    <div class="cell f-chunk">③ 标记位图（该 chunk_id 记为「已收到」）</div>
+    <div class="cell f-payload">② 写盘（偏移 = chunk_id × chunk_size + chunk_symbol × symbol_size）</div>
+    <div class="cell f-muted">重复写同一 symbol <strong>必须</strong>幂等（允许重复覆盖）</div>
+    <div class="cell f-chunk">③ 标记该 symbol 位；掩码全 1 时置块完成位</div>
     <div class="cell wide f-body">块<strong>必须</strong>在数据写入临时文件<strong>之后</strong>才被标记为「已收到」（见 18 章「位图的协议能力」）</div>
   </div>
 </div>
@@ -97,9 +98,8 @@
 </div>
 
 <div class="caption">
-  常驻内存<strong>应当</strong>只包含：数据面 payload 缓冲、位图、会话状态；
-  内存占用<strong>应当</strong>与 <code>chunk_size</code> 成正比，
-  而<strong>不</strong>与文件大小成正比 —— 这是「内存与文件大小解耦」目标的直接体现（推荐性）。
+  常驻数据面缓冲<strong>应当</strong>与 <code>symbol_size</code> 及批次大小成正比，
+  而<strong>不</strong>与文件大小成正比；两级位图按「块数 + 未完成块」记账（推荐性）。
 </div>
 
 
@@ -141,16 +141,17 @@
 </ul>
 <h2>写入语义（规范性）</h2>
 <ul>
-<li>第 <code>chunk_id</code> 块的数据<strong>必须</strong>写在文件偏移 <code>chunk_id × chunk_size</code> 处。</li>
-<li>重复写入同一 <code>chunk_id</code> <strong>必须</strong>是幂等的（允许重复覆盖）。</li>
-<li>最后一个 chunk 的实际长度<strong>可以</strong>小于 <code>chunk_size</code>（见 08 章）。</li>
+<li>第 <code>chunk_id</code> 块第 <code>chunk_symbol</code> 个 symbol 的数据<strong>必须</strong>写在文件偏移
+  <code>chunk_id × chunk_size + chunk_symbol × symbol_size</code> 处。</li>
+<li>重复写入同一 symbol <strong>必须</strong>是幂等的（允许重复覆盖）。</li>
+<li>最后一个块、最后一段的实际长度<strong>可以</strong>小于 <code>chunk_size</code> / <code>symbol_size</code>（见 08 章）。</li>
 <li><strong>写入顺序（规范性）</strong>：接收方<strong>必须</strong>先校验 <code>crc32</code>，
-  再写盘，再标记位图；
-  校验失败的块<strong>必须</strong>在写盘前丢弃，
+  再写盘，再标记该 symbol 位；一个块的 symbol 掩码全 1 时才置块完成位。
+  校验失败的报文<strong>必须</strong>在写盘前丢弃，
   <strong>不得</strong>让未通过校验的数据进入临时文件（见 12 章）。</li>
 </ul>
 <blockquote>
-<p><strong>与加密的约束</strong>：应用层加密<strong>不得</strong>改变 chunk 与文件偏移的映射关系
+<p><strong>与加密的约束</strong>：应用层加密<strong>不得</strong>改变 symbol 与文件偏移的映射关系
 （见 20 章「数据面」）。</p>
 </blockquote>
 <h2>内存占用（推荐性）</h2>
@@ -162,7 +163,7 @@
 <h2>完成与提交（规范性）</h2>
 <p>完整流程见 12 章「完整性校验」与 10 章「秒传路径」，要点：</p>
 <ul>
-<li>位图全真 → 计算全文件 Blake3 并与 <code>file_hash</code> 比对
+<li>位图全真（<strong>所有块完成位为 1</strong>）→ 计算全文件 Blake3 并与 <code>file_hash</code> 比对
   （失配时先执行摘要对帐，复核轮条件见 12 章）
   （<code>file_hash</code> 为 <strong>32 字节原始 Blake3 摘要</strong>，<code>hash32</code> 类型，见 06 章「基本类型」）
   → 通过后<strong>原子重命名</strong>为最终文件名 → 标记完成</li>

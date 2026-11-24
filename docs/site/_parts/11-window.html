@@ -12,12 +12,12 @@
     <div class="cell bitnum">…</div>
     <div class="cell bitnum">N</div>
 
-    <div class="cell wide bitnum">发送进度 S：已发出的<strong>不同</strong> chunk_id 数（重传不重复计数）</div>
+    <div class="cell wide bitnum">发送进度 Sent：已发出的<strong>不同</strong> symbol 数（重传不重复计数）</div>
 
     <div class="cell span3 f-chunk">已确认收到 R</div>
     <div class="cell span5 f-len">在途（未确认）</div>
 
-    <div class="cell wide bitnum">接收方位图：R = received_count（window_update）或 chunk_count − missing_count（裁决）</div>
+    <div class="cell wide bitnum">接收方位图：R = received_symbols（window_update）或 symbol_count − missing_count（裁决）</div>
 
     <div class="cell span4 f-crc">空洞（低于 max_received_id 的缺失块）</div>
     <div class="cell span4 f-crc">在途（未确认）</div>
@@ -27,7 +27,7 @@
 </div>
 
 <div class="caption">
-  <code>S</code> = 已发不同 chunk 数，<code>R</code> = 对端已接收数 = <code>received_count</code>
-  （<code>window_update</code>）或 <code>chunk_count − missing_count</code>（裁决），
-  在途量 = <code>max(0, S − R)</code>；该估计是真实在途量的<strong>保守上界</strong>，按它执行上限<strong>不会</strong>突破 <code>window</code>。
+  <code>Sent</code> = 已发不同 symbol 数，<code>R</code> = 对端已接收 symbol 数 = <code>received_symbols</code>
+  （<code>window_update</code>）或 <code>symbol_count − missing_count</code>（裁决），
+  在途量 = <code>max(0, Sent − R)</code>；该估计是真实在途量的<strong>保守上界</strong>，按它执行上限<strong>不会</strong>突破 <code>window</code>。
 </div>

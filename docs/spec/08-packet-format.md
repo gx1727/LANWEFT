@@ -9,10 +9,10 @@
 | 字段 | 偏移 | 大小 | 类型 | 说明 |
 |------|------|------|------|------|
 | session_id | 0-7 | 8 | u64 | 会话唯一标识，由 Server 生成（见 09 章） |
-| chunk_id | 8-11 | 4 | u32 | 逻辑位置（从 0 开始） |
-| payload_len | 12-13 | 2 | u16 | 载荷长度（不含头部与 CRC） |
+| chunk_id | 8-11 | 4 | u32 | 逻辑块序号（从 0 开始） |
+| chunk_symbol | 12-13 | 2 | u16 | `chunk_id` 块内的 **symbol 起始索引**（从 0 开始） |
 | flags | 14-15 | 2 | u16 | 标志位 |
-| payload | 16.. | N | bytes | 文件数据 |
+| payload | 16.. | N | bytes | 文件数据（`K` 个 symbol） |
 | crc32 | 16+N | 4 | u32 | CRC32 校验码（覆盖 header+payload） |
 
 ## 头部大小
@@ -22,21 +22,45 @@ HEADER_SIZE = 8 + 4 + 2 + 2 = 16 字节
 CRC_SIZE    = 4 字节
 ```
 
-**包长核算**：以 `chunk_size = 1200` 为例，一个数据包的线上长度为
+**载荷长度由传输层反推（规范性）**：数据报**不**携带 `payload_len` ——
+UDP 报文长度已给出总长。接收方**必须**按 `L = 数据报总长 − 16 − 4`
+求得载荷长度，并要求 `L > 0`。
+
+**包长核算**：以 `symbol_size = 1200`、`K = 1` 为例，一个数据报的线上长度为
 `16 + 1200 + 4 = 1220` 字节；叠加 IPv4 + UDP 的 28 字节头部为 1248 字节，
 **小于** 1500 字节的以太网 MTU，**不会**产生 IP 分片。
 
-## 载荷长度上限
+## 两级单位与长度规则（规范性）
 
-- `payload_len ≤ chunk_size`
-- 建议 `chunk_size` 取 1024–1350 字节，**上限 1400 字节**，避免 IP 分片
-- 推荐 `chunk_size` 取 **1200** 字节
-- **接收端必须校验**：`payload_len ≤ 1400` 且 `payload_len ≤ 本会话协商的 chunk_size`；
-  越界即按 `INVALID_PACKET` 丢弃，**不得**写入位图
-- 对 `FLAG_DATA`，先检查 `chunk_id < chunk_count`，再要求
-  `payload_len == min(chunk_size, size - chunk_id × chunk_size)`（按宽整数计算）。
-  非末块必须满长；空文件没有 DATA 块。UDP 报文总长必须恰为 `16 + payload_len + 4`。
-  长度不符按 `INVALID_PACKET` 丢弃，不写盘、不标位。PROBE / ACK 使用 07 章的独立长度。
+本协议把「寻址单位」与「线缆单位」分开：
+
+- **symbol**（线缆/修复粒度）：`symbol_size` = **1200 字节**，协议常量。
+- **chunk**（逻辑块/寻址单位）：`chunk_size` 由会话协商，**必须**是
+  `symbol_size` 的整数倍；记 `S = chunk_size / symbol_size`，**必须**满足
+  `1 ≤ S ≤ 64`。规范默认 `chunk_size` = **64800**（`S` = 54）。
+- 一个数据报承载 `K` 个连续 symbol，`1 ≤ K ≤ S`，载荷长度 `L = K × symbol_size`
+  （末报文可短，见下）。`K` **必须**由 `L` 推出：`K = ceil(L / symbol_size)`，
+  **不单独编码**。
+- `chunk_symbol` 是块内 symbol 索引；第 `chunk_id` 块第 `chunk_symbol` 个 symbol 的
+  文件字节偏移为 `chunk_id × chunk_size + chunk_symbol × symbol_size`。
+- 数据报**不得**跨块：`chunk_symbol + K ≤ S`。
+
+**长度校验（规范性）**：接收端**必须**校验：
+
+1. `L > 0`；
+2. `chunk_symbol + K ≤ S`；对**最后一个块**，还需
+   `chunk_symbol + K ≤ ceil((size − chunk_id × chunk_size) / symbol_size)`；
+3. **除「最后一个块的最后一个数据报」外**，`L` **必须**是 `symbol_size` 的
+   正整数倍（即 `L = K × symbol_size`）；
+4. 最后一个块的最后一个数据报**可以**是剩余字节，其长度**必须**精确等于
+   `size − chunk_id × chunk_size − chunk_symbol × symbol_size`
+   （按**宽整数**计算；结果为负数即非法；此时 `K = 1`，覆盖文件末尾的短 symbol）。
+
+任一不满足即按 `INVALID_PACKET` 丢弃，**不得**写盘或标位。空文件没有 DATA 块。
+
+**关于 IP 分片（说明）**：`K × symbol_size + 20` 超过路径 MTU 时会被 IP 分片。
+规范**不禁止**分片，但分片会放大丢失：丢一个分片即整报文作废、其覆盖的 `K` 个
+symbol 全部重传。发送方**应当**按路径 MTU 选择 `K`（见 11 章「变长数据报与 K」）。
 
 ## CRC32 变体（规范性）
 
@@ -53,8 +77,7 @@ CRC_SIZE    = 4 字节
 | 校验值 | `"123456789"` → 0xCBF43926 |
 
 **覆盖区间（规范性）**：被校验的字节是数据包的
-**第 0 字节到第 `16 + payload_len - 1` 字节**，
-即 **16 字节头部 + payload**，
+**第 0 字节到第 `16 + L − 1` 字节**，即 **16 字节头部 + payload**，
 **不含**尾部 4 字节 `crc32` 字段本身。
 
 **为何必须固定变体（说明）**：CRC-32/ISO-HDLC 与 CRC-32C（Castagnoli，
@@ -66,10 +89,10 @@ CRC_SIZE    = 4 字节
 ## 包级校验与块级补救（规范性）
 
 - **接收端必须**在**写盘前**校验 `crc32`；校验失败即丢弃该包，
-  **不得**写入位图（见 12 章「包级校验」）。
-- 该包对应的块因此保持「**未收到**」状态，会在随后的缺失裁决中被精确报告，
-  发送方**只补发该块**。
-  **单次校验失败的代价是一个块，与文件大小无关**（见 12 章）。
+  **不得**标记任何 symbol（见 12 章「包级校验」）。
+- 该包覆盖的 `K` 个 symbol 因此保持「**未收到**」状态，会在随后的缺失裁决中被精确报告，
+  发送方**只补发这些 symbol**。
+  **单次校验失败的代价是 `K` 个 symbol，与文件大小无关**（见 12 章）。
 
 ## Flags 位定义
 
@@ -77,8 +100,8 @@ CRC_SIZE    = 4 字节
 |----|------|-----|------|
 | bit0 | FLAG_DATA | 0x0001 | 数据包标志 |
 | bit1 | FLAG_RESEND | 0x0002 | 重传包标志；接收方**无需**区别处理（重传是幂等的） |
-| bit2 | FLAG_LAST_CHUNK | 0x0004 | 最后一个 chunk 标志，置位时该包的 `chunk_id` = `chunk_count - 1`；**可选**，接收方**不得**依赖它判断完成（完成以位图为准） |
-| bit3 | FLAG_PROBE | 0x0008 | 探测包标志；PROBE 与 PROBE_ACK 共用，以 `payload_len` 区分（8 / 9） |
+| bit2 | FLAG_LAST_CHUNK | 0x0004 | 最后一个块标志，置位时该包的 `chunk_id` = `chunk_count - 1`；**可选**，接收方**不得**依赖它判断完成（完成以块内 symbol 掩码为准） |
+| bit3 | FLAG_PROBE | 0x0008 | 探测包标志；PROBE 与 PROBE_ACK 共用，以**载荷长度**（由报文总长反推）区分（8 / 9） |
 | bit4-5 | DATA_GENERATION | 0x0030 | DATA 修复代号：`(flags >> 4) & 3`，0 初传、1 摘要对帐后的定点修复、2 全量复核；3 非法。非 DATA 帧必须为 0 |
 | bit6 | FLAG_BIND | 0x0040 | **仅用于 TCP 数据面帧**的绑定帧（见 07 章）；UDP 包**必须**为 0 |
 | bit7-15 | RESERVED | 0x0000 | 保留位；接收方**必须**忽略未知标志位 |
@@ -89,9 +112,9 @@ CRC_SIZE    = 4 字节
 ```
 session_id: 0x0000000000000001
 chunk_id:   0x00000010
-payload_len: 1024
+chunk_symbol: 0            // 该块第 0 个 symbol（K=1，L=1200）
 flags:      0x0001 (FLAG_DATA)
-payload:    [1024 bytes data]
+payload:    [1200 bytes data]
 crc32:      [4 bytes checksum]
 ```
 
@@ -99,9 +122,9 @@ crc32:      [4 bytes checksum]
 ```
 session_id: 0x0000000000000001
 chunk_id:   0x00000000
-payload_len: 8
+chunk_symbol: 0
 flags:      0x0008 (FLAG_PROBE)
-payload:    [session_id in little-endian, 8 bytes]
+payload:    [session_id in little-endian, 8 bytes]   // L = 8
 crc32:      [4 bytes checksum]
 ```
 
@@ -111,24 +134,25 @@ crc32:      [4 bytes checksum]
 ```
 session_id: 0x0000000000000001
 chunk_id:   0x00000000
-payload_len: 9
+chunk_symbol: 0
 flags:      0x0008 (FLAG_PROBE)
-payload:    [session_id in little-endian, 8 bytes][status: 0x00]
+payload:    [session_id in little-endian, 8 bytes][status: 0x00]   // L = 9
 crc32:      [4 bytes checksum]
 ```
 
 PROBE_ACK 的 payload 为 9 字节：8 字节 session_id + 1 字节状态码
 （0 = 成功，1 = 失败）。
-**PROBE 与 PROBE_ACK 共用 `flags.bit3`，以 `payload_len` 区分**（8 / 9）。
+**PROBE 与 PROBE_ACK 共用 `flags.bit3`，以载荷长度区分**（8 / 9）。
 
 ## 错误处理
 
-任一关键字段不匹配或校验失败均丢弃。校验失败的数据包**不得**标记位图。
+任一关键字段不匹配或校验失败均丢弃。校验失败的数据包**不得**标记任何 symbol。
 
-- `payload_len` 越界（> 1400 或 > 协商 chunk_size）→ `INVALID_PACKET`，丢弃
-- 该 `chunk_id` **已收到**（重复包）→ 幂等丢弃，不重复写盘
+- `L` 非法（`L ≤ 0`、`chunk_symbol + K > S`、非末报文 `L` 非 `symbol_size` 整数倍）
+  → `INVALID_PACKET`，丢弃
+- 该 symbol **已收到**（重复包）→ 幂等丢弃，不重复写盘
   （`CHUNK_ALREADY_RECEIVED`，见 19 章）
-- `chunk_id` 越界（≥ chunk_count）→ `INVALID_CHUNK`，丢弃
+- `chunk_id` 越界（≥ `chunk_count`）→ `INVALID_CHUNK`，丢弃
 - `session_id` 不匹配 → `SESSION_ID_MISMATCH`，丢弃
 - CRC32 校验失败 → `CRC32_INVALID`，丢弃
 

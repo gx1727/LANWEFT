@@ -19,11 +19,11 @@
       <div class="cell f-session">session_id (u64)</div>
 
       <div class="cell f-chunk">chunk_id (u32)</div>
-      <div class="cell f-len">payload_len (u16)</div>
+      <div class="cell f-len">chunk_symbol (u16)</div>
       <div class="cell f-flags">flags (u16)</div>
       <div class="cell f-payload">payload</div>
 
-      <div class="cell wide f-muted">frame_len = 28 + payload_len（<code>frame_len</code> 含帧头）</div>
+      <div class="cell wide f-muted">frame_len = 28 + L（L 为载荷长度，由 frame_len 反推；<code>frame_len</code> 含帧头）</div>
     </div>
   </div>
 

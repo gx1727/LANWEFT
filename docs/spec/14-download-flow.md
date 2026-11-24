@@ -13,7 +13,7 @@
 |------|------|------|
 | download_start | Client→Server | 请求下载文件 |
 | download_accept | Server→Client | 接受下载请求，下发会话参数与数据面端口 |
-| missing_chunks | 双向 | 缺失 chunk 列表报告 / 索要（`mode=report` / `mode=request`） |
+| missing_chunks | 双向 | 两级缺失（symbol）报告 / 索要（`mode=report` / `mode=request`） |
 | download_complete | Client→Server | 下载完成（由接收方 Client 发布） |
 
 ## 下载流程时序
@@ -49,13 +49,14 @@ Server **必须**同时遵守连接级的 `connection_window`
 
 ### 4. 缺失重传
 
-Client 在收到新块时下发 `window_update`（`received_count`）推进窗口；
+Client 在收到新 symbol 时下发 `window_update`（`received_symbols`）推进窗口；
 当存在缺失时每 50ms 发送 `missing_chunks`（`mode=report`）；Server 按 11 章补发缺失块。
 收到 Server 的 `missing_chunks`（`mode=request`）时，Client **必须**在 50ms 内应答。
 
 `mode` 为 `enum8`（`0` = report、`1` = request）；
-`chunks` 为 `chunk_list`（`u32` 条数 + `u32` `chunk_id` 数组，**升序**），
-恒为「发布方自己尚未收到的块」（见 06 章「missing_chunks」）。
+`chunks` 为**完全缺失块**列表（`u32` 条数 + `u32` `chunk_id` 数组，**升序**），
+`partial[]` 为**部分缺失块**的 symbol 掩码（每条 `chunk_id` u32 + `missing_mask` u64）；
+两者合起来恒为「发布方自己尚未收到的 symbol」（见 06 章「missing_chunks」）。
 
 ### 5. 进度上报
 

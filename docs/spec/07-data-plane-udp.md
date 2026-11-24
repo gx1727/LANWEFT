@@ -3,7 +3,8 @@
 ## UDP 原则
 
 - 无连接、无逐包 ACK、允许丢包与乱序
-- payload_len ≤ chunk_size（建议 chunk_size ≤ 1400，避免 IP 分片）
+- 一个数据报承载 `K` 个 symbol（`K × symbol_size` 字节，见 08 章）；
+  `symbol_size` = 1200，`chunk_size` 为其整数倍（默认 64800，`S` = 54）
 - crc32 包级校验（见 08 章）
 - 数据面端口**可以**被多个会话共用，`session_id`（u64）用于区分（见 08 章）
 
@@ -34,19 +35,19 @@
 
 - flags.bit3=1，flags.bit0（FLAG_DATA）**必须**为 0
 - payload 为 session_id（u64）的 **8 字节小端编码**
-- `payload_len` = **8**
+- 载荷长度（由报文总长反推）= **8**
 
 ### PROBE_ACK 数据包
 
 - flags.bit3=1，flags.bit0（FLAG_DATA）**必须**为 0
 - payload 为 session_id（u64）+ 1 字节状态码（0=成功，1=失败），共 **9 字节**
-- `payload_len` = **9**
+- 载荷长度（由报文总长反推）= **9**
 - **判别规则（规范性）**：PROBE 与 PROBE_ACK 共用 `flags.bit3`，
-  接收方**必须**以 `payload_len` 区分：`payload_len == 8` 为 PROBE，
-  `payload_len == 9` 为 PROBE_ACK。其余长度**必须**按 `INVALID_PACKET` 丢弃。
+  接收方**必须**以**载荷长度**区分：`8` 为 PROBE，`9` 为 PROBE_ACK。
+  其余长度**必须**按 `INVALID_PACKET` 丢弃。
   - **判别前提（规范性）**：该规则**仅**适用于 `FLAG_PROBE` 置位且 `FLAG_DATA`
     **未**置位的包。`FLAG_DATA` 包一律按数据路径处理，
-    **不得**用 `payload_len` 判别类型（文件末尾块的 `payload_len` 可能恰好为 8 或 9）。
+    **不得**用载荷长度判别类型（数据报的 `K × symbol_size` 可能恰好为 8 或 9 字节）。
 
 ### 端口与地址绑定（规范性）
 
@@ -120,10 +121,10 @@ TCP 是字节流，**必须**有帧边界；且 TCP 已提供字节流校验，
 | frame_len | 4-7 | 4 | u32 | 本帧总字节数（含本帧头） |
 | header_crc32 | 8-11 | 4 | u32 | 帧头校验码，见下 |
 | session_id | 12-19 | 8 | u64 | 会话 ID；与 UDP 通道同一取值域 |
-| chunk_id | 20-23 | 4 | u32 | 逻辑位置（从 0 开始） |
-| payload_len | 24-25 | 2 | u16 | 载荷长度 |
+| chunk_id | 20-23 | 4 | u32 | 逻辑块序号（从 0 开始） |
+| chunk_symbol | 24-25 | 2 | u16 | `chunk_id` 块内的 symbol 起始索引 |
 | flags | 26-27 | 2 | u16 | 标志位（取值见 08 章；bit6 = FLAG_BIND） |
-| payload | 28.. | N | bytes | 文件数据 |
+| payload | 28.. | N | bytes | 文件数据（`K` 个 symbol） |
 
 ```
 FRAME_HEADER_SIZE = 4 + 4 + 4 + 8 + 4 + 2 + 2 = 28 字节
@@ -134,7 +135,7 @@ FRAME_HEADER_SIZE = 4 + 4 + 4 + 8 + 4 + 2 + 2 = 28 字节
 覆盖帧头中**除 `header_crc32` 字段自身之外**的 **24 字节**，按下列顺序拼接：
 
 ```
-magic(4) ‖ frame_len(4) ‖ session_id(8) ‖ chunk_id(4) ‖ payload_len(2) ‖ flags(2)
+magic(4) ‖ frame_len(4) ‖ session_id(8) ‖ chunk_id(4) ‖ chunk_symbol(2) ‖ flags(2)
 ```
 
 - 上式对应帧内的**两段连续区间**：字节 `0–7` 与字节 `12–27`；
@@ -144,18 +145,18 @@ magic(4) ‖ frame_len(4) ‖ session_id(8) ‖ chunk_id(4) ‖ payload_len(2) �
 **帧长核算（规范性）**：
 
 ```
-frame_len = 28 + payload_len
+frame_len = 28 + L        // L 为载荷长度，由 frame_len 反推
 ```
 
 - `magic` **必须**为 `0x574E414C`；不匹配即判定**失步**（见下）。
 - `frame_len` **必须** ≥ **28**
 - 接收方**必须**按 `frame_len` **读满**后再解析：
   **不得**假设一帧一次 `recv` 到达；**不得**按换行或任何字节模式切分。
-- `payload_len` **必须** ≤ 本会话协商的 `chunk_size`；
-  越界即按 `INVALID_PACKET` 关闭该 TCP 数据面连接。
-- DATA 帧还必须满足 08 章同一块号的精确长度，且 `frame_len == 28 + payload_len`；
-  不符不得写盘或标位，并关闭该数据连接。代号不匹配但边界合法的 DATA 只丢帧；
-  `FLAG_BIND` 仍使用零载荷，不适用文件块长度公式。
+- 载荷长度 `L = frame_len − 28`，**必须** > 0（`FLAG_BIND` 除外）；
+  DATA 帧的 `chunk_symbol + K ≤ S`、长度对齐与末块规则与 08 章**完全一致**
+  （`K = ceil(L / symbol_size)`）。不符不得写盘或标位，并关闭该数据连接。
+  代号不匹配但边界合法的 DATA 只丢帧；`FLAG_BIND` 使用零载荷（`L = 0`，
+  `chunk_symbol = 0`），不适用文件块长度公式。
 - **不携带载荷级 CRC32**：TCP 提供字节流校验与可靠重传，
   TCP 数据面帧**不**携带 `crc32` —— 载荷完整性由 TCP 自身保证。
   帧头的 `header_crc32` **不是**载荷校验，而是**帧同步**手段。
@@ -200,8 +201,8 @@ TCP 数据面连接**不**承载认证凭据，其权限**必须**通过绑定�
 
 - **Client 恒为连接方**：无论上传或下载，Server 在下发的 `tcp_port` 监听，Client 主动连接后，
   **必须**先发送一个**绑定帧**：
-  `flags` 置位 `FLAG_BIND`（bit6）、**未**置位 `FLAG_DATA`，`payload_len` = **0**，
-  `session_id` 为待绑定会话。
+  `flags` 置位 `FLAG_BIND`（bit6）、**未**置位 `FLAG_DATA`，
+  载荷长度 `L = 0`、`chunk_symbol` = 0，`session_id` 为待绑定会话。
   - 绑定帧**必须**是连接上的**第一条**数据面帧（**首帧锚点**）；
     绑定完成前**不得**发送任何其他数据面帧。
   - 连接方**必须**在绑定帧发出后**保持连接打开**，直到会话进入终态。
@@ -221,8 +222,9 @@ TCP 数据面连接**不**承载认证凭据，其权限**必须**通过绑定�
 
 ### 与 UDP 通道的关系
 
-- 两条通道的**块语义完全一致**：`chunk_id`、`chunk_size`、偏移映射
-  `offset = chunk_id × chunk_size`。
+- 两条通道的**块与 symbol 语义完全一致**：`chunk_id`、`chunk_symbol`、`chunk_size`、
+  `symbol_size`，字节偏移映射为
+  `offset = chunk_id × chunk_size + chunk_symbol × symbol_size`。
 - 两条通道的**可靠性机制一致**：位图、缺失裁决、重传优先级、
   文件级校验与原子提交（见 12 章、17 章）。
 - TCP 通道**不**使用 UDP 探测；其可用性由 `tcp_port` 是否为 0 表达

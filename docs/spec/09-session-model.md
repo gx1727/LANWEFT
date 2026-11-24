@@ -12,10 +12,12 @@
 | size | u64 | 文件大小（字节）；**必须**满足「文件大小上限」（见下） |
 | mtime | u64 | 文件修改时间戳 |
 | state | enum8 | 会话状态（见 10 章） |
-| chunk_size | u32 | Chunk 大小（字节） |
-| window | u32 | 滑动窗口大小（**会话级在途上限**，见 11 章） |
-| connection_window | u32 | **连接级**在途上限（见 11 章） |
-| chunk_count | u32 | 总 chunk 数量 = ceil(size / chunk_size) |
+| symbol_size | 常量 | 线缆/修复单位，**1200 字节**（见 08 章） |
+| chunk_size | u32 | **逻辑块**大小（字节），`symbol_size` 的整数倍，`1 ≤ S ≤ 64` |
+| window | u32 | 滑动窗口大小（**会话级在途 symbol 上限**，见 11 章） |
+| connection_window | u32 | **连接级**在途 **symbol** 上限（见 11 章） |
+| chunk_count | u32 | 总块数 = `ceil(size / chunk_size)` |
+| symbol_count | u32 | 总 symbol 数 = `ceil(size / symbol_size)` |
 | udp_port | u16 | UDP 端口号 |
 | tcp_port | u16 | TCP 端口号 |
 | last_activity | u64 | 最后活动时间戳 |
@@ -29,32 +31,32 @@
 | `upload` | Server | Client | Server（`upload_complete`） |
 | `download` | Client | Server | Client（`download_complete`） |
 
-## 文件大小上限（规范性）
+## 文件大小上限与块参数校验（规范性）
 
-`chunk_count` 与 `chunk_id` 均为 **u32**（见 08 章），
-因此单个文件的大小**必须**满足：
+`chunk_count`、`symbol_count` 与 `chunk_id` 均为 **u32**（见 08 章），
+因此单个文件的大小**必须**同时满足：
 
 ```
-chunk_count = ceil(size / chunk_size) ≤ 2³² − 1
-size ≤ chunk_size × (2³² − 1)
+chunk_count  = ceil(size / chunk_size)  ≤ 2³² − 1
+symbol_count = ceil(size / symbol_size) ≤ 2³² − 1     // symbol_size = 1200
+size ≤ 1200 × (2³² − 1) ≈ 5.15 TB
 ```
 
-- `chunk_size` 的**建议**取值范围为 1024–1350、**上限 1400**（见 08 章），
-  因此文件大小上限随协商结果落在 **4 TiB − 1024 字节**（`chunk_size` = 1024）
-  与 **约 5.6 TB**（`chunk_size` = 1400）之间。
+- `chunk_size` **必须**是 `symbol_size`（1200）的整数倍，且
+  `S = chunk_size / symbol_size` **必须**满足 `1 ≤ S ≤ 64`；规范默认 **64800**（S = 54）。
 - **Client 必须**在 `upload_start` / `download_start` 中声明的 `size`
-  **不超过 4 TiB − 1024 字节**（以最小 `chunk_size` 计算的**全局**上限，
-  与本次协商结果无关）。
-- **Server 必须**在接受会话前校验 `ceil(size / chunk_size) ≤ 2³² − 1`；
+  **不超过 4 TiB − 1024 字节**（保守的全局上限，与本次协商结果无关）。
+- **Server 必须**在接受会话前校验：`chunk_size % 1200 == 0`、`1 ≤ S ≤ 64`、
+  `ceil(size / chunk_size) ≤ 2³² − 1`、`ceil(size / 1200) ≤ 2³² − 1`；
   不满足时**必须**以 `session_abort`（`reason` = `FILE_TOO_LARGE`）拒绝该请求，
   且**不得**创建会话（见 19 章）。
 - **Server 必须**在 `upload_accept` / `download_accept` 中下发的 `chunk_count`
   与 `size` / `chunk_size` **自洽**；Client **必须**核对
-  `chunk_count == ceil(size / chunk_size)`，不一致即按 `SERIALIZATION_ERROR`
-  视为协议错误。
+  `chunk_count == ceil(size / chunk_size)` 与 `chunk_size % 1200 == 0`，不一致即按
+  `SERIALIZATION_ERROR` 视为协议错误。
 
-> **为何必须显式声明上限（说明）**：`size` 以 u64 承载而 `chunk_count` / `chunk_id`
-> 以 u32 承载，若不校验则会出现「声明的大小可表示、块号却溢出」的静默不一致。
+> **为何必须显式声明上限（说明）**：`size` 以 u64 承载而 `chunk_count` / `symbol_count`
+> 以 u32 承载，若不校验则会出现「声明的大小可表示、编号却溢出」的静默不一致。
 > 上限必须由两端**共同**校验，而非仅由一端假定。
 
 ## 与控制连接的关系（规范性）
@@ -236,8 +238,8 @@ Server **可以**在 Client 未请求的情况下，向一个**在线**的 Clien
 接收方**必须**持久化以下状态，使其在进程重启或设备重启后仍可恢复：
 
 - **临时文件**（含已写入的数据）
-- **位图**（各 `chunk_id` 的接收状态）
-- **会话元数据**（`session_id` / `direction` / `chunk_size` / `chunk_count` / 临时文件路径）
+- **两级位图**：块完成位图 + 未完成块的 `u64` symbol 掩码（见 18 章）
+- **会话元数据**（`session_id` / `direction` / `chunk_size` / `chunk_count` / `symbol_count` / 临时文件路径）
 - **复核轮计数**（见 12 章）：已执行的复核轮次数
 - **对帐计数**（见 12 章）：已执行的摘要对帐次数
 - **定点重读计数**（见 12 章）：已执行的停滞定点重读次数

@@ -589,10 +589,10 @@
 <p>Client 连续发送 UDP chunk；Server 乱序随机写盘</p>
 <h3>缺失统计、信用与重传</h3>
 <p>窗口推进由<strong>信用</strong>驱动：接收方在收到新块时下发 <code>window_update</code>
-（<code>received_count</code>，事件驱动，阈值 <code>credit_batch</code>）；
+（<code>received_symbols</code>，事件驱动，阈值 <code>credit_batch</code>）；
 当本会话<strong>存在缺失</strong>时，接收方每 50ms 下发 <code>missing_chunks</code>（<code>mode=report</code>）裁决；
 发送方据此推进窗口并重传缺失块（重传优先级高于新数据）。</p>
-<p><strong>推进依据是信用（规范性）</strong>：窗口推进由 <code>window_update.received_count</code>
+<p><strong>推进依据是信用（规范性）</strong>：窗口推进由 <code>window_update.received_symbols</code>
 （或 <code>missing_chunks.missing_count</code>）驱动，二者在同一代号内<strong>必须</strong>一致；
 缺失列表为空时<strong>不</strong>要求周期下发。发送方在 <strong>1000 ms</strong> 内未收到任何信用时，
 <strong>必须</strong>发布 <code>missing_chunks</code>（<code>mode=request</code>）主动索要。</p>

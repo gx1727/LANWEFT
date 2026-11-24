@@ -1,6 +1,6 @@
 <div class="note blue">
-    <strong>本章要点</strong>：内存占用<strong>与文件大小解耦</strong>，只与 <code>chunk_size</code> 成正比；
-    接收方按 <code>chunk_id × chunk_size</code> 的偏移<strong>乱序写盘</strong>，重复写入<strong>必须</strong>幂等。
+    <strong>本章要点</strong>：数据面缓冲占用<strong>与文件大小解耦</strong>，只与 <code>symbol_size</code> / 批次大小成正比；
+    接收方按 <code>chunk_id × chunk_size + chunk_symbol × symbol_size</code> 的偏移<strong>乱序写盘</strong>，重复写入<strong>必须</strong>幂等。
     写入顺序是<strong>规范性</strong>的：<strong>先校验 <code>crc32</code>，再写盘，最后标记位图</strong>；
     校验失败的块<strong>必须</strong>在写盘前丢弃。
     提交时以同一文件系统目录内的 <code>rename(2)</code> <strong>原子重命名</strong>，

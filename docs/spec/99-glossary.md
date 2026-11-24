@@ -25,16 +25,19 @@
 | session | 一次文件传输会话 |
 | session_id | 会话唯一标识（**u64**，由 Server 生成；跨进程重启不复用，见 09 章） |
 | client_id / device_id | 设备唯一标识（设备级粒度）；与认证主体绑定（见 23 章） |
-| chunk | 文件分块 |
-| chunk_id | 分块序号（u32，从 0 开始） |
-| chunk_size | 分块大小（字节，建议 1024–1350，上限 1400） |
+| chunk | 逻辑块（寻址/位图/对帐单位） |
+| chunk_id | 逻辑块序号（u32，从 0 开始） |
+| chunk_size | 逻辑块大小（`symbol_size` 的整数倍，`1 ≤ S ≤ 64`；规范默认 **64800**，S=54） |
 | chunk_count | 总块数 = ceil(size / chunk_size) |
-| payload_len | 载荷长度（u16） |
+| symbol_size | 线缆/修复单位，常量 **1200 字节** |
+| chunk_symbol | 块内 symbol 起始索引（u16）；字节偏移 = `chunk_id×chunk_size + chunk_symbol×symbol_size` |
+| symbol_count | 总 symbol 数 = ceil(size / 1200) |
+| K / L | 一个数据报承载的 symbol 数 / 载荷长度（均由传输层与头部推出，不单独编码） |
 | flags | 数据包标志位（u16） |
-| bitmap | 位图，记录各 chunk 的接收状态 |
-| missing_chunks | 缺失块列表；`chunks` 恒为「**发布方**自己尚未收到的块」（发布方恒为接收方） |
+| bitmap | **两级**位图：块完成位图 + 未完成块的 `u64` symbol 掩码 |
+| missing_chunks | 两级缺失上报：`chunks`（完全缺失块）+ `partial[]`（部分缺失块 + `u64` missing_mask）；发布方恒为接收方 |
 | reconcile_request / reconcile_response | 摘要对帐请求 / 应答；请求恒由**接收方**发布，应答恒由**发送方**发布（见 12 章） |
-| missing_count | 位图中尚未收到的 chunk **精确总数**；未携带时由**存在标志位**表示 |
+| missing_count | 位图中尚未收到的 **symbol 精确总数**；未携带时由**存在标志位**表示 |
 | udp_ready | UDP 可用性就绪通知 |
 | file_hash | 文件哈希，**32 字节原始 Blake3 摘要**（hash32，非十六进制串） |
 | asset_id | 素材记录标识（Server 分配） |
@@ -42,10 +45,10 @@
 | 共享清单 | Server 侧全部预置素材记录的集合；`material_list` 查询、`material_available` 通知（见 09 章） |
 | material_available / material_list / material_list_ack | 共享清单变更通知 / 清单查询 / 查询应答（见 06 章） |
 | delivery_offer / delivery_response | 主动投递提议（Server 发布，携带全套会话参数）/ 投递应答（Client 发布，接受或拒绝）；见 09 章 |
-| window | 滑动窗口大小（**会话级在途上限**，Server 下发，Client 不得修改） |
-| connection_window | **连接级**在途上限；同一控制连接上所有会话的在途量之和的上限（见 11 章） |
-| window_update | 窗口推进**信用**（接收方发布，携带 `generation` / `received_count`）；按收到量事件驱动，替代固定周期的空列表裁决（见 06、11 章） |
-| received_count / credit_batch | 当前代号下已收到的不重复块数 / 信用下发批阈值（见 02、11 章） |
+| window | 滑动窗口大小（**会话级在途 symbol 上限**，Server 下发，Client 不得修改） |
+| connection_window | **连接级**在途 **symbol** 上限；同一控制连接上所有会话的在途 symbol 数之和的上限（见 11 章） |
+| window_update | 窗口推进**信用**（接收方发布，携带 `generation` / `received_symbols` / `max_ok_payload`）；按收到量事件驱动（见 06、11 章） |
+| received_symbols / credit_batch | 当前代号下已收到的不重复 symbol 数 / 信用下发批阈值（见 02、11 章） |
 | 复核轮 | 文件级失配后接收方要求发送方重新读取源文件并全量重发的恢复过程，**至多一次**（见 12 章） |
 | 停滞 / 定点重读 | `missing_count` 在 `stall_timeout`（10 秒）内不动即停滞；首次停滞触发 `flags.bit6` 定点重读，再次停滞以 `TRANSFER_STALLED` 终止（见 12 章） |
 | burst_size | 发送批次大小（发送端本地参数，初值 = `min(256, window)`） |
@@ -61,9 +64,9 @@
 | upload_start / upload_accept | C→S / S→C | 上传会话建立 |
 | download_start / download_accept | C→S / S→C | 下载会话建立 |
 | udp_ready | S→C | UDP 可用性就绪通知 |
-| missing_chunks | 双向 | 缺失块列表报告（`mode=report`，**接收方发布**）/ 索要（`mode=request`，**发送方发布**） |
-| window_update | 双向（**接收方发布**） | 窗口推进信用：`generation` + `received_count`（见 06、11 章） |
-| progress_update | 双向 | 传输进度更新（单位：chunk 数；**接收方发布**） |
+| missing_chunks | 双向 | 两级缺失上报（`mode=report`，**接收方发布**：完全缺失块 + 部分缺失 symbol 掩码）/ 索要（`mode=request`，**发送方发布**） |
+| window_update | 双向（**接收方发布**） | 窗口推进信用：`generation` + `received_symbols` + `max_ok_payload`（见 06、11 章） |
+| progress_update | 双向 | 传输进度更新（单位：symbol 数；**接收方发布**） |
 | session_pause / session_abort | 双向 | 会话暂停 / 中止（`session_abort` 发布方受限，见 10 章） |
 | resume_session / resume_ack | C→S / S→C | 暂停后的会话恢复（恢复提示由**接收方**提供，见 13 章） |
 | upload_complete / download_complete | S→C / C→S | 传输完成（**完成消息一律由接收方发布**） |

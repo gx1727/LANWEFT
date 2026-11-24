@@ -116,7 +116,7 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
 
   | 接收侧推进 | 必须发布的控制消息 |
   |------------|--------------------|
-  | 位图出现缺失 | `missing_chunks`（`mode=report`），携带缺失 chunk 列表 |
+  | 位图出现缺失 | `missing_chunks`（`mode=report`），携带完全缺失块与部分缺失 symbol 掩码 |
   | 位图全真 → VERIFY | 无需单独消息；随后的 `upload_complete` / `download_complete` 隐含告知 |
   | VERIFY → TRANSFERRING（摘要对帐） | 无需单独消息；随后的 `reconcile_request` 隐含告知 |
   | VERIFY → TRANSFERRING（复核轮） | 无需单独消息；随后的 `missing_chunks`（**复核轮标志**）隐含告知 |
@@ -124,8 +124,8 @@ INIT → NEGOTIATING → TRANSFERRING → VERIFY → COMMIT → COMPLETED
   | COMMIT → COMPLETED | `upload_complete`（上传方向）/ `download_complete`（下载方向） |
 
   `missing_chunks` 的 `mode` 为 `enum8`（`0` = report、`1` = request）；
-  `chunks` 为 `chunk_list`（`u32` 条数 + `u32` `chunk_id` 数组，**升序**），
-  接收方在 `mode=report` 时给出的是**自己尚未收到**的块
+  `chunks` 为完全缺失块列表、`partial[]` 为部分缺失块的 `u64` symbol 掩码，
+  接收方在 `mode=report` 时给出的是**自己尚未收到**的 symbol
   （见 06 章「missing_chunks」）。
 
 - **恢复阶梯（规范性）**：接收侧在 VERIFY 阶段检测到文件级失配时，

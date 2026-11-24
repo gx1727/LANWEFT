@@ -6,9 +6,9 @@
 
     <div class="cell f-crc">① 校验 crc32</div>
     <div class="cell f-muted">校验失败 → <strong>写盘前丢弃</strong>，不得让未通过校验的数据进入临时文件（见 12 章）</div>
-    <div class="cell f-payload">② 写盘（偏移 = chunk_id × chunk_size）</div>
-    <div class="cell f-muted">重复写同一 chunk_id <strong>必须</strong>幂等（允许重复覆盖）</div>
-    <div class="cell f-chunk">③ 标记位图（该 chunk_id 记为「已收到」）</div>
+    <div class="cell f-payload">② 写盘（偏移 = chunk_id × chunk_size + chunk_symbol × symbol_size）</div>
+    <div class="cell f-muted">重复写同一 symbol <strong>必须</strong>幂等（允许重复覆盖）</div>
+    <div class="cell f-chunk">③ 标记该 symbol 位；掩码全 1 时置块完成位</div>
     <div class="cell wide f-body">块<strong>必须</strong>在数据写入临时文件<strong>之后</strong>才被标记为「已收到」（见 18 章「位图的协议能力」）</div>
   </div>
 </div>

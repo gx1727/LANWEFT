@@ -24,8 +24,9 @@
     头部 <strong>16 字节</strong>，尾部 <strong>4 字节</strong> CRC（覆盖头 + 载荷，不含 CRC 自身）。
     CRC 变体固定为 <strong>CRC-32/ISO-HDLC</strong>（zlib <code>crc32</code>），两端各选一种会导致
     <strong>所有包校验失败</strong>，故本规范不留实现选择空间。
-    <code>payload_len</code> 受 <code>chunk_size</code> 约束（上限 1400 字节，避免 IP 分片）；
-    校验失败的包<strong>不得</strong>写入位图 —— 代价是<strong>一个块</strong>，与文件大小无关。
+    一个数据报承载 <code>K</code> 个 symbol（<code>symbol_size</code> = <strong>1200</strong>），
+    载荷长度由报文总长反推（头 16 + 载荷 + CRC 4）；头里带 <code>chunk_symbol</code> 而非长度。
+    校验失败的包<strong>不得</strong>标记任何 symbol —— 代价是<strong>K 个 symbol</strong>，与文件大小无关。
   </div>
 
 
@@ -36,13 +37,13 @@
     <div class="cell bitnum">0-3</div><div class="cell bitnum">4-7</div><div class="cell bitnum">8-11</div><div class="cell bitnum">12-15</div>
     <div class="cell f-session" style="grid-column:span 2">session_id<br><span class="mono">0-7</span></div>
     <div class="cell f-chunk" style="grid-column:span 1">chunk_id<br><span class="mono">8-11</span></div>
-    <div class="cell f-len" style="grid-column:span 1">payload_len<br><span class="mono">12-13</span></div>
+    <div class="cell f-chunk" style="grid-column:span 1">chunk_symbol<br><span class="mono">12-13</span></div>
     <div class="cell f-flags" style="grid-column:span 1">flags<br><span class="mono">14-15</span></div>
     <div class="cell f-payload wide">payload<br><span class="mono">变长</span></div>
     <div class="cell f-crc wide">crc32<br><span class="mono">变长</span></div>
   </div>
 </div>
-<div class="legend"><span><i class="swatch" style="background:var(--b-session)"></i>session_id</span><span><i class="swatch" style="background:var(--b-chunk)"></i>chunk_id</span><span><i class="swatch" style="background:var(--b-len)"></i>payload_len</span><span><i class="swatch" style="background:var(--b-flags)"></i>flags</span><span><i class="swatch" style="background:var(--b-payload)"></i>payload</span><span><i class="swatch" style="background:var(--b-crc)"></i>crc32</span></div>
+<div class="legend"><span><i class="swatch" style="background:var(--b-session)"></i>session_id</span><span><i class="swatch" style="background:var(--b-chunk)"></i>chunk_id</span><span><i class="swatch" style="background:var(--b-chunk)"></i>chunk_symbol</span><span><i class="swatch" style="background:var(--b-flags)"></i>flags</span><span><i class="swatch" style="background:var(--b-payload)"></i>payload</span><span><i class="swatch" style="background:var(--b-crc)"></i>crc32</span></div>
 <div class="caption">头部共 16 字节；字段偏移与大小由源文表格抽取，图与表同源。</div>
 
   <!-- ============ 规范正文（源文自动渲染） ============ -->
@@ -73,14 +74,14 @@
 <td>8-11</td>
 <td>4</td>
 <td>u32</td>
-<td>逻辑位置（从 0 开始）</td>
+<td>逻辑块序号（从 0 开始）</td>
 </tr>
 <tr>
-<td>payload_len</td>
+<td>chunk_symbol</td>
 <td>12-13</td>
 <td>2</td>
 <td>u16</td>
-<td>载荷长度（不含头部与 CRC）</td>
+<td><code>chunk_id</code> 块内的 <strong>symbol 起始索引</strong>（从 0 开始）</td>
 </tr>
 <tr>
 <td>flags</td>
@@ -94,7 +95,7 @@
 <td>16..</td>
 <td>N</td>
 <td>bytes</td>
-<td>文件数据</td>
+<td>文件数据（<code>K</code> 个 symbol）</td>
 </tr>
 <tr>
 <td>crc32</td>
@@ -109,21 +110,41 @@
 <pre class="codeblock"><code>HEADER_SIZE = 8 + 4 + 2 + 2 = 16 字节
 CRC_SIZE    = 4 字节
 </code></pre>
-<p><strong>包长核算</strong>：以 <code>chunk_size = 1200</code> 为例，一个数据包的线上长度为
+<p><strong>载荷长度由传输层反推（规范性）</strong>：数据报<strong>不</strong>携带 <code>payload_len</code> ——
+UDP 报文长度已给出总长。接收方<strong>必须</strong>按 <code>L = 数据报总长 − 16 − 4</code>
+求得载荷长度，并要求 <code>L &gt; 0</code>。</p>
+<p><strong>包长核算</strong>：以 <code>symbol_size = 1200</code>、<code>K = 1</code> 为例，一个数据报的线上长度为
 <code>16 + 1200 + 4 = 1220</code> 字节；叠加 IPv4 + UDP 的 28 字节头部为 1248 字节，
 <strong>小于</strong> 1500 字节的以太网 MTU，<strong>不会</strong>产生 IP 分片。</p>
-<h2>载荷长度上限</h2>
+<h2>两级单位与长度规则（规范性）</h2>
+<p>本协议把「寻址单位」与「线缆单位」分开：</p>
 <ul>
-<li><code>payload_len ≤ chunk_size</code></li>
-<li>建议 <code>chunk_size</code> 取 1024–1350 字节，<strong>上限 1400 字节</strong>，避免 IP 分片</li>
-<li>推荐 <code>chunk_size</code> 取 <strong>1200</strong> 字节</li>
-<li><strong>接收端必须校验</strong>：<code>payload_len ≤ 1400</code> 且 <code>payload_len ≤ 本会话协商的 chunk_size</code>；
-  越界即按 <code>INVALID_PACKET</code> 丢弃，<strong>不得</strong>写入位图</li>
-<li>对 <code>FLAG_DATA</code>，先检查 <code>chunk_id &lt; chunk_count</code>，再要求
-  <code>payload_len == min(chunk_size, size - chunk_id × chunk_size)</code>（按宽整数计算）。
-  非末块必须满长；空文件没有 DATA 块。UDP 报文总长必须恰为 <code>16 + payload_len + 4</code>。
-  长度不符按 <code>INVALID_PACKET</code> 丢弃，不写盘、不标位。PROBE / ACK 使用 07 章的独立长度。</li>
+<li><strong>symbol</strong>（线缆/修复粒度）：<code>symbol_size</code> = <strong>1200 字节</strong>，协议常量。</li>
+<li><strong>chunk</strong>（逻辑块/寻址单位）：<code>chunk_size</code> 由会话协商，<strong>必须</strong>是
+  <code>symbol_size</code> 的整数倍；记 <code>S = chunk_size / symbol_size</code>，<strong>必须</strong>满足
+  <code>1 ≤ S ≤ 64</code>。规范默认 <code>chunk_size</code> = <strong>64800</strong>（<code>S</code> = 54）。</li>
+<li>一个数据报承载 <code>K</code> 个连续 symbol，<code>1 ≤ K ≤ S</code>，载荷长度 <code>L = K × symbol_size</code>
+  （末报文可短，见下）。<code>K</code> <strong>必须</strong>由 <code>L</code> 推出：<code>K = ceil(L / symbol_size)</code>，
+  <strong>不单独编码</strong>。</li>
+<li><code>chunk_symbol</code> 是块内 symbol 索引；第 <code>chunk_id</code> 块第 <code>chunk_symbol</code> 个 symbol 的
+  文件字节偏移为 <code>chunk_id × chunk_size + chunk_symbol × symbol_size</code>。</li>
+<li>数据报<strong>不得</strong>跨块：<code>chunk_symbol + K ≤ S</code>。</li>
 </ul>
+<p><strong>长度校验（规范性）</strong>：接收端<strong>必须</strong>校验：</p>
+<ol>
+<li><code>L &gt; 0</code>；</li>
+<li><code>chunk_symbol + K ≤ S</code>；对<strong>最后一个块</strong>，还需
+   <code>chunk_symbol + K ≤ ceil((size − chunk_id × chunk_size) / symbol_size)</code>；</li>
+<li><strong>除「最后一个块的最后一个数据报」外</strong>，<code>L</code> <strong>必须</strong>是 <code>symbol_size</code> 的
+   正整数倍（即 <code>L = K × symbol_size</code>）；</li>
+<li>最后一个块的最后一个数据报<strong>可以</strong>是剩余字节，其长度<strong>必须</strong>精确等于
+   <code>size − chunk_id × chunk_size − chunk_symbol × symbol_size</code>
+   （按<strong>宽整数</strong>计算；结果为负数即非法；此时 <code>K = 1</code>，覆盖文件末尾的短 symbol）。</li>
+</ol>
+<p>任一不满足即按 <code>INVALID_PACKET</code> 丢弃，<strong>不得</strong>写盘或标位。空文件没有 DATA 块。</p>
+<p><strong>关于 IP 分片（说明）</strong>：<code>K × symbol_size + 20</code> 超过路径 MTU 时会被 IP 分片。
+规范<strong>不禁止</strong>分片，但分片会放大丢失：丢一个分片即整报文作废、其覆盖的 <code>K</code> 个
+symbol 全部重传。发送方<strong>应当</strong>按路径 MTU 选择 <code>K</code>（见 11 章「变长数据报与 K」）。</p>
 <h2>CRC32 变体（规范性）</h2>
 <p>本协议的 <code>crc32</code> 字段使用 <strong>CRC-32/ISO-HDLC</strong>（又称 CRC-32、zlib <code>crc32</code>）：</p>
 <div class="card"><table>
@@ -165,8 +186,7 @@ CRC_SIZE    = 4 字节
 </tbody>
 </table></div>
 <p><strong>覆盖区间（规范性）</strong>：被校验的字节是数据包的
-<strong>第 0 字节到第 <code>16 + payload_len - 1</code> 字节</strong>，
-即 <strong>16 字节头部 + payload</strong>，
+<strong>第 0 字节到第 <code>16 + L − 1</code> 字节</strong>，即 <strong>16 字节头部 + payload</strong>，
 <strong>不含</strong>尾部 4 字节 <code>crc32</code> 字段本身。</p>
 <p><strong>为何必须固定变体（说明）</strong>：CRC-32/ISO-HDLC 与 CRC-32C（Castagnoli，
 多项式 0x1EDC6F41 / 反射 0x82F63B78）<strong>互不兼容</strong> —— 两端各选一种会导致
@@ -176,10 +196,10 @@ CRC_SIZE    = 4 字节
 <h2>包级校验与块级补救（规范性）</h2>
 <ul>
 <li><strong>接收端必须</strong>在<strong>写盘前</strong>校验 <code>crc32</code>；校验失败即丢弃该包，
-  <strong>不得</strong>写入位图（见 12 章「包级校验」）。</li>
-<li>该包对应的块因此保持「<strong>未收到</strong>」状态，会在随后的缺失裁决中被精确报告，
-  发送方<strong>只补发该块</strong>。
-  <strong>单次校验失败的代价是一个块，与文件大小无关</strong>（见 12 章）。</li>
+  <strong>不得</strong>标记任何 symbol（见 12 章「包级校验」）。</li>
+<li>该包覆盖的 <code>K</code> 个 symbol 因此保持「<strong>未收到</strong>」状态，会在随后的缺失裁决中被精确报告，
+  发送方<strong>只补发这些 symbol</strong>。
+  <strong>单次校验失败的代价是 <code>K</code> 个 symbol，与文件大小无关</strong>（见 12 章）。</li>
 </ul>
 <h2>Flags 位定义</h2>
 <div class="card"><table>
@@ -208,13 +228,13 @@ CRC_SIZE    = 4 字节
 <td>bit2</td>
 <td>FLAG_LAST_CHUNK</td>
 <td>0x0004</td>
-<td>最后一个 chunk 标志，置位时该包的 <code>chunk_id</code> = <code>chunk_count - 1</code>；<strong>可选</strong>，接收方<strong>不得</strong>依赖它判断完成（完成以位图为准）</td>
+<td>最后一个块标志，置位时该包的 <code>chunk_id</code> = <code>chunk_count - 1</code>；<strong>可选</strong>，接收方<strong>不得</strong>依赖它判断完成（完成以块内 symbol 掩码为准）</td>
 </tr>
 <tr>
 <td>bit3</td>
 <td>FLAG_PROBE</td>
 <td>0x0008</td>
-<td>探测包标志；PROBE 与 PROBE_ACK 共用，以 <code>payload_len</code> 区分（8 / 9）</td>
+<td>探测包标志；PROBE 与 PROBE_ACK 共用，以<strong>载荷长度</strong>（由报文总长反推）区分（8 / 9）</td>
 </tr>
 <tr>
 <td>bit4-5</td>
@@ -240,17 +260,17 @@ CRC_SIZE    = 4 字节
 <p><strong>普通数据包</strong>:</p>
 <pre class="codeblock"><code>session_id: 0x0000000000000001
 chunk_id:   0x00000010
-payload_len: 1024
+chunk_symbol: 0            // 该块第 0 个 symbol（K=1，L=1200）
 flags:      0x0001 (FLAG_DATA)
-payload:    [1024 bytes data]
+payload:    [1200 bytes data]
 crc32:      [4 bytes checksum]
 </code></pre>
 <p><strong>探测包（PROBE）</strong>:</p>
 <pre class="codeblock"><code>session_id: 0x0000000000000001
 chunk_id:   0x00000000
-payload_len: 8
+chunk_symbol: 0
 flags:      0x0008 (FLAG_PROBE)
-payload:    [session_id in little-endian, 8 bytes]
+payload:    [session_id in little-endian, 8 bytes]   // L = 8
 crc32:      [4 bytes checksum]
 </code></pre>
 <blockquote>
@@ -259,21 +279,22 @@ crc32:      [4 bytes checksum]
 <p><strong>探测应答包（PROBE_ACK）</strong>:</p>
 <pre class="codeblock"><code>session_id: 0x0000000000000001
 chunk_id:   0x00000000
-payload_len: 9
+chunk_symbol: 0
 flags:      0x0008 (FLAG_PROBE)
-payload:    [session_id in little-endian, 8 bytes][status: 0x00]
+payload:    [session_id in little-endian, 8 bytes][status: 0x00]   // L = 9
 crc32:      [4 bytes checksum]
 </code></pre>
 <p>PROBE_ACK 的 payload 为 9 字节：8 字节 session_id + 1 字节状态码
 （0 = 成功，1 = 失败）。
-<strong>PROBE 与 PROBE_ACK 共用 <code>flags.bit3</code>，以 <code>payload_len</code> 区分</strong>（8 / 9）。</p>
+<strong>PROBE 与 PROBE_ACK 共用 <code>flags.bit3</code>，以载荷长度区分</strong>（8 / 9）。</p>
 <h2>错误处理</h2>
-<p>任一关键字段不匹配或校验失败均丢弃。校验失败的数据包<strong>不得</strong>标记位图。</p>
+<p>任一关键字段不匹配或校验失败均丢弃。校验失败的数据包<strong>不得</strong>标记任何 symbol。</p>
 <ul>
-<li><code>payload_len</code> 越界（&gt; 1400 或 &gt; 协商 chunk_size）→ <code>INVALID_PACKET</code>，丢弃</li>
-<li>该 <code>chunk_id</code> <strong>已收到</strong>（重复包）→ 幂等丢弃，不重复写盘
+<li><code>L</code> 非法（<code>L ≤ 0</code>、<code>chunk_symbol + K &gt; S</code>、非末报文 <code>L</code> 非 <code>symbol_size</code> 整数倍）
+  → <code>INVALID_PACKET</code>，丢弃</li>
+<li>该 symbol <strong>已收到</strong>（重复包）→ 幂等丢弃，不重复写盘
   （<code>CHUNK_ALREADY_RECEIVED</code>，见 19 章）</li>
-<li><code>chunk_id</code> 越界（≥ chunk_count）→ <code>INVALID_CHUNK</code>，丢弃</li>
+<li><code>chunk_id</code> 越界（≥ <code>chunk_count</code>）→ <code>INVALID_CHUNK</code>，丢弃</li>
 <li><code>session_id</code> 不匹配 → <code>SESSION_ID_MISMATCH</code>，丢弃</li>
 <li>CRC32 校验失败 → <code>CRC32_INVALID</code>，丢弃</li>
 </ul>

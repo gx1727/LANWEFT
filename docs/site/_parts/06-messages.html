@@ -24,7 +24,7 @@
     </div>
   </div>
 
-  <h3>missing_chunks（<code>0x07</code>）· 定长区 20 字节</h3>
+  <h3>missing_chunks（<code>0x07</code>）· 定长区 24 字节</h3>
   <div class="diagram">
     <div class="fields" style="--cols:8">
       <div class="cell bitnum">0</div>
@@ -39,9 +39,10 @@
       <div class="cell f-type">mode</div>
       <div class="cell f-flags">flags</div>
       <div class="cell span2 f-muted">reserved</div>
-      <div class="cell span4 f-len">missing_count (u32)</div>
-      <div class="cell span4 f-len">chunk_count (u32)</div>
-      <div class="cell wide f-body">变长区：chunks (chunk_list = u32 条数 + 条数 × u32 chunk_id，升序)</div>
+      <div class="cell span4 f-len">missing_count (u32) · symbol 总数</div>
+      <div class="cell span4 f-len">chunk_count (u32) · 完全缺失块数</div>
+      <div class="cell span4 f-len">partial_count (u32) · 部分缺失块数</div>
+      <div class="cell wide f-body">变长区：chunks (chunk_list) ‖ partial[]（每条 chunk_id u32 + missing_mask u64）</div>
     </div>
   </div>
 

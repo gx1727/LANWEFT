@@ -149,21 +149,22 @@
 <li>完成与提交：bitmap 全真 → 校验 hash → 原子重命名 → 发布完成消息</li>
 </ul>
 <p><strong>推进依据：信用 + 裁决（规范性）</strong>：窗口推进由<strong>信用</strong>驱动 —— 接收方在收到新块时
-按 11 章「窗口推进信用」下发 <code>window_update</code>，其 <code>received_count</code> 构成推进依据；
+按 11 章「窗口推进信用」下发 <code>window_update</code>，其 <code>received_symbols</code> 构成推进依据；
 <code>missing_chunks</code>（<code>mode=report</code>）的 <code>missing_count</code> 同样构成信用。
-当本会话<strong>存在未收到的块</strong>时，接收方<strong>必须</strong>至少每 50ms 下发一次
+当本会话<strong>存在未收到的 symbol</strong> 时，接收方<strong>必须</strong>至少每 50ms 下发一次
 <code>missing_chunks</code>（<code>mode=report</code>）以便补发。
 缺失列表为空时<strong>不承担</strong>周期性推进职责，活性由 11 章判据第 4 条的 <strong>1000 ms</strong>
 索要机制保证。详见 11 章。</p>
 <p><code>missing_chunks</code> 的 <code>mode</code> 为 <code>enum8</code>（<code>0</code> = report、<code>1</code> = request）；
-<code>chunks</code> 为 <code>chunk_list</code>（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>），
-「缺失列表为空」即 <code>chunk_list</code> 的条数为 <code>0</code>；<code>missing_count</code> 为位图中
-<strong>尚未收到</strong>的 chunk <strong>精确总数</strong>（<code>u32</code>），<strong>不是</strong>本批 <code>chunks</code> 的长度。
+<code>chunks</code> 为完全缺失块列表（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>），
+<code>partial[]</code> 为部分缺失块列表（每条 <code>chunk_id</code> + <code>u64</code> <code>missing_mask</code>）；
+「没有缺失」即两者皆为空；<code>missing_count</code> 为位图中
+<strong>尚未收到</strong>的 <strong>symbol 精确总数</strong>（<code>u32</code>），<strong>不是</strong>块数，也<strong>不是</strong> <code>partial_count</code>。
 见 06 章「missing_chunks」。</p>
 <h2>保底轮询（Keep-Alive Polling）</h2>
 <ul>
 <li>Client 发送完全部数据后，若 Server 持续返回 <code>missing_chunks</code>（<code>mode=report</code>）
-  且 <code>chunks</code> 为空、<strong>未置复核轮标志</strong>（即「没有缺失」而非「全部重发」），
+  且 <code>chunks</code> 与 <code>partial[]</code> 皆为空、<strong>未置复核轮标志</strong>（即「没有缺失」而非「全部重发」），
   但<strong>始终未下发</strong> <code>upload_complete</code>，Client 进入保底轮询状态。</li>
 <li>保底轮询<strong>使用</strong> 11 章判据第 4 条的<strong>同一个 1000 ms 索要规则</strong>：
   Client <strong>必须</strong>按该周期发布 <code>missing_chunks</code>（<code>mode=request</code>）
@@ -186,8 +187,8 @@
 重复的 <code>mode=request</code> 是幂等的，与幂等要求兼容
 （见 06 章「未识别消息必须忽略，保持幂等性」）。</p>
 <h2>停滞检测与升级（规范性）</h2>
-<p><code>missing_count</code>（见 06 章）在<strong>同一修复代号内单调不增</strong>：每收到一个此前缺失的块即减一，
-新到达的块只可能来自本会话的 <code>0 … chunk_count-1</code>。接收方<strong>必须</strong>用它检测停滞 ——
+<p><code>missing_count</code>（见 06 章）在<strong>同一修复代号内单调不增</strong>：每收到一个此前缺失的 symbol 即减一，
+新到达的 symbol 只可能来自本会话的 <code>0 … symbol_count-1</code>。接收方<strong>必须</strong>用它检测停滞 ——
 记录 <code>last_progress_at</code>，每次 <code>missing_count</code> 减小即刷新；每次进入 <code>TRANSFERRING</code>
 （接受、暂停恢复、断线重连、从 <code>VERIFY</code> 退回恢复阶梯）<strong>必须</strong>把
 <code>last_progress_at</code> 重置为当前时刻。</p>
@@ -202,8 +203,8 @@
 <p><strong>升级阶梯（规范性）</strong>：判定停滞时接收方<strong>必须</strong>按序执行：</p>
 <ol>
 <li><strong>首次停滞</strong> → <strong>定点重读</strong>：下发 <code>missing_chunks</code>（<code>mode=report</code>）并置
-   <strong>定点重读标志</strong>（<code>flags.bit6</code> = 1，见 06 章），列出当前缺失块
-   （仍受单条 4096 条的分批上限约束）。发送方<strong>必须</strong>按 06 章重新读取源文件的
+   <strong>定点重读标志</strong>（<code>flags.bit6</code> = 1，见 06 章），列出当前缺失 symbol
+   （<code>chunks</code> 与 <code>partial[]</code>，仍受单条 4096 条的分批上限约束）。发送方<strong>必须</strong>按 06 章重新读取源文件的
    对应区间（<strong>不得</strong>复用页缓存或缓冲）后重发；接收方随即把 <code>last_progress_at</code> 刷新。</li>
 <li><strong>再次停滞</strong>（定点重读后仍无任何缺失块到达）→ 接收方<strong>必须</strong>发布
    <code>session_abort</code>（<code>reason</code> = <code>TRANSFER_STALLED</code>）终止会话。</li>
@@ -227,7 +228,7 @@
 为防止被 60 秒会话活动超时误判为空闲：</p>
 <ul>
 <li>接收方在 <code>VERIFY</code> / <code>COMMIT</code> 期间<strong>必须</strong>继续处理控制面：应答 <code>ping</code>，
-  并在收到 <code>missing_chunks</code>（<code>mode=request</code>）时于 <strong>50 ms</strong> 内以<strong>空列表</strong>的
+  并在收到 <code>missing_chunks</code>（<code>mode=request</code>）时于 <strong>50 ms</strong> 内以<strong>两级列表均为空</strong>的
   <code>mode=report</code> 应答（与 <code>COMPLETED</code> 的应答义务相同，见 06 章）。
   这些应答构成控制面活动，使既有活动超时继续充当「真正卡死」的兜底。</li>
 <li>文件级哈希与提交<strong>不得</strong>阻塞控制循环或心跳处理。</li>
@@ -251,14 +252,14 @@
 <p>本协议<strong>不采用逐包 ACK</strong>，而采用「<strong>位图 + 缺失裁决</strong>」。
 因此包级校验失败<strong>不会</strong>导致整文件重传：</p>
 <ul>
-<li>校验失败的包被丢弃 → 对应块<strong>不标记位图</strong> → 该块保持「<strong>未收到</strong>」状态；</li>
+<li>校验失败的包被丢弃 → 其覆盖的 <code>K</code> 个 symbol <strong>不标记位图</strong> → 它们保持「<strong>未收到</strong>」状态；</li>
 <li>接收方<strong>必须</strong>通过<strong>常规缺失裁决</strong>（<code>missing_chunks</code>，<code>mode=report</code>）
-  报告该块；</li>
-<li>发送方<strong>必须</strong>按 11 章的「重传优先级高于新数据」<strong>只补发该块</strong>。</li>
+  报告这些 symbol；</li>
+<li>发送方<strong>必须</strong>按 11 章的「重传优先级高于新数据」<strong>只补发这些 symbol</strong>。</li>
 </ul>
-<p><strong>单次校验失败的代价是一个块，与文件大小无关。</strong>
-包头被损坏导致该包的 <code>chunk_id</code> 不可信时，归属由位图裁决自动恢复：
-真正丢失的块本来就未被标记，裁决必然把它报出来。</p>
+<p><strong>单次校验失败的代价是 <code>K</code> 个 symbol，与文件大小无关。</strong>
+包头被损坏导致该包的 <code>chunk_symbol</code> 不可信时，归属由位图裁决自动恢复：
+真正丢失的 symbol 本来就未被标记，裁决必然把它们报出来。</p>
 <h3>文件级</h3>
 <ul>
 <li>传输完成后，接收方计算全文件 Blake3 哈希，与请求中的 <code>file_hash</code> 比对
@@ -372,9 +373,10 @@
    二等分规则由 <code>(first_chunk, chunk_count)</code> 唯一确定，双方无须协商。</li>
 <li>重复第 3–5 步，直到某区间的 <code>chunk_count</code> 达到<strong>最小粒度</strong>
    （规范取 <strong>1</strong>，即定位到单个 chunk）；该 chunk 即为<strong>可疑块</strong>。</li>
-<li>接收方<strong>必须</strong>把全部<strong>可疑块</strong>的<strong>位图位清零</strong>（置为「未收到」），
-   随后按<strong>常规缺失裁决</strong>（<code>missing_chunks</code>，<code>mode=report</code>）报告它们；
-   发送方<strong>必须</strong>按 11 章的「重传优先级高于新数据」补发这些块。
+<li>接收方<strong>必须</strong>把全部<strong>可疑块</strong>的完成位清零，并丢弃其 symbol 掩码
+   （等价于整块置为「未收到」），随后按<strong>常规缺失裁决</strong>
+   （<code>missing_chunks</code>，<code>mode=report</code>）报告它们；发送方<strong>必须</strong>按 11 章的
+   「重传优先级高于新数据」补发这些块。
    <strong>修复阶段不引入任何新消息</strong> —— 复用既有的位图与裁决机制。</li>
 <li>补发完成后，接收方<strong>必须</strong>重新计算文件级 Blake3；通过则进入 COMMIT，
    否则转入<strong>复核轮</strong>。</li>
@@ -463,11 +465,11 @@
 <p><strong>接收方（规范性）</strong>：</p>
 <ol>
 <li>接收方<strong>必须</strong>进入复核轮，<strong>不得</strong>立即发布 <code>session_abort</code>。</li>
-<li>接收方<strong>必须</strong>清空位图（全部块置为「未收到」），临时文件<strong>保留</strong>
-   （复核轮将覆盖写入相同偏移）。</li>
+<li>接收方<strong>必须</strong>清空两级位图（块完成位图全部置 0，并丢弃所有 symbol 掩码），
+   临时文件<strong>保留</strong>（复核轮将覆盖写入相同偏移）。</li>
 <li>接收方<strong>必须</strong>发布 <code>missing_chunks</code>（<code>mode=report</code>）并置<strong>复核轮标志</strong>
-   （<code>flags.bit1</code> = 1）；该条裁决的 <code>chunks</code> <strong>必须</strong>为空列表，
-   <code>missing_count</code> <strong>必须</strong>等于 <code>chunk_count</code>（见 06 章）。</li>
+   （<code>flags.bit1</code> = 1）；该条裁决的 <code>chunks</code> 与 <code>partial[]</code> <strong>必须</strong>为空，
+   <code>missing_count</code> <strong>必须</strong>等于 <code>symbol_count</code>（见 06 章）。</li>
 <li>接收方<strong>必须</strong>记录复核轮计数，并<strong>必须</strong>将其与位图一同<strong>持久化</strong>
    （见 09 章「持久化」），使进程重启后不得重复使用复核轮。</li>
 <li>复核轮结束后，接收方<strong>必须</strong>重新计算文件级 Blake3 并再次比对。</li>
@@ -479,7 +481,7 @@
 <li>发送方<strong>必须</strong>重新打开源文件并<strong>重新读取</strong>内容 ——
    <strong>不得</strong>复用先前已读入内存或页缓存中的旧副本；
    发送方<strong>应当</strong>绕过操作系统页缓存重新读取（实现建议）。</li>
-<li>发送方<strong>必须</strong>从 <code>chunk_id</code> = 0 起全量重发。</li>
+<li>发送方<strong>必须</strong>从 <code>chunk_id</code> = 0、<code>chunk_symbol</code> = 0 起全量重发。</li>
 <li>发送方<strong>必须</strong>对同一会话<strong>最多响应一次</strong>复核轮。</li>
 </ol>
 <p><strong>终止条件（规范性）</strong>：</p>

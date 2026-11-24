@@ -10,7 +10,6 @@
 </div>
 
 <div class="caption">
-  常驻内存<strong>应当</strong>只包含：数据面 payload 缓冲、位图、会话状态；
-  内存占用<strong>应当</strong>与 <code>chunk_size</code> 成正比，
-  而<strong>不</strong>与文件大小成正比 —— 这是「内存与文件大小解耦」目标的直接体现（推荐性）。
+  常驻数据面缓冲<strong>应当</strong>与 <code>symbol_size</code> 及批次大小成正比，
+  而<strong>不</strong>与文件大小成正比；两级位图按「块数 + 未完成块」记账（推荐性）。
 </div>

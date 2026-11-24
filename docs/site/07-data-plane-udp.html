@@ -42,7 +42,7 @@
       <div class="cell half f-session">session_id</div>
       <div class="cell half f-chunk">chunk_id</div>
 
-      <div class="cell half f-len">payload_len</div>
+      <div class="cell half f-len">chunk_symbol</div>
       <div class="cell half f-flags">flags</div>
 
       <div class="cell wide f-payload">payload (Variable Length)</div>
@@ -54,7 +54,7 @@
   <div class="legend">
     <span><i class="swatch" style="background:var(--b-session)"></i>session_id</span>
     <span><i class="swatch" style="background:var(--b-chunk)"></i>chunk_id</span>
-    <span><i class="swatch" style="background:var(--b-len)"></i>payload_len</span>
+    <span><i class="swatch" style="background:var(--b-len)"></i>chunk_symbol</span>
     <span><i class="swatch" style="background:var(--b-flags)"></i>flags</span>
     <span><i class="swatch" style="background:var(--b-payload)"></i>payload</span>
     <span><i class="swatch" style="background:var(--b-crc)"></i>crc32</span>
@@ -137,11 +137,11 @@
       <div class="cell f-session">session_id (u64)</div>
 
       <div class="cell f-chunk">chunk_id (u32)</div>
-      <div class="cell f-len">payload_len (u16)</div>
+      <div class="cell f-len">chunk_symbol (u16)</div>
       <div class="cell f-flags">flags (u16)</div>
       <div class="cell f-payload">payload</div>
 
-      <div class="cell wide f-muted">frame_len = 28 + payload_len（<code>frame_len</code> 含帧头）</div>
+      <div class="cell wide f-muted">frame_len = 28 + L（L 为载荷长度，由 frame_len 反推；<code>frame_len</code> 含帧头）</div>
     </div>
   </div>
 
@@ -164,7 +164,8 @@
   <h2>UDP 原则</h2>
 <ul>
 <li>无连接、无逐包 ACK、允许丢包与乱序</li>
-<li>payload_len ≤ chunk_size（建议 chunk_size ≤ 1400，避免 IP 分片）</li>
+<li>一个数据报承载 <code>K</code> 个 symbol（<code>K × symbol_size</code> 字节，见 08 章）；
+  <code>symbol_size</code> = 1200，<code>chunk_size</code> 为其整数倍（默认 64800，<code>S</code> = 54）</li>
 <li>crc32 包级校验（见 08 章）</li>
 <li>数据面端口<strong>可以</strong>被多个会话共用，<code>session_id</code>（u64）用于区分（见 08 章）</li>
 </ul>
@@ -194,19 +195,19 @@
 <ul>
 <li>flags.bit3=1，flags.bit0（FLAG_DATA）<strong>必须</strong>为 0</li>
 <li>payload 为 session_id（u64）的 <strong>8 字节小端编码</strong></li>
-<li><code>payload_len</code> = <strong>8</strong></li>
+<li>载荷长度（由报文总长反推）= <strong>8</strong></li>
 </ul>
 <h3>PROBE_ACK 数据包</h3>
 <ul>
 <li>flags.bit3=1，flags.bit0（FLAG_DATA）<strong>必须</strong>为 0</li>
 <li>payload 为 session_id（u64）+ 1 字节状态码（0=成功，1=失败），共 <strong>9 字节</strong></li>
-<li><code>payload_len</code> = <strong>9</strong></li>
+<li>载荷长度（由报文总长反推）= <strong>9</strong></li>
 <li><strong>判别规则（规范性）</strong>：PROBE 与 PROBE_ACK 共用 <code>flags.bit3</code>，
-  接收方<strong>必须</strong>以 <code>payload_len</code> 区分：<code>payload_len == 8</code> 为 PROBE，
-  <code>payload_len == 9</code> 为 PROBE_ACK。其余长度<strong>必须</strong>按 <code>INVALID_PACKET</code> 丢弃。</li>
+  接收方<strong>必须</strong>以<strong>载荷长度</strong>区分：<code>8</code> 为 PROBE，<code>9</code> 为 PROBE_ACK。
+  其余长度<strong>必须</strong>按 <code>INVALID_PACKET</code> 丢弃。</li>
 <li><strong>判别前提（规范性）</strong>：该规则<strong>仅</strong>适用于 <code>FLAG_PROBE</code> 置位且 <code>FLAG_DATA</code>
     <strong>未</strong>置位的包。<code>FLAG_DATA</code> 包一律按数据路径处理，
-    <strong>不得</strong>用 <code>payload_len</code> 判别类型（文件末尾块的 <code>payload_len</code> 可能恰好为 8 或 9）。</li>
+    <strong>不得</strong>用载荷长度判别类型（数据报的 <code>K × symbol_size</code> 可能恰好为 8 或 9 字节）。</li>
 </ul>
 <h3>端口与地址绑定（规范性）</h3>
 <ul>
@@ -315,14 +316,14 @@ Server 不得向未经 PROBE 确认的地址发送数据（见 20 章），
 <td>20-23</td>
 <td>4</td>
 <td>u32</td>
-<td>逻辑位置（从 0 开始）</td>
+<td>逻辑块序号（从 0 开始）</td>
 </tr>
 <tr>
-<td>payload_len</td>
+<td>chunk_symbol</td>
 <td>24-25</td>
 <td>2</td>
 <td>u16</td>
-<td>载荷长度</td>
+<td><code>chunk_id</code> 块内的 symbol 起始索引</td>
 </tr>
 <tr>
 <td>flags</td>
@@ -336,7 +337,7 @@ Server 不得向未经 PROBE 确认的地址发送数据（见 20 章），
 <td>28..</td>
 <td>N</td>
 <td>bytes</td>
-<td>文件数据</td>
+<td>文件数据（<code>K</code> 个 symbol）</td>
 </tr>
 </tbody>
 </table></div>
@@ -345,7 +346,7 @@ Server 不得向未经 PROBE 确认的地址发送数据（见 20 章），
 <p><strong>帧头校验码（规范性）</strong>：<code>header_crc32</code> 使用 <strong>CRC-32/ISO-HDLC</strong>
 （与 08 章 <code>crc32</code>、06 章 <code>header_crc32</code> <strong>同一变体</strong>），
 覆盖帧头中<strong>除 <code>header_crc32</code> 字段自身之外</strong>的 <strong>24 字节</strong>，按下列顺序拼接：</p>
-<pre class="codeblock"><code>magic(4) ‖ frame_len(4) ‖ session_id(8) ‖ chunk_id(4) ‖ payload_len(2) ‖ flags(2)
+<pre class="codeblock"><code>magic(4) ‖ frame_len(4) ‖ session_id(8) ‖ chunk_id(4) ‖ chunk_symbol(2) ‖ flags(2)
 </code></pre>
 <ul>
 <li>上式对应帧内的<strong>两段连续区间</strong>：字节 <code>0–7</code> 与字节 <code>12–27</code>；
@@ -353,18 +354,18 @@ Server 不得向未经 PROBE 确认的地址发送数据（见 20 章），
 <li><code>magic</code> 在线路上的<strong>四个字节</strong>为 <code>4C 41 4E 57</code>（"LANW"，小端序），与控制帧一致。</li>
 </ul>
 <p><strong>帧长核算（规范性）</strong>：</p>
-<pre class="codeblock"><code>frame_len = 28 + payload_len
+<pre class="codeblock"><code>frame_len = 28 + L        // L 为载荷长度，由 frame_len 反推
 </code></pre>
 <ul>
 <li><code>magic</code> <strong>必须</strong>为 <code>0x574E414C</code>；不匹配即判定<strong>失步</strong>（见下）。</li>
 <li><code>frame_len</code> <strong>必须</strong> ≥ <strong>28</strong></li>
 <li>接收方<strong>必须</strong>按 <code>frame_len</code> <strong>读满</strong>后再解析：
   <strong>不得</strong>假设一帧一次 <code>recv</code> 到达；<strong>不得</strong>按换行或任何字节模式切分。</li>
-<li><code>payload_len</code> <strong>必须</strong> ≤ 本会话协商的 <code>chunk_size</code>；
-  越界即按 <code>INVALID_PACKET</code> 关闭该 TCP 数据面连接。</li>
-<li>DATA 帧还必须满足 08 章同一块号的精确长度，且 <code>frame_len == 28 + payload_len</code>；
-  不符不得写盘或标位，并关闭该数据连接。代号不匹配但边界合法的 DATA 只丢帧；
-  <code>FLAG_BIND</code> 仍使用零载荷，不适用文件块长度公式。</li>
+<li>载荷长度 <code>L = frame_len − 28</code>，<strong>必须</strong> &gt; 0（<code>FLAG_BIND</code> 除外）；
+  DATA 帧的 <code>chunk_symbol + K ≤ S</code>、长度对齐与末块规则与 08 章<strong>完全一致</strong>
+  （<code>K = ceil(L / symbol_size)</code>）。不符不得写盘或标位，并关闭该数据连接。
+  代号不匹配但边界合法的 DATA 只丢帧；<code>FLAG_BIND</code> 使用零载荷（<code>L = 0</code>，
+  <code>chunk_symbol = 0</code>），不适用文件块长度公式。</li>
 <li><strong>不携带载荷级 CRC32</strong>：TCP 提供字节流校验与可靠重传，
   TCP 数据面帧<strong>不</strong>携带 <code>crc32</code> —— 载荷完整性由 TCP 自身保证。
   帧头的 <code>header_crc32</code> <strong>不是</strong>载荷校验，而是<strong>帧同步</strong>手段。</li>
@@ -434,8 +435,8 @@ Server 不得向未经 PROBE 确认的地址发送数据（见 20 章），
 <ul>
 <li><strong>Client 恒为连接方</strong>：无论上传或下载，Server 在下发的 <code>tcp_port</code> 监听，Client 主动连接后，
   <strong>必须</strong>先发送一个<strong>绑定帧</strong>：
-  <code>flags</code> 置位 <code>FLAG_BIND</code>（bit6）、<strong>未</strong>置位 <code>FLAG_DATA</code>，<code>payload_len</code> = <strong>0</strong>，
-  <code>session_id</code> 为待绑定会话。</li>
+  <code>flags</code> 置位 <code>FLAG_BIND</code>（bit6）、<strong>未</strong>置位 <code>FLAG_DATA</code>，
+  载荷长度 <code>L = 0</code>、<code>chunk_symbol</code> = 0，<code>session_id</code> 为待绑定会话。</li>
 <li>绑定帧<strong>必须</strong>是连接上的<strong>第一条</strong>数据面帧（<strong>首帧锚点</strong>）；
     绑定完成前<strong>不得</strong>发送任何其他数据面帧。</li>
 <li>连接方<strong>必须</strong>在绑定帧发出后<strong>保持连接打开</strong>，直到会话进入终态。</li>
@@ -455,8 +456,9 @@ Server 不得向未经 PROBE 确认的地址发送数据（见 20 章），
 </ul>
 <h3>与 UDP 通道的关系</h3>
 <ul>
-<li>两条通道的<strong>块语义完全一致</strong>：<code>chunk_id</code>、<code>chunk_size</code>、偏移映射
-  <code>offset = chunk_id × chunk_size</code>。</li>
+<li>两条通道的<strong>块与 symbol 语义完全一致</strong>：<code>chunk_id</code>、<code>chunk_symbol</code>、<code>chunk_size</code>、
+  <code>symbol_size</code>，字节偏移映射为
+  <code>offset = chunk_id × chunk_size + chunk_symbol × symbol_size</code>。</li>
 <li>两条通道的<strong>可靠性机制一致</strong>：位图、缺失裁决、重传优先级、
   文件级校验与原子提交（见 12 章、17 章）。</li>
 <li>TCP 通道<strong>不</strong>使用 UDP 探测；其可用性由 <code>tcp_port</code> 是否为 0 表达

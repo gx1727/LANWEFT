@@ -37,7 +37,7 @@
   },
   "missing_list_cap": {
     "chapter": "18",
-    "pattern": "chunk \u6761\u76ee\\*\\*\u4e0d\u5f97\u8d85\u8fc7 (\\d+) \u6761\\*\\*"
+    "pattern": "\u6761\u76ee\\*\\*\u4e0d\u5f97\u8d85\u8fc7 (\\d+) \u6761\\*\\*"
   },
   "missing_list_bytes": {
     "chapter": "18",
@@ -49,11 +49,11 @@
   },
   "probe_payload_len": {
     "chapter": "07",
-    "pattern": "### PROBE \u6570\u636e\u5305.*?`payload_len` = \\*\\*(\\d+)\\*\\*"
+    "pattern": "### PROBE \u6570\u636e\u5305.*?\u8f7d\u8377\u957f\u5ea6[^=]*= \\*\\*(\\d+)\\*\\*"
   },
   "probe_ack_payload_len": {
     "chapter": "07",
-    "pattern": "### PROBE_ACK \u6570\u636e\u5305.*?`payload_len` = \\*\\*(\\d+)\\*\\*"
+    "pattern": "### PROBE_ACK \u6570\u636e\u5305.*?\u8f7d\u8377\u957f\u5ea6[^=]*= \\*\\*(\\d+)\\*\\*"
   },
   "probe_ack_timeout": {
     "chapter": "07",
@@ -217,11 +217,11 @@
   },
   "c07_f_plen_off": {
     "chapter": "07",
-    "pattern": "\\| payload_len \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"
+    "pattern": "\\| chunk_symbol \\| (\\d+(?:-\\d+|\\.\\.)?) \\|"
   },
   "c07_f_plen_size": {
     "chapter": "07",
-    "pattern": "\\| payload_len \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"
+    "pattern": "\\| chunk_symbol \\| \\d+(?:-\\d+|\\.\\.)? \\| (\\d+) \\|"
   },
   "c07_f_flags_off": {
     "chapter": "07",

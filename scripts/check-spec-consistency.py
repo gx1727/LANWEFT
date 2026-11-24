@@ -316,7 +316,7 @@ def check_site_sync(spec: dict[str, str], res: Result) -> None:
         "19-error-codes.html": ["MAGIC_MISMATCH", "HEADER_CRC_INVALID", "FRAME_LEN_INVALID"],
         "26-roadmap.html": ["0x574E414C"],
         # 站点页面与规范源文的数值漂移防护（曾出现 PROBE 载荷长度 4/5 与规范 8/9 不符）
-        "07-data-plane-udp.html": ["payload_len == 8", "payload_len == 9"],
+        "07-data-plane-udp.html": ["载荷长度", "PROBE_ACK", "8", "9"],
         "08-packet-format.html": ["CHUNK_ALREADY_RECEIVED"],
         "12-reliability-model.html": ["NETWORK_ERROR", "TIMEOUT_HEARTBEAT"],
         "17-memory-and-disk-model.html": ["DATABASE_ERROR"],
@@ -376,7 +376,7 @@ SITE_RENDER_EXEMPT: dict[str, str] = {
 SITE_NUM_TOKENS: dict[str, list[str]] = {
     "06": ["16 字节", "1 MiB", "0x574E414C", "4C 41 4E 57", "64"],
     "07": ["28 字节", "0x574E414C", "4C 41 4E 57"],
-    "08": ["1400", "1200", "1220", "0x04C11DB7", "0xCBF43926"],
+    "08": ["1200", "1220", "64800", "0x04C11DB7", "0xCBF43926"],
     "09": ["64", "2³² − 1", "4 TiB"],
     "11": ["8192", "16384", "50 ms", "1000 ms"],
     "12": ["50 ms", "1000 ms", "2⁻³²"],

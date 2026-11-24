@@ -3,6 +3,7 @@
     头部 <strong>16 字节</strong>，尾部 <strong>4 字节</strong> CRC（覆盖头 + 载荷，不含 CRC 自身）。
     CRC 变体固定为 <strong>CRC-32/ISO-HDLC</strong>（zlib <code>crc32</code>），两端各选一种会导致
     <strong>所有包校验失败</strong>，故本规范不留实现选择空间。
-    <code>payload_len</code> 受 <code>chunk_size</code> 约束（上限 1400 字节，避免 IP 分片）；
-    校验失败的包<strong>不得</strong>写入位图 —— 代价是<strong>一个块</strong>，与文件大小无关。
+    一个数据报承载 <code>K</code> 个 symbol（<code>symbol_size</code> = <strong>1200</strong>），
+    载荷长度由报文总长反推（头 16 + 载荷 + CRC 4）；头里带 <code>chunk_symbol</code> 而非长度。
+    校验失败的包<strong>不得</strong>标记任何 symbol —— 代价是<strong>K 个 symbol</strong>，与文件大小无关。
   </div>

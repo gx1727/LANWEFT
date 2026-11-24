@@ -11,11 +11,21 @@
 - `file_name`（str）：文件名（`u16` 长度 + UTF-8 字节）
 - `size`（u64）：文件大小（字节）
 - `mtime`（u64）：文件修改时间戳（UTC 秒）
-- `chunk_size`（u32）：数据块大小（字节）；建议 1024–1350，上限 1400（见 08 章）
-- `chunk_id`（u32）：数据块标识；从 0 开始
+- `symbol_size`（常量，**1200 字节**）：线缆与修复的最小单位；
+  块内掩码、缺失上报与选择性重传**均以 symbol 为单位**（见 08、18 章）
+- `chunk_size`（u32）：**逻辑块**大小（字节），**必须**是 `symbol_size` 的整数倍；
+  记 `S = chunk_size / symbol_size`，**必须**满足 `1 ≤ S ≤ 64`；规范默认 **64800**（S = 54）
+- `chunk_id`（u32）：逻辑块标识；从 0 开始
 - `chunk_count`（u32）：总块数 = `ceil(size / chunk_size)`；
   **必须** ≤ 2³² − 1（文件大小上限，见 09 章）
-- `payload_len`（u16）：载荷长度
+- `chunk_symbol`（u16）：数据包/数据帧中**块内 symbol 起始索引**（从 0 开始）；
+  字节偏移 = `chunk_id × chunk_size + chunk_symbol × symbol_size`
+- `symbol_count`（u32）：总 symbol 数 = `ceil(size / symbol_size)`；
+  **必须** ≤ 2³² − 1（文件大小上限，见 09 章）
+- `K`：一个数据报承载的 symbol 数（`1 ≤ K ≤ S`），由载荷长度推出：
+  `K = ceil(L / symbol_size)`，**不单独编码**
+- `L`：数据报载荷长度；**不**在应用头中编码，由传输层长度反推
+  （UDP：`总长 − 20`；TCP 数据面：`frame_len − 28`，见 07、08 章）
 - `flags`（u16）：标志位
 - `client_id`（device_id，str）：客户端设备 ID（见 23 章）
 
@@ -28,24 +38,32 @@
 
 ## 状态与控制
 
-- `bitmap`：接收进度位图；记录各 `chunk_id` 的接收状态（见 18 章）
-- `window`（u32）：滑动窗口大小（**会话级在途上限**，Server 下发，
+- `bitmap`：**两级**接收进度（见 18 章）：
+  - **块完成位图**：每个 `chunk_id` 1 位，表示该块**所有 symbol 均已收到**；
+  - **块内 symbol 掩码**：仅对「部分收到」的块维护一个 `u64`，bit `i` = 1 表示第 `i` 个
+    symbol 已收到；`S ≤ 64` 故一个 `u64` 足够。
+- `window`（u32）：滑动窗口大小（**会话级在途 symbol 上限**，Server 下发，
   Client 不得修改，见 11 章）
-- `connection_window`（u32）：**连接级**在途上限；
-  一条控制连接上所有会话的在途量之和**不得超过**该值（见 11 章）
+- `connection_window`（u32）：**连接级**在途 **symbol** 上限；
+  一条控制连接上所有会话的在途 symbol 数之和**不得超过**该值（见 11 章）
 - `window_update`：窗口推进**信用**消息（`0x1C`）；恒由**接收方**发布，
-  携带 `generation` 与 `received_count`（见 06、11 章）
-- `received_count`（u32）：当前修复代号下**已收到**的不重复块数；
-  与 `missing_count` 满足 `received_count + missing_count = chunk_count`，
+  携带 `generation` / `received_symbols` / `max_ok_payload`（见 06、11 章）
+- `received_symbols`（u32）：当前修复代号下**已收到**的不重复 symbol 数；
+  与 `missing_count` 满足 `received_symbols + missing_count = symbol_count`，
   在同一代号内**单调不减**（见 06、11、18 章）
+- `max_ok_payload`（u16）：接收方最近成功收到的最大载荷长度 `L`；
+  发送方据此选择 `K`（见 06、11 章）
 - `generation`（u8）：数据修复代号，取值对应 DATA 的 `flags.bit4–5`
   （0 初传、1 摘要对帐定点修复、2 全量复核，见 08、12 章）
-- `credit_batch`（u32）：接收方下发 `window_update` 的批阈值；
+- `credit_batch`（u32）：接收方下发 `window_update` 的批阈值（**symbol 数**）；
   规范取值 `clamp(window / 8, 16, 1024)` 且不超过 `window`（见 11 章）
-- **在途量**：已发出但尚未被对端确认接收的 chunk 数；不得超过 `window`（见 11 章）
-- `missing_chunks`（chunk_list）：缺失数据块列表（`u32` 条数 + `u32` 数组，**必须**升序）；
-  语义为「**发布方自己尚未收到的块**」
-  - 发布方恒为**接收方**（`mode=report`）；发送方发布时（`mode=request`）该列表**必须**为空列表
+- **在途量**：已发出但尚未被对端确认接收的 **symbol 数**；不得超过 `window`（见 11 章）
+- `missing_chunks`：两级缺失上报（见 06 章）：
+  - `chunks`：**完全缺失块**列表（`u32` 条数 + `u32` 数组，**必须**升序）；
+  - `partial[]`：**部分缺失块**列表，每条 `chunk_id`（u32）+ `missing_mask`（u64，
+    bit `i` = 1 表示第 `i` 个 symbol 尚未收到）；
+  - `missing_count`（u32）：缺失 **symbol 精确总数**；
+  - 发布方恒为**接收方**（`mode=report`）；发送方发布时（`mode=request`）两级列表**必须**为空
 - `mode`（enum8）：`missing_chunks` 的判别字段，`0` = `report`（报告缺失）/ `1` = `request`（索要缺失列表）
 - **复核轮**：文件级校验失配后，接收方要求发送方**重新读取源文件并全量重发**的
   恢复过程；**至多一次**（见 12 章）。由 `missing_chunks.flags.bit1` 表达
