@@ -55,7 +55,8 @@ Client 在收到新 symbol 时下发 `window_update`（`received_symbols`）推�
 
 `mode` 为 `enum8`（`0` = report、`1` = request）；
 `chunks` 为**完全缺失块**列表（`u32` 条数 + `u32` `chunk_id` 数组，**升序**），
-`partial[]` 为**部分缺失块**的 symbol 掩码（每条 `chunk_id` u32 + `missing_mask` u64）；
+`partial[]` 为**部分缺失块**的 symbol 掩码（每条 `chunk_id` u32 + `received_mask` u64，
+bit=1 表示已收到）；
 两者合起来恒为「发布方自己尚未收到的 symbol」（见 06 章「missing_chunks」）。
 
 ### 5. 进度上报

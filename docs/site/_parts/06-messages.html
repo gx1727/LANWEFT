@@ -42,7 +42,7 @@
       <div class="cell span4 f-len">missing_count (u32) · symbol 总数</div>
       <div class="cell span4 f-len">chunk_count (u32) · 完全缺失块数</div>
       <div class="cell span4 f-len">partial_count (u32) · 部分缺失块数</div>
-      <div class="cell wide f-body">变长区：chunks (chunk_list) ‖ partial[]（每条 chunk_id u32 + missing_mask u64）</div>
+      <div class="cell wide f-body">变长区：chunks (chunk_list) ‖ partial[]（每条 chunk_id u32 + received_mask u64，bit=1 已收到）</div>
     </div>
   </div>
 

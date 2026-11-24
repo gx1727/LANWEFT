@@ -48,7 +48,7 @@
 - `bitmap`：**两级**接收进度（见 18 章）：
   - **块完成位图**：每个 `chunk_id` 1 位，表示该块**所有 symbol 均已收到**；
   - **块内 symbol 掩码**：仅对「部分收到」的块维护一个 `u64`，bit `i` = 1 表示第 `i` 个
-    symbol 已收到；`S ≤ 64` 故一个 `u64` 足够。
+    symbol **已收到**；`S ≤ 64` 故一个 `u64` 足够。**上报的 `received_mask` 与之同语义**。
 - `window`（u32）：滑动窗口大小（**会话级在途 symbol 上限**，Server 下发，
   Client 不得修改，见 11 章）
 - `connection_window`（u32）：**连接级**在途 **symbol** 上限；
@@ -67,8 +67,9 @@
 - **在途量**：已发出但尚未被对端确认接收的 **symbol 数**；不得超过 `window`（见 11 章）
 - `missing_chunks`：两级缺失上报（见 06 章）：
   - `chunks`：**完全缺失块**列表（`u32` 条数 + `u32` 数组，**必须**升序）；
-  - `partial[]`：**部分缺失块**列表，每条 `chunk_id`（u32）+ `missing_mask`（u64，
-    bit `i` = 1 表示第 `i` 个 symbol 尚未收到）；
+  - `partial[]`：**部分缺失块**列表，每条 `chunk_id`（u32）+ `received_mask`（u64，
+    bit `i` = 1 表示第 `i` 个 symbol **已收到**）；发送方取补集
+    `missing = full_mask ^ received_mask` 得到待重传 symbol；
   - `missing_count`（u32）：缺失 **symbol 精确总数**；
   - 发布方恒为**接收方**（`mode=report`）；发送方发布时（`mode=request`）两级列表**必须**为空
 - `mode`（enum8）：`missing_chunks` 的判别字段，`0` = `report`（报告缺失）/ `1` = `request`（索要缺失列表）

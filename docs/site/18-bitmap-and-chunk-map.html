@@ -174,7 +174,8 @@
   二进制下 <code>chunks</code> 为 <code>chunk_list</code>（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组），
   4096 条 = 4096 × 4 = <strong>16 KiB</strong>，仍远小于 <code>max_frame_len</code> = 1 MiB。</li>
 <li>单条中的<strong>部分缺失块</strong>条目（<code>partial[]</code>）<strong>不得超过 1024 条</strong>；
-  每条 12 字节（<code>chunk_id</code> u32 + <code>missing_mask</code> u64），1024 条 = <strong>12 KiB</strong>。</li>
+  每条 12 字节（<code>chunk_id</code> u32 + <code>received_mask</code> u64，bit=1 表示已收到；与块内位图同语义），
+  1024 条 = <strong>12 KiB</strong>。</li>
 <li>接收方<strong>必须</strong>按索引升序<strong>分批下发</strong>缺失：
   一批被补齐后，下一批在随后的裁决周期中下发。</li>
 <li>载荷中的 <code>missing_count</code> 字段给出位图中<strong>尚未收到</strong>的 <strong>symbol 精确总数</strong>，

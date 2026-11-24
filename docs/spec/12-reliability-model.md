@@ -18,7 +18,8 @@
 
 `missing_chunks` 的 `mode` 为 `enum8`（`0` = report、`1` = request）；
 `chunks` 为完全缺失块列表（`u32` 条数 + `u32` `chunk_id` 数组，**升序**），
-`partial[]` 为部分缺失块列表（每条 `chunk_id` + `u64` `missing_mask`）；
+`partial[]` 为部分缺失块列表（每条 `chunk_id` + `u64` `received_mask`，bit=1 表示已收到；
+发送方取补集得到缺失）；
 「没有缺失」即两者皆为空；`missing_count` 为位图中
 **尚未收到**的 **symbol 精确总数**（`u32`），**不是**块数，也**不是** `partial_count`。
 见 06 章「missing_chunks」。

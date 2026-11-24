@@ -115,7 +115,7 @@
       <div class="cell span4 f-len">missing_count (u32) · symbol 总数</div>
       <div class="cell span4 f-len">chunk_count (u32) · 完全缺失块数</div>
       <div class="cell span4 f-len">partial_count (u32) · 部分缺失块数</div>
-      <div class="cell wide f-body">变长区：chunks (chunk_list) ‖ partial[]（每条 chunk_id u32 + missing_mask u64）</div>
+      <div class="cell wide f-body">变长区：chunks (chunk_list) ‖ partial[]（每条 chunk_id u32 + received_mask u64，bit=1 已收到）</div>
     </div>
   </div>
 
@@ -1809,9 +1809,9 @@ RESYNC（仅诊断，不恢复协议状态机）
 <tr>
 <td>4</td>
 <td>8</td>
-<td>missing_mask</td>
+<td>received_mask</td>
 <td>u64</td>
-<td>块内缺失 symbol 掩码：bit <code>i</code> = 1 表示第 <code>i</code> 个 symbol <strong>尚未收到</strong></td>
+<td>块内<strong>已收到</strong> symbol 掩码：bit <code>i</code> = 1 表示第 <code>i</code> 个 symbol <strong>已收到</strong>（与块内位图同语义）</td>
 </tr>
 </tbody>
 </table></div>
@@ -1821,16 +1821,28 @@ RESYNC（仅诊断，不恢复协议状态机）
 <p><strong>两级缺失语义（规范性）</strong>：缺失以 <strong>symbol</strong> 为单位记账，以 <strong>chunk</strong> 为单位上报：</p>
 <ul>
 <li><code>chunks</code>：<strong>一个 symbol 都没收到</strong>的块（完全缺失）；这些块按 <code>chunk_count</code> 列出。</li>
-<li><code>partial[]</code>：<strong>收到了至少一个、但未收全</strong>的块；<code>missing_mask</code> 精确指出还缺哪些 symbol。</li>
+<li><code>partial[]</code>：<strong>收到了至少一个、但未收全</strong>的块；<code>received_mask</code> 精确指出收到了哪些 symbol
+  （发送方取补集得到缺失）。</li>
+</ul>
+<p><strong>掩码语义统一（规范性）</strong>：块内位图、<code>partial[].received_mask</code> 与 chunk 完成判定
+<strong>使用同一语义</strong> —— <strong>bit <code>i</code> = 1 表示第 <code>i</code> 个 symbol 已收到</strong>。</p>
+<ul>
+<li>发送方<strong>必须</strong>按下式求缺失：<code>missing = full_mask ^ received_mask</code>，
+  其中 <code>full_mask = (1 &lt;&lt; S_chunk) − 1</code>；
+  <code>S_chunk</code> 为该块的 symbol 数，末块由
+  <code>ceil((size − chunk_id × chunk_size) / symbol_size)</code> 推出。</li>
+<li><code>received_mask</code> <strong>必须</strong>非零，且<strong>不得</strong>等于 <code>full_mask</code>
+  （等于 <code>full_mask</code> 时应作为已完成块，不进入 <code>partial[]</code>）。</li>
+<li>bit <code>i ≥ S_chunk</code> <strong>必须</strong>为 0；越界即按 <code>SERIALIZATION_ERROR</code> 丢弃该帧。</li>
 <li><code>missing_count</code>：二者合计的<strong>缺失 symbol 精确总数</strong> =
-  <code>Σ(完全缺失块的 S) + Σ(popcount(partial[].missing_mask))</code>。
+  <code>Σ(完全缺失块的 S) + Σ(S_chunk − popcount(partial[].received_mask))</code>。
   发送方据此推算对端已收数与在途量（见 11 章），因此该值<strong>不得</strong>是估计值。</li>
 </ul>
 <p><strong><code>chunks</code> / <code>partial[]</code> 的语义（规范性）</strong>：二者恒为「<strong>发布方自己尚未收到的部分</strong>」，
 而不是「我已有的部分」。</p>
 <ul>
 <li><code>chunks</code>：<strong>一个 symbol 都没收到</strong>的完全缺失块。</li>
-<li><code>partial[]</code>：<strong>收到了一部分、尚未收全</strong>的块；<code>missing_mask</code> 指出还缺哪些 symbol。</li>
+<li><code>partial[]</code>：<strong>收到了一部分、尚未收全</strong>的块；<code>received_mask</code> 指出收到了哪些 symbol。</li>
 <li>上传方向 Server→Client：Server 报告「我还缺这些 symbol」，Client 收到后<strong>重传</strong>。</li>
 <li>下载方向 Client→Server：Client 报告「我还缺这些 symbol」，Server 收到后<strong>重传</strong>。</li>
 </ul>

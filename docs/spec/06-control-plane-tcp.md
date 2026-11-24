@@ -652,7 +652,7 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | 偏移 | 大小 | 字段 | 类型 | 说明 |
 |------|------|------|------|------|
 | 0 | 4 | chunk_id | u32 | 部分缺失的逻辑块 |
-| 4 | 8 | missing_mask | u64 | 块内缺失 symbol 掩码：bit `i` = 1 表示第 `i` 个 symbol **尚未收到** |
+| 4 | 8 | received_mask | u64 | 块内**已收到** symbol 掩码：bit `i` = 1 表示第 `i` 个 symbol **已收到**（与块内位图同语义） |
 
 `partial_count` **不得**超过 **1024**；`chunk_count` 与 `partial_count` 只统计
 **本条报告**的条目，两者之和**不得**超过该会话当前未完成的块数。
@@ -661,16 +661,28 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 **两级缺失语义（规范性）**：缺失以 **symbol** 为单位记账，以 **chunk** 为单位上报：
 
 - `chunks`：**一个 symbol 都没收到**的块（完全缺失）；这些块按 `chunk_count` 列出。
-- `partial[]`：**收到了至少一个、但未收全**的块；`missing_mask` 精确指出还缺哪些 symbol。
+- `partial[]`：**收到了至少一个、但未收全**的块；`received_mask` 精确指出收到了哪些 symbol
+  （发送方取补集得到缺失）。
+
+**掩码语义统一（规范性）**：块内位图、`partial[].received_mask` 与 chunk 完成判定
+**使用同一语义** —— **bit `i` = 1 表示第 `i` 个 symbol 已收到**。
+
+- 发送方**必须**按下式求缺失：`missing = full_mask ^ received_mask`，
+  其中 `full_mask = (1 << S_chunk) − 1`；
+  `S_chunk` 为该块的 symbol 数，末块由
+  `ceil((size − chunk_id × chunk_size) / symbol_size)` 推出。
+- `received_mask` **必须**非零，且**不得**等于 `full_mask`
+  （等于 `full_mask` 时应作为已完成块，不进入 `partial[]`）。
+- bit `i ≥ S_chunk` **必须**为 0；越界即按 `SERIALIZATION_ERROR` 丢弃该帧。
 - `missing_count`：二者合计的**缺失 symbol 精确总数** =
-  `Σ(完全缺失块的 S) + Σ(popcount(partial[].missing_mask))`。
+  `Σ(完全缺失块的 S) + Σ(S_chunk − popcount(partial[].received_mask))`。
   发送方据此推算对端已收数与在途量（见 11 章），因此该值**不得**是估计值。
 
 **`chunks` / `partial[]` 的语义（规范性）**：二者恒为「**发布方自己尚未收到的部分**」，
 而不是「我已有的部分」。
 
 - `chunks`：**一个 symbol 都没收到**的完全缺失块。
-- `partial[]`：**收到了一部分、尚未收全**的块；`missing_mask` 指出还缺哪些 symbol。
+- `partial[]`：**收到了一部分、尚未收全**的块；`received_mask` 指出收到了哪些 symbol。
 - 上传方向 Server→Client：Server 报告「我还缺这些 symbol」，Client 收到后**重传**。
 - 下载方向 Client→Server：Client 报告「我还缺这些 symbol」，Server 收到后**重传**。
 

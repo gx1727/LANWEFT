@@ -445,6 +445,11 @@
 <tbody>
 <tr>
 <td>—</td>
+<td><strong>统一掩码语义</strong>：块内位图与 <code>missing_chunks.partial[]</code> 统一为「<strong>bit=1 已收到</strong>」，字段 <code>missing_mask</code> 更名为 <code>received_mask</code>；发送方以 <code>missing = full_mask ^ received_mask</code> 求缺失，并校验 <code>received_mask</code> 非零、非满、无越界位（<code>bit ≥ S_chunk</code> 即 <code>SERIALIZATION_ERROR</code>）。避免「已收到 / 缺失」两套相反语义导致实现错误。<strong>版本号不变</strong>（变更以本记录为准）</td>
+<td>02、06、12、14、18、26、99、site</td>
+</tr>
+<tr>
+<td>—</td>
 <td><strong>K 上限三层化与信任模式</strong>：把原先混在一起的 <code>Kmax</code> 拆成 <code>S</code>（结构上限 = <code>chunk_size/symbol_size</code> ≤ 64）、<code>K_nofrag</code>（不分片上限 = <code>min(S, floor(min(路径MTU − overhead, 65487)/symbol_size))</code>，<code>overhead</code> = IPv4 <strong>48</strong> / IPv6 <strong>68</strong>）与 <code>K_cap</code>（策略上限：默认 <code>K_nofrag</code>；<strong>信任模式</strong> <code>S</code>，显式允许 IP 分片）。修正原公式漏算 UDP/IP 头的 48/68 字节。信任模式以<strong>整报文丢失率</strong>为预算（建议 <strong>0.05%–0.1%</strong>）：超过则 <code>K</code> 减半，低丢失且连续成功后探测回升；<code>max_ok_payload</code> 不能用于判断是否分片，需 DF/PMTUD。<strong>版本号不变</strong>（变更以本记录为准）</td>
 <td>02、08、11、26、99、site</td>
 </tr>

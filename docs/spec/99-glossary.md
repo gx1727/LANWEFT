@@ -36,7 +36,7 @@
 | K_nofrag / K_cap | 不分片上限（由路径 MTU 决定）/ 策略上限（信任模式可达 S，允许分片）；见 11 章 |
 | flags | 数据包标志位（u16） |
 | bitmap | **两级**位图：块完成位图 + 未完成块的 `u64` symbol 掩码 |
-| missing_chunks | 两级缺失上报：`chunks`（完全缺失块）+ `partial[]`（部分缺失块 + `u64` missing_mask）；发布方恒为接收方 |
+| missing_chunks | 两级缺失上报：`chunks`（完全缺失块）+ `partial[]`（部分缺失块 + `u64` received_mask，bit=1 已收到）；发布方恒为接收方 |
 | reconcile_request / reconcile_response | 摘要对帐请求 / 应答；请求恒由**接收方**发布，应答恒由**发送方**发布（见 12 章） |
 | missing_count | 位图中尚未收到的 **symbol 精确总数**；未携带时由**存在标志位**表示 |
 | udp_ready | UDP 可用性就绪通知 |

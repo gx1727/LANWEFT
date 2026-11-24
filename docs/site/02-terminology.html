@@ -78,7 +78,7 @@
 <li><code>bitmap</code>：<strong>两级</strong>接收进度（见 18 章）：</li>
 <li><strong>块完成位图</strong>：每个 <code>chunk_id</code> 1 位，表示该块<strong>所有 symbol 均已收到</strong>；</li>
 <li><strong>块内 symbol 掩码</strong>：仅对「部分收到」的块维护一个 <code>u64</code>，bit <code>i</code> = 1 表示第 <code>i</code> 个
-    symbol 已收到；<code>S ≤ 64</code> 故一个 <code>u64</code> 足够。</li>
+    symbol <strong>已收到</strong>；<code>S ≤ 64</code> 故一个 <code>u64</code> 足够。<strong>上报的 <code>received_mask</code> 与之同语义</strong>。</li>
 <li><code>window</code>（u32）：滑动窗口大小（<strong>会话级在途 symbol 上限</strong>，Server 下发，
   Client 不得修改，见 11 章）</li>
 <li><code>connection_window</code>（u32）：<strong>连接级</strong>在途 <strong>symbol</strong> 上限；
@@ -97,8 +97,9 @@
 <li><strong>在途量</strong>：已发出但尚未被对端确认接收的 <strong>symbol 数</strong>；不得超过 <code>window</code>（见 11 章）</li>
 <li><code>missing_chunks</code>：两级缺失上报（见 06 章）：</li>
 <li><code>chunks</code>：<strong>完全缺失块</strong>列表（<code>u32</code> 条数 + <code>u32</code> 数组，<strong>必须</strong>升序）；</li>
-<li><code>partial[]</code>：<strong>部分缺失块</strong>列表，每条 <code>chunk_id</code>（u32）+ <code>missing_mask</code>（u64，
-    bit <code>i</code> = 1 表示第 <code>i</code> 个 symbol 尚未收到）；</li>
+<li><code>partial[]</code>：<strong>部分缺失块</strong>列表，每条 <code>chunk_id</code>（u32）+ <code>received_mask</code>（u64，
+    bit <code>i</code> = 1 表示第 <code>i</code> 个 symbol <strong>已收到</strong>）；发送方取补集
+    <code>missing = full_mask ^ received_mask</code> 得到待重传 symbol；</li>
 <li><code>missing_count</code>（u32）：缺失 <strong>symbol 精确总数</strong>；</li>
 <li>发布方恒为<strong>接收方</strong>（<code>mode=report</code>）；发送方发布时（<code>mode=request</code>）两级列表<strong>必须</strong>为空</li>
 <li><code>mode</code>（enum8）：<code>missing_chunks</code> 的判别字段，<code>0</code> = <code>report</code>（报告缺失）/ <code>1</code> = <code>request</code>（索要缺失列表）</li>

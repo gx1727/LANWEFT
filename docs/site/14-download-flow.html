@@ -175,7 +175,8 @@ Server <strong>必须</strong>同时遵守连接级的 <code>connection_window</
 收到 Server 的 <code>missing_chunks</code>（<code>mode=request</code>）时，Client <strong>必须</strong>在 50ms 内应答。</p>
 <p><code>mode</code> 为 <code>enum8</code>（<code>0</code> = report、<code>1</code> = request）；
 <code>chunks</code> 为<strong>完全缺失块</strong>列表（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>），
-<code>partial[]</code> 为<strong>部分缺失块</strong>的 symbol 掩码（每条 <code>chunk_id</code> u32 + <code>missing_mask</code> u64）；
+<code>partial[]</code> 为<strong>部分缺失块</strong>的 symbol 掩码（每条 <code>chunk_id</code> u32 + <code>received_mask</code> u64，
+bit=1 表示已收到）；
 两者合起来恒为「发布方自己尚未收到的 symbol」（见 06 章「missing_chunks」）。</p>
 <h3>5. 进度上报</h3>
 <p>Client 每 500ms 发布 <code>progress_update</code>（<code>received</code> / <code>total</code> 为 chunk 数，

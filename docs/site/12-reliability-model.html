@@ -157,7 +157,8 @@
 索要机制保证。详见 11 章。</p>
 <p><code>missing_chunks</code> 的 <code>mode</code> 为 <code>enum8</code>（<code>0</code> = report、<code>1</code> = request）；
 <code>chunks</code> 为完全缺失块列表（<code>u32</code> 条数 + <code>u32</code> <code>chunk_id</code> 数组，<strong>升序</strong>），
-<code>partial[]</code> 为部分缺失块列表（每条 <code>chunk_id</code> + <code>u64</code> <code>missing_mask</code>）；
+<code>partial[]</code> 为部分缺失块列表（每条 <code>chunk_id</code> + <code>u64</code> <code>received_mask</code>，bit=1 表示已收到；
+发送方取补集得到缺失）；
 「没有缺失」即两者皆为空；<code>missing_count</code> 为位图中
 <strong>尚未收到</strong>的 <strong>symbol 精确总数</strong>（<code>u32</code>），<strong>不是</strong>块数，也<strong>不是</strong> <code>partial_count</code>。
 见 06 章「missing_chunks」。</p>
