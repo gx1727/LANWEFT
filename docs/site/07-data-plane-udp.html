@@ -120,7 +120,7 @@
     <h2>帧结构（小端序）</h2>
   <div class="diagram">
     <div class="fields">
-      <div class="cell ruler-title">TCP 数据面帧：帧头 28 字节 ‖ payload</div>
+      <div class="cell ruler-title">TCP 数据面帧：帧头 28 字节 ‖ payload ‖ trailer（lv2/lv3）</div>
 
       <div class="cell bitnum">0-3</div>
       <div class="cell bitnum">4-7</div>
@@ -142,7 +142,9 @@
       <div class="cell f-flags">flags (u16)</div>
       <div class="cell f-payload">payload</div>
 
-      <div class="cell wide f-muted">frame_len = 28 + L（L 为载荷长度，由 frame_len 反推；<code>frame_len</code> 含帧头）</div>
+      <div class="cell wide f-crc">trailer：lv2/lv3 = 16B keyed MAC / AEAD tag；lv1 = 无</div>
+
+      <div class="cell wide f-muted">lv1 <code>frame_len = 28 + L</code>；lv2/lv3 <code>frame_len = 28 + L + 16</code>（L 由 frame_len 反推，帧长含帧头与 trailer）</div>
     </div>
   </div>
 
@@ -420,8 +422,8 @@ TRAILER_SIZE      = 0 (lv1) / 16 (lv2, lv3)
   （<code>K = ceil(L / symbol_size)</code>）。不符不得写盘或标位，并关闭该数据连接。
   代号不匹配但边界合法的 DATA 只丢帧；<code>FLAG_BIND</code> 使用零载荷（<code>L = 0</code>，
   <code>chunk_symbol = 0</code>），不适用文件块长度公式。</li>
-<li><strong>不携带载荷级 CRC32</strong>：TCP 提供字节流校验与可靠重传，
-  TCP 数据面帧<strong>不</strong>携带 <code>crc32</code> —— 载荷完整性由 TCP 自身保证。
+<li><strong>载荷级校验</strong>：lv1 <strong>不</strong>携带载荷级 CRC32（TCP 提供字节流校验与可靠重传）；
+  lv2/lv3 <strong>必须</strong>在 payload 后追加 16B keyed MAC / AEAD tag，并计入 <code>frame_len</code>。
   帧头的 <code>header_crc32</code> <strong>不是</strong>载荷校验，而是<strong>帧同步</strong>手段。</li>
 </ul>
 <h3>失步处理（规范性）</h3>

@@ -22,7 +22,7 @@
   <div class="note blue">
   <strong>本章要点</strong>：协议分为<strong>控制层（TCP）</strong>与<strong>数据层（UDP / TCP 兜底）</strong>，
   两者<strong>相互独立</strong>：控制面拥有<strong>最终裁决权</strong>，数据面仅负责<strong>搬运与落盘</strong>；
-  <strong>完整性分两层</strong>——包级 CRC32 与文件级 Blake3（见
+  <strong>完整性分两层</strong>——包级校验（lv1 CRC32 / lv2·lv3 keyed MAC / AEAD，默认 lv1）与文件级 Blake3（见
   <a href="12-reliability-model.html">12 章</a>）。
   一条控制连接承载 N 个会话时，数据面端口<strong>可以</strong>被多个会话共用 ——
   UDP 包头中的 <code>session_id</code> 足以区分（见
@@ -70,8 +70,8 @@
 
     <div class="cell wide bitnum">完整性</div>
     <div class="cell">帧头 CRC32（见 06 章）</div>
-    <div class="cell">包级 CRC32（见 08 章）</div>
-    <div class="cell">帧头 CRC32，不重复载荷级 CRC32（见 07 章）</div>
+    <div class="cell">包级 trailer：lv1 CRC32 / lv2·lv3 tag（见 08、20 章）</div>
+    <div class="cell">帧头 CRC32；lv1 无载荷校验，lv2/lv3 追加 16B tag（见 07 章）</div>
 
     <div class="cell wide bitnum">传输可靠性</div>
     <div class="cell">由 TCP 保证</div>
@@ -92,7 +92,7 @@
 <h2>职责划分</h2>
 <ul>
 <li>控制面拥有最终裁决权</li>
-<li>数据面仅负责搬运与落盘；<strong>完整性分两层</strong>：包级 CRC32、文件级 Blake3（见 12 章）</li>
+<li>数据面仅负责搬运与落盘；<strong>完整性分两层</strong>：包级校验（lv1 CRC32 / lv2 keyed MAC / lv3 AEAD，默认 lv1）、文件级 Blake3（见 12、20 章）</li>
 <li><strong>控制面与数据面相互独立</strong>：一条控制连接承载 N 个会话时，
   数据面端口<strong>可以</strong>被多个会话共用 —— UDP 包头中的 <code>session_id</code> 足以区分（见 08 章）</li>
 <li><strong>完成消息由接收方发布；缺失裁决由接收方发起</strong>（见 10 章「视角定义」）</li>
@@ -115,7 +115,7 @@
 <tr>
 <td>UDP 数据面</td>
 <td>双向</td>
-<td><strong>已定义</strong>（含 CRC32 变体与校验规则，见 08 章）</td>
+<td><strong>已定义</strong>（含 lv1 CRC32 变体与 lv2/lv3 tag 规则，见 08、20 章）</td>
 </tr>
 <tr>
 <td>TCP 数据面</td>

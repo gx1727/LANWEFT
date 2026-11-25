@@ -1,6 +1,7 @@
 <div class="note">
-    <strong>三项假设的展开</strong>（源文只列名称，此处给出导读说明）：
-    <code>可信局域网</code> —— 网络环境被视为可信局域网；
-    <code>Server 与客户端受控</code> —— Server 与客户端均处于受控之下；
-    <code>不穿透公网</code> —— 协议<strong>不</strong>用于穿透公网。
+    <strong>假设的展开</strong>（源文只列名称，此处给出导读说明）：
+    <code>lv1</code> 假设可信局域网；<code>lv2/lv3</code> 可用于不可信网络（含公网路径）；
+    <code>Server 与客户端受控</code> —— Server 是认证与密钥分发的信任根；
+    跨公网部署<strong>必须</strong>启用控制面 TLS，且<strong>不得</strong>把
+    <code>security_min_level</code> 配为 1。
   </div>

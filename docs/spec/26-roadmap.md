@@ -117,7 +117,7 @@
 - **现状**：UDP 主通道 + TCP 兜底（见 05、07 章）。
 - **议题**：是否将 TCP 提升为数据面主通道。
 - **收益**：可删除 07 章的 PROBE 握手、11 章的 `window` / AIMD、
-  18 章的缺失分批与 08 章的包级 CRC32；吞吐不再受窗口大小与信用节奏的限制。
+  18 章的缺失分批与 08 章的包级校验；吞吐不再受窗口大小与信用节奏的限制。
 - **代价**：失去乱序写能力（TCP 交付有序），恢复起点退化为连续水位线；
   且移动端 WiFi 的丢包**不等于**拥塞，TCP 拥塞控制的误判会显著降速
   —— 而本协议的移动端客户端正依赖 UDP + 发送端本地 AIMD 规避这一点。
@@ -231,6 +231,7 @@
 
 | 日期 | 修订内容 | 章节 |
 |------|---------|------|
+| — | **安全等级的旧措辞清理**：把 00/01/05/06/07/12/21 章仍写成「包级只有 CRC32 / 数据面不加密」的表述同步为 lv1/lv2/lv3；21 章明确未启用 TLS 时**不得**启用 lv2/lv3；20 章站点手写片段（要点 / 假设 / 加密示意 / 完整性 / 陷阱）同步到「AEAD 单元 = 数据报载荷、默认 lv1」。无线路格式变更。**版本号不变** | 00、01、05、06、07、12、20、21、26、site |
 | — | **PROBE token 与数据面安全等级**：①C↔S 的 PROBE/PROBE_ACK 载荷由 8/9 扩为 `session_id + probe_token`（24/25），`login_ack` 新增 `link_token`（每连接 16B）；peer PROBE 统一为 24/25，`transfer_token` 定义为根秘密。②新增会话级 `security_level`（lv1 CRC32 / lv2 BLAKE3 keyed MAC / lv3 AEAD）与 `security_suite`（AES-256-GCM / ChaCha20-Poly1305）；**默认 lv1**；等级写入 accept/offer 消息与快照 `security` 字节。③`trailer` 由固定 4B CRC 改为 lv1 4B / lv2·lv3 16B；TCP 数据面 lv2/lv3 追加 16B 尾部并计入 `frame_len`；新增 `AUTH_TAG_INVALID` 与 `SECURITY_LEVEL_UNSUPPORTED`。④新增 Server 配置 `security_min_level` / `security_default_level`（默认 1）/ `security_max_level` / `security_suites`，协商禁止静默降级；lv2/lv3 要求控制面 TLS。⑤密钥派生：`probe_token` / `traffic_key` 由 `link_token` 或 `transfer_token` 经 KDF 派生；AEAD 单元为数据报载荷（K 个 symbol），明文长度不变。**版本号不变** | 02、06、07、08、11、13、19、20、24、26、99、site |
 | — | **C↔C R2 会话内中转与 transport 切换**：新增 `peer_transport_switch`（`0x23`，Server→Client，36 字节），支持 `direct ⇄ relay_r2` **中途切换**；S 在**同一 peer 会话**内转发数据（有界队列、不存整文件），校验两段 leg 的 `transfer_token`/源地址，K 规范化为 `K = 1`；端到端信用不变，S 队列计入在途并做中转入量控制（`relay_capacity`）；切换清空在途、重建信用基线、保留位图/临时文件、从第一个缺失 symbol 继续；新增 `switch_reason` 枚举。R1 仍为预选中转。**版本号不变** | 02、06、07、09、11、13、19、20、24、26、99、site |
 | — | **C↔C peer 传输（Stage 1：直连 + R1 预选中转）**：新增 `direction = peer` 与 `peer_start` / `peer_offer` / `peer_response` / `peer_accept` / `peer_relay_plan` / `peer_complete`；两端复用与 Server 的既有 `login`，**无 C↔C login**；Server 做 share grant 授权、控制消息中继与会话仲裁；数据面直连（peer PROBE + `transfer_token` + 源地址绑定），直连失败走 R1（C1→S upload + S→C2 download，临时中转素材）。新增错误码 `PEER_DECLINED` / `PEER_UNREACHABLE` / `PEER_RELAY_UNAVAILABLE` / `PEER_TOKEN_INVALID`；数据面 `FLAG_PEER_PROBE`。Stage 2 预留 `relay_r2` 与中途切换。**版本号不变** | 00、01、02、06、07、08、09、10、11、12、13、19、20、21、24、26、99、site |

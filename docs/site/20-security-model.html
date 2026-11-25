@@ -20,32 +20,32 @@
 
   <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
-    <strong>本章要点</strong>：安全模型建立在<strong>可信局域网</strong>、Server 与客户端受控、不穿透公网三项假设之上。
-    控制通道<strong>必须</strong>支持 TLS、<strong>应当</strong>启用；认证在<strong>连接握手</strong>阶段完成并绑定唯一 <code>device_id</code>。
-    数据面使用 CRC32 只提供<strong>完整性</strong>而非安全性；文件级 hash（Blake3）<strong>必须</strong>以 32 字节原始摘要承载。
+    <strong>本章要点</strong>：安全模型以 <strong>lv1（默认）</strong> 的可信局域网为起点，
+    lv2/lv3 可扩展到不可信网络。控制通道<strong>必须</strong>支持 TLS，
+    lv2/lv3 <strong>必须</strong>在已认证的 TLS 控制连接上分发根秘密。
+    数据面按会话等级选择：lv1 CRC32、lv2 BLAKE3 keyed MAC、lv3 AEAD（AES-256-GCM / ChaCha20-Poly1305）。
+    PROBE 使用 <code>probe_token</code> 绑定端点；文件级 hash（Blake3）<strong>必须</strong>以 32 字节原始摘要承载。
   </div>
 
 
   <!-- ============ 图示（导读片段；图内数值均为变量，不手敲） ============ -->
   <div class="diagram">
     <div class="fields" style="--cols:12">
-      <div class="cell wide ruler-title">加密与写盘映射的约束（symbol 边界必须对齐）</div>
+      <div class="cell wide ruler-title">加密 / AEAD 单元 = 数据报载荷（K 个 symbol），长度保持不变</div>
 
-      <div class="cell span4 f-session">chunk_id = 0<br>offset = 0 × chunk_size + s × symbol_size</div>
-      <div class="cell span4 f-chunk">chunk_id = 1<br>offset = 1 × chunk_size + s × symbol_size</div>
-      <div class="cell span4 f-len">chunk_id = 2<br>offset = 2 × chunk_size + s × symbol_size</div>
+      <div class="cell span4 f-session">header 明文<br>作为 AAD</div>
+      <div class="cell span4 f-payload">payload（K × symbol_size）<br>密文长度 = 明文长度</div>
+      <div class="cell span4 f-crc">trailer<br>16B MAC / AEAD tag</div>
 
-      <div class="cell span4 f-payload">密文长度 = symbol_size</div>
-      <div class="cell span4 f-payload">密文长度 = symbol_size</div>
-      <div class="cell span4 f-muted">末段（除外）</div>
+      <div class="cell span6 f-chunk">offset = chunk_id × chunk_size + chunk_symbol × symbol_size</div>
+      <div class="cell span6 f-len">K &gt; 1 允许（如 K=54）；一个数据报一个 tag</div>
     </div>
   </div>
 
   <div class="caption">
-    对应正文「数据面 · 数据加密」：加密单元与 symbol 边界对齐、密文长度恰好等于
-    <code>symbol_size</code>（末段除外）时，
-    <code>offset = chunk_id × chunk_size + chunk_symbol × symbol_size</code>
-    的随机写盘语义才不被破坏。
+    对应正文「数据面安全等级」：lv2/lv3 的认证/加密单元是<strong>整个数据报载荷</strong>，
+    明文长度与 symbol 偏移映射均不变，接收方仍按 <code>chunk_symbol + K</code> 标位。
+    因此信任模式 K&gt;1 与 AEAD 可以共存；丢包/坏 tag 的代价仍是该包覆盖的 K 个 symbol。
   </div>
 
   <div class="diagram">
@@ -287,15 +287,16 @@
 
   <!-- ============ 导读提示 ============ -->
   <div class="note">
-    <strong>完整性 ≠ 安全性</strong>：CRC32 与 Blake3 的作用是发现损坏 / 不一致，
-    并<strong>不</strong>提供防伪能力；任何能发包的主机都能伪造 CRC32 合法的包，
-    因此防伪依赖控制面的认证与 ACL（见 21 章）。
+    <strong>完整性 ≠ 安全性（按等级）</strong>：lv1 的 CRC32 只能发现损坏，任何能发包的主机都能伪造；
+    lv2 用 BLAKE3 keyed MAC 提供密码学完整性与对端认证；lv3 再用 AEAD 提供机密性。
+    Blake3 文件级摘要仍只负责内容一致性，不替代包级认证。
   </div>
 
   <div class="note warn">
-    <strong>常见实现陷阱</strong>：把 CRC32 当作防伪手段；用十六进制串承载 Blake3 摘要；
-    加密改变了 chunk 边界导致 <code>offset = chunk_id × chunk_size</code> 失效；
-    跳过 UDP 源地址校验；由 <code>device_id</code> 直接推导凭据（<strong>不得</strong>）。
+    <strong>常见实现陷阱</strong>：把 lv1 的 CRC32 当作防伪手段；用十六进制串承载 Blake3 摘要；
+    在 lv2/lv3 下仍按单 symbol 追加 tag（应按数据报载荷整体计算）；
+    忽略 PROBE token 与源地址绑定；在未启用 TLS 的控制面上协商 lv2/lv3；
+    由 <code>device_id</code> 直接推导凭据（<strong>不得</strong>）。
   </div>
 
 

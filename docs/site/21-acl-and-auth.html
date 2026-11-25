@@ -159,7 +159,8 @@
 <li>接收方<strong>可以</strong>拒绝；拒绝经 <code>peer_response</code>（<code>result</code> = fail，
   <code>code</code> = <code>PEER_DECLINED</code>）表达，Server 以 <code>session_abort</code> 终止。</li>
 <li><strong>没有 C↔C 的 <code>login</code></strong>：peer 身份完全复用双方与 Server 的既有认证；
-  数据面使用 Server 签发的 <code>transfer_token</code> 做端点确认（Stage 1）。</li>
+  数据面使用 Server 签发的 <code>transfer_token</code> 作为<strong>会话根秘密</strong>：
+  lv1 直接作 PROBE token，lv2/lv3 派生 <code>probe_token</code> / <code>traffic_key</code>（见 07、20 章）。</li>
 <li>R1 的中转素材/授权<strong>必须</strong>绑定 <code>transfer_id</code> 与 grant，完成后回收；
   <strong>不得</strong>让接收方凭 <code>file_hash</code> 越权访问其他私有素材。</li>
 <li>私有素材归属不因 peer 传输改变；Server 侧归属仍按上传 <code>device_id</code>。</li>
@@ -168,10 +169,11 @@
 <ul>
 <li>控制通道<strong>必须</strong>支持 TLS；<strong>应当</strong>启用。</li>
 <li>未启用 TLS 时，认证凭据以<strong>明文</strong>传输 ——
-  <strong>不得</strong>在非受信网络（含公共 WiFi）中这样部署。</li>
+  <strong>不得</strong>在非受信网络（含公共 WiFi）中这样部署；
+  且 <strong>lv2/lv3 不得启用</strong>（根秘密只在已认证的 TLS 控制连接上分发，见 20 章）。</li>
 <li>控制通道与数据面<strong>相互独立</strong>：
-  数据面<strong>不</strong>复用控制连接的 TLS 会话；UDP 数据面<strong>不</strong>自带加密
-  （见 20 章）。</li>
+  数据面<strong>不</strong>复用控制连接的 TLS 会话；lv1 的数据面没有密码学保护，
+  lv2 提供 keyed MAC，lv3 提供 AEAD 机密性（见 20 章）。</li>
 </ul>
 <h2>强约束</h2>
 <ul>

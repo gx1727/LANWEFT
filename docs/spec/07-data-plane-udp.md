@@ -206,8 +206,8 @@ frame_len = 28 + L + TRAILER_SIZE   // lv1: TRAILER_SIZE=0；lv2/lv3: 16
   （`K = ceil(L / symbol_size)`）。不符不得写盘或标位，并关闭该数据连接。
   代号不匹配但边界合法的 DATA 只丢帧；`FLAG_BIND` 使用零载荷（`L = 0`，
   `chunk_symbol = 0`），不适用文件块长度公式。
-- **不携带载荷级 CRC32**：TCP 提供字节流校验与可靠重传，
-  TCP 数据面帧**不**携带 `crc32` —— 载荷完整性由 TCP 自身保证。
+- **载荷级校验**：lv1 **不**携带载荷级 CRC32（TCP 提供字节流校验与可靠重传）；
+  lv2/lv3 **必须**在 payload 后追加 16B keyed MAC / AEAD tag，并计入 `frame_len`。
   帧头的 `header_crc32` **不是**载荷校验，而是**帧同步**手段。
 
 ### 失步处理（规范性）

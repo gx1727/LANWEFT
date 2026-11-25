@@ -1,7 +1,7 @@
   <h2>帧结构（小端序）</h2>
   <div class="diagram">
     <div class="fields">
-      <div class="cell ruler-title">TCP 数据面帧：帧头 28 字节 ‖ payload</div>
+      <div class="cell ruler-title">TCP 数据面帧：帧头 28 字节 ‖ payload ‖ trailer（lv2/lv3）</div>
 
       <div class="cell bitnum">0-3</div>
       <div class="cell bitnum">4-7</div>
@@ -23,7 +23,9 @@
       <div class="cell f-flags">flags (u16)</div>
       <div class="cell f-payload">payload</div>
 
-      <div class="cell wide f-muted">frame_len = 28 + L（L 为载荷长度，由 frame_len 反推；<code>frame_len</code> 含帧头）</div>
+      <div class="cell wide f-crc">trailer：lv2/lv3 = 16B keyed MAC / AEAD tag；lv1 = 无</div>
+
+      <div class="cell wide f-muted">lv1 <code>frame_len = 28 + L</code>；lv2/lv3 <code>frame_len = 28 + L + 16</code>（L 由 frame_len 反推，帧长含帧头与 trailer）</div>
     </div>
   </div>
 

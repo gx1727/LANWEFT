@@ -1,5 +1,5 @@
 <div class="note">
-    <strong>完整性 ≠ 安全性</strong>：CRC32 与 Blake3 的作用是发现损坏 / 不一致，
-    并<strong>不</strong>提供防伪能力；任何能发包的主机都能伪造 CRC32 合法的包，
-    因此防伪依赖控制面的认证与 ACL（见 21 章）。
+    <strong>完整性 ≠ 安全性（按等级）</strong>：lv1 的 CRC32 只能发现损坏，任何能发包的主机都能伪造；
+    lv2 用 BLAKE3 keyed MAC 提供密码学完整性与对端认证；lv3 再用 AEAD 提供机密性。
+    Blake3 文件级摘要仍只负责内容一致性，不替代包级认证。
   </div>

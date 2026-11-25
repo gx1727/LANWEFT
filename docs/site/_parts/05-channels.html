@@ -17,8 +17,8 @@
 
     <div class="cell wide bitnum">完整性</div>
     <div class="cell">帧头 CRC32（见 06 章）</div>
-    <div class="cell">包级 CRC32（见 08 章）</div>
-    <div class="cell">帧头 CRC32，不重复载荷级 CRC32（见 07 章）</div>
+    <div class="cell">包级 trailer：lv1 CRC32 / lv2·lv3 tag（见 08、20 章）</div>
+    <div class="cell">帧头 CRC32；lv1 无载荷校验，lv2/lv3 追加 16B tag（见 07 章）</div>
 
     <div class="cell wide bitnum">传输可靠性</div>
     <div class="cell">由 TCP 保证</div>

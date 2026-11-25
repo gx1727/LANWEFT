@@ -1,5 +1,7 @@
 <div class="note blue">
-    <strong>本章要点</strong>：安全模型建立在<strong>可信局域网</strong>、Server 与客户端受控、不穿透公网三项假设之上。
-    控制通道<strong>必须</strong>支持 TLS、<strong>应当</strong>启用；认证在<strong>连接握手</strong>阶段完成并绑定唯一 <code>device_id</code>。
-    数据面使用 CRC32 只提供<strong>完整性</strong>而非安全性；文件级 hash（Blake3）<strong>必须</strong>以 32 字节原始摘要承载。
+    <strong>本章要点</strong>：安全模型以 <strong>lv1（默认）</strong> 的可信局域网为起点，
+    lv2/lv3 可扩展到不可信网络。控制通道<strong>必须</strong>支持 TLS，
+    lv2/lv3 <strong>必须</strong>在已认证的 TLS 控制连接上分发根秘密。
+    数据面按会话等级选择：lv1 CRC32、lv2 BLAKE3 keyed MAC、lv3 AEAD（AES-256-GCM / ChaCha20-Poly1305）。
+    PROBE 使用 <code>probe_token</code> 绑定端点；文件级 hash（Blake3）<strong>必须</strong>以 32 字节原始摘要承载。
   </div>

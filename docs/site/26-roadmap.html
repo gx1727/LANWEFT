@@ -325,7 +325,7 @@
 <li><strong>现状</strong>：UDP 主通道 + TCP 兜底（见 05、07 章）。</li>
 <li><strong>议题</strong>：是否将 TCP 提升为数据面主通道。</li>
 <li><strong>收益</strong>：可删除 07 章的 PROBE 握手、11 章的 <code>window</code> / AIMD、
-  18 章的缺失分批与 08 章的包级 CRC32；吞吐不再受窗口大小与信用节奏的限制。</li>
+  18 章的缺失分批与 08 章的包级校验；吞吐不再受窗口大小与信用节奏的限制。</li>
 <li><strong>代价</strong>：失去乱序写能力（TCP 交付有序），恢复起点退化为连续水位线；
   且移动端 WiFi 的丢包<strong>不等于</strong>拥塞，TCP 拥塞控制的误判会显著降速
   —— 而本协议的移动端客户端正依赖 UDP + 发送端本地 AIMD 规避这一点。</li>
@@ -446,6 +446,11 @@
 </tr>
 </thead>
 <tbody>
+<tr>
+<td>—</td>
+<td><strong>安全等级的旧措辞清理</strong>：把 00/01/05/06/07/12/21 章仍写成「包级只有 CRC32 / 数据面不加密」的表述同步为 lv1/lv2/lv3；21 章明确未启用 TLS 时<strong>不得</strong>启用 lv2/lv3；20 章站点手写片段（要点 / 假设 / 加密示意 / 完整性 / 陷阱）同步到「AEAD 单元 = 数据报载荷、默认 lv1」。无线路格式变更。<strong>版本号不变</strong></td>
+<td>00、01、05、06、07、12、20、21、26、site</td>
+</tr>
 <tr>
 <td>—</td>
 <td><strong>PROBE token 与数据面安全等级</strong>：①C↔S 的 PROBE/PROBE_ACK 载荷由 8/9 扩为 <code>session_id + probe_token</code>（24/25），<code>login_ack</code> 新增 <code>link_token</code>（每连接 16B）；peer PROBE 统一为 24/25，<code>transfer_token</code> 定义为根秘密。②新增会话级 <code>security_level</code>（lv1 CRC32 / lv2 BLAKE3 keyed MAC / lv3 AEAD）与 <code>security_suite</code>（AES-256-GCM / ChaCha20-Poly1305）；<strong>默认 lv1</strong>；等级写入 accept/offer 消息与快照 <code>security</code> 字节。③<code>trailer</code> 由固定 4B CRC 改为 lv1 4B / lv2·lv3 16B；TCP 数据面 lv2/lv3 追加 16B 尾部并计入 <code>frame_len</code>；新增 <code>AUTH_TAG_INVALID</code> 与 <code>SECURITY_LEVEL_UNSUPPORTED</code>。④新增 Server 配置 <code>security_min_level</code> / <code>security_default_level</code>（默认 1）/ <code>security_max_level</code> / <code>security_suites</code>，协商禁止静默降级；lv2/lv3 要求控制面 TLS。⑤密钥派生：<code>probe_token</code> / <code>traffic_key</code> 由 <code>link_token</code> 或 <code>transfer_token</code> 经 KDF 派生；AEAD 单元为数据报载荷（K 个 symbol），明文长度不变。<strong>版本号不变</strong></td>

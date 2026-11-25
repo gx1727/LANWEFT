@@ -55,7 +55,8 @@
 - 接收方**可以**拒绝；拒绝经 `peer_response`（`result` = fail，
   `code` = `PEER_DECLINED`）表达，Server 以 `session_abort` 终止。
 - **没有 C↔C 的 `login`**：peer 身份完全复用双方与 Server 的既有认证；
-  数据面使用 Server 签发的 `transfer_token` 做端点确认（Stage 1）。
+  数据面使用 Server 签发的 `transfer_token` 作为**会话根秘密**：
+  lv1 直接作 PROBE token，lv2/lv3 派生 `probe_token` / `traffic_key`（见 07、20 章）。
 - R1 的中转素材/授权**必须**绑定 `transfer_id` 与 grant，完成后回收；
   **不得**让接收方凭 `file_hash` 越权访问其他私有素材。
 - 私有素材归属不因 peer 传输改变；Server 侧归属仍按上传 `device_id`。
@@ -64,10 +65,11 @@
 
 - 控制通道**必须**支持 TLS；**应当**启用。
 - 未启用 TLS 时，认证凭据以**明文**传输 ——
-  **不得**在非受信网络（含公共 WiFi）中这样部署。
+  **不得**在非受信网络（含公共 WiFi）中这样部署；
+  且 **lv2/lv3 不得启用**（根秘密只在已认证的 TLS 控制连接上分发，见 20 章）。
 - 控制通道与数据面**相互独立**：
-  数据面**不**复用控制连接的 TLS 会话；UDP 数据面**不**自带加密
-  （见 20 章）。
+  数据面**不**复用控制连接的 TLS 会话；lv1 的数据面没有密码学保护，
+  lv2 提供 keyed MAC，lv3 提供 AEAD 机密性（见 20 章）。
 
 ## 强约束
 
