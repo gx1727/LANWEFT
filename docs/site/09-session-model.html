@@ -149,7 +149,17 @@
 <tr>
 <td>transfer_token</td>
 <td>token16</td>
-<td><strong>仅 peer</strong>：Server 签发的一次性令牌</td>
+<td><strong>仅 peer</strong>：会话根秘密（lv1 直接作 PROBE token；lv2/lv3 派生 <code>probe_token</code> / <code>traffic_key</code>）</td>
+</tr>
+<tr>
+<td>security_level</td>
+<td>enum8</td>
+<td>会话安全等级（<code>1</code>/<code>2</code>/<code>3</code>，默认 <code>1</code>，见 20 章）；生命周期内不可变</td>
+</tr>
+<tr>
+<td>security_suite</td>
+<td>enum8</td>
+<td>lv3 套件（<code>0</code> = 无，<code>1</code> = AES-256-GCM，<code>2</code> = ChaCha20-Poly1305）</td>
 </tr>
 <tr>
 <td>transfer_id</td>

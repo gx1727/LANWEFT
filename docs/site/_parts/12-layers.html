@@ -5,7 +5,7 @@
     <div class="cell ruler-title">可靠性分层（自下而上）</div>
 
     <div class="cell wide f-session">① 缺失裁决与位图 · 控制面统计缺失并下发 <code>missing_chunks</code>（<code>mode=report</code>）；接收端乱序写盘与位图</div>
-    <div class="cell wide f-crc">② 完整性校验 · <code>crc32</code> 包级 + 文件级 Blake3</div>
+    <div class="cell wide f-crc">② 完整性校验 · 包级 trailer（lv1 crc32 / lv2·lv3 keyed MAC / AEAD）+ 文件级 Blake3</div>
     <div class="cell wide f-len">③ 重传 · UDP 不即时重传；聚合缺失后统一下发；重传优先级高于新数据</div>
     <div class="cell wide f-flags">④ 中断与恢复 · 不回滚已写入；恢复后加载位图并补传缺失</div>
     <div class="cell wide f-chunk">⑤ 完成与提交 · bitmap 全真 → 校验 hash → 原子重命名 → 发布完成消息</div>

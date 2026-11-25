@@ -12,8 +12,8 @@
 | UDP | 数据面主通道 |
 | TCP fallback | 数据面降级通道（**不是**控制通道） |
 | 小端序 | 本协议所有多字节整数的字节序（Little-Endian） |
-| CRC-32/ISO-HDLC | 本协议包级校验使用的 CRC32 变体（见 08 章） |
-| Blake3 | 文件级内容哈希算法（见 08、12 章） |
+| CRC-32/ISO-HDLC | lv1 包级校验使用的 CRC32 变体（见 08 章） |
+| Blake3 | 文件级内容哈希算法；lv2 使用其 keyed 模式做包级 MAC（见 08、12、20 章） |
 | 帧 | 控制通道的消息单元：`u32 magic` + `u32 frame_len` + `u32 header_crc32` + 定长帧头（**16 字节**）+ 二进制消息体（见 06 章） |
 | 失步 | desync：帧边界不再可信；判定后**必须**断连并按 13 章恢复（见 06 章） |
 | 权威快照 | Server 下发的会话关联、参数与进度摘要，不覆盖接收方的位图或提交阶段（见 13 章） |
@@ -56,7 +56,10 @@
 | batch_gap_us | 批间隔（微秒，发送端本地参数，初值 2000） |
 | direction | 会话方向（`0` = `upload` / `1` = `download` / `2` = `peer`），决定接收方与发送方 |
 | peer 会话 | `direction=peer` 的 C↔C 会话：绑定 `sender_device_id` / `receiver_device_id`；数据直连、控制经 Server 中继 |
-| transport / transfer_token | peer 传输模式（`direct` / `relay_r2`）/ Server 签发的一次性令牌 |
+| transport / transfer_token | peer 传输模式（`direct` / `relay_r2`）/ peer 会话的根秘密（lv1 直接作 PROBE token，lv2/lv3 派生密钥） |
+| security_level / security_suite | 会话安全等级（lv1 CRC32 / lv2 keyed MAC / lv3 AEAD）/ lv3 套件（AES-256-GCM / ChaCha20-Poly1305）；默认 lv1（见 20 章） |
+| link_token / probe_token | C↔S 每控制连接的根秘密 / PROBE 载荷中用于端点绑定的 token（见 07、20 章） |
+| traffic_key | lv2/lv3 的数据面密钥，由根秘密按会话派生（见 20 章） |
 | share grant | `(sender_device_id, receiver_device_id, file_hash, expiry)`；peer 传输的授权范围 |
 | AIMD | 加性增乘性减动态流控算法（**发送端策略**，非协议层机制） |
 

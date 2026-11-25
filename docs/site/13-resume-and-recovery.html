@@ -89,7 +89,7 @@
     <div class="cell wide ruler-title">快照记录 = 定长区（字段顺序与类型取自源文「通用规则」）+ 内联 code 字符串</div>
 
     <div class="cell span2 f-session">session_id (u64)</div>
-    <div class="cell span2 f-type">result / direction / state (enum8 × 3)</div>
+    <div class="cell span2 f-type">result / direction / state / security (enum8 × 4)</div>
 
     <div class="cell f-chunk">chunk_count (u32)</div>
     <div class="cell f-chunk">chunk_size (u32)</div>
@@ -175,8 +175,12 @@
 <li>每个设备的 <code>resume[]</code> <strong>必须</strong>只包含它在其中担任 sender 或 receiver 的 peer 会话；
   <code>login_ack.sessions[]</code> 的 <code>state</code>/参数按该设备视角返回。</li>
 <li>恢复后数据端点可能变化：Server <strong>必须</strong>在成功 <code>login</code> 后，对每个恢复的 peer 会话
-  <strong>重发</strong> <code>peer_accept</code>（含最新端点与 <code>transfer_token</code>）；双方<strong>必须</strong>重新 peer PROBE。
+  <strong>重发</strong> <code>peer_accept</code>（含最新端点、<code>transfer_token</code>、<code>security_level</code> / <code>security_suite</code>）；
+  双方<strong>必须</strong>重新 peer PROBE，并按原安全等级重新派生 <code>traffic_key</code>。
   接收方的位图/临时文件<strong>必须</strong>保留，续传起点仍是第一个缺失 symbol。</li>
+<li><strong>安全等级不可变</strong>：恢复的 peer 会话<strong>必须</strong>使用首次建立的等级/套件；
+  若 Server 配置已不再允许该等级，会话<strong>必须</strong>失败（<code>SECURITY_LEVEL_UNSUPPORTED</code>），
+  <strong>不得</strong>静默降级或升级。</li>
 <li>R1 的中转由两段既有会话组成：分别按 upload/download 恢复；
   <code>transfer_id</code> 关联两段结果。</li>
 <li><strong>会话内 transport 切换（relay_r2）</strong>：Server 通过 <code>peer_transport_switch</code> 切换
@@ -260,7 +264,8 @@
   二进制表示：定长区 <code>sessions_count</code>（<code>u16</code>）给出条目数，
   变长区按顺序给出 <code>sessions_count</code> 条<strong>快照记录</strong>，每条 =
   <strong>42 字节定长</strong>（<code>session_id</code>(u64) / <code>result</code>(enum8) / <code>direction</code>(enum8) /
-  <code>state</code>(enum8) / <code>chunk_count</code>(u32) / <code>chunk_size</code>(u32) / <code>window</code>(u32) /
+  <code>state</code>(enum8) / <code>security</code>(enum8：bit0-1 等级，bit2-3 套件) /
+  <code>chunk_count</code>(u32) / <code>chunk_size</code>(u32) / <code>window</code>(u32) /
   <code>connection_window</code>(u32) / <code>next_chunk_id</code>(u32) / <code>missing_count</code>(u32) /
   <code>udp_port</code>(u16) / <code>tcp_port</code>(u16) / <code>code_len</code>(u16)）+
   紧随其后的 <code>code_len</code> 字节内联 <code>code</code> 字符串。</li>
@@ -269,6 +274,12 @@
   <strong>不得</strong>用于重建或覆盖它。下载时 Server 必须回显 Client 提供的续传摘要；
   Client 保留本地 VERIFY / COMMIT 阶段。位图丢失且无法可靠重建时不得凭摘要续传。</li>
 <li>恢复成功后，发送方<strong>必须</strong>丢弃恢复前推导的在途量估计并重建（见 11 章判据第 3 条）。</li>
+<li><strong>C↔S 的安全状态恢复（规范性）</strong>：成功 <code>login</code> 的 <code>login_ack.link_token</code>
+  <strong>必须</strong>是本次连接的新值；Client 与 Server <strong>必须</strong>用它重新派生 <code>probe_token</code>
+  （以及 lv2/lv3 的 <code>traffic_key</code>），并对每个恢复会话重新 PROBE。
+  旧连接上的 <code>link_token</code> / 数据密钥<strong>必须</strong>失效；旧密钥的在途包<strong>必须</strong>丢弃并按缺失重传。
+  快照的 <code>security</code> 字节给出恢复会话的等级/套件，<strong>必须</strong>与断线前一致；
+  若 Server 配置不再允许该等级，按 <code>SECURITY_LEVEL_UNSUPPORTED</code> 失败，<strong>不得</strong>静默变更。</li>
 </ul>
 <h3>上传方向（Client = 发送方，Server = 接收方）</h3>
 <ol>

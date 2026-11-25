@@ -87,8 +87,8 @@
 (function(){
   const HB_PERIOD = '10';
   const HB_TIMEOUT = '30 秒';
-  const PROBE_LEN = '8';
-  const PROBE_ACK_LEN = '9';
+  const PROBE_LEN = '24';
+  const PROBE_ACK_LEN = '25';
   const PROBE_TIMEOUT = '2s';
   const BATCH_GAP = '2000';
   const REPORT = '50ms';
@@ -105,9 +105,9 @@
   const UPLOAD = [
     {sep:'① 控制连接建立（TCP 长连接）'},
     {from:'C', to:'S', type:'conn', label:'TCP connect'},
-    {from:'C', to:'S', type:'tcp', label:'login {proto_major/minor/patch, device_id, token, resume[]}'},
+    {from:'C', to:'S', type:'tcp', label:'login {proto_major/minor/patch, max_security_level, suite_mask, device_id, token, resume[]}'},
     {from:'S', to:'S', type:'self', label:'校验认证与协议版本（21 章）'},
-    {from:'S', to:'C', type:'tcp', label:'login_ack {result, code, proto_major/minor/patch, sessions[] 权威快照}'},
+    {from:'S', to:'C', type:'tcp', label:'login_ack {result, code, proto_major/minor/patch, link_token, sessions[] 权威快照}'},
 
     {sep:'①-2 心跳（长连接保活）'},
     {from:'C', to:'S', type:'tcp', label:'ping {ts}'},
@@ -123,7 +123,7 @@
     {note:'若 file_exists 为真：发送侧直接 NEGOTIATING → COMPLETED；接收侧 NEGOTIATING → VERIFY → COMMIT → COMPLETED（秒传不产生位图）'},
 
     {sep:'③ UDP 可用性探测（数据面）'},
-    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {L='+PROBE_LEN+', session_id}'},
+    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {L='+PROBE_LEN+', session_id + probe_token}'},
     {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {L='+PROBE_ACK_LEN+'}'},
     {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
     {note:'等待 PROBE_ACK 超时（建议 '+PROBE_TIMEOUT+'）→ 回退数据面 TCP；是否支持降级由 tcp_port 表达（见 07 章）'},
@@ -131,7 +131,7 @@
     {sep:'④ 数据传输（数据面 UDP，无逐包 ACK）'},
     {from:'C', to:'S', type:'udp', label:'chunk #0 … #N（批量 burst_size，批间隔 batch_gap_us = '+BATCH_GAP+'µs）',
       chip:{side:'C', text:'Client: 发送侧，仅更新「在途量」估计'}, chip2:{side:'S', text:'Server: 接收侧'}},
-    {from:'S', to:'S', type:'self', label:'校验头 + crc32 → 随机写盘 → 标记位图'},
+    {from:'S', to:'S', type:'self', label:'校验 trailer（lv1 crc32 / lv2·lv3 tag）→ 随机写盘 → 标记位图'},
 
     {sep:'⑤ 缺失裁决与重传（可靠性由接收方裁决提供）'},
     {from:'S', to:'C', type:'tcp', label:'missing_chunks {mode=report, chunks=[]} —— 空列表也必须下发'},
@@ -176,9 +176,9 @@
   const DOWNLOAD = [
     {sep:'① 控制连接建立（TCP 长连接）'},
     {from:'C', to:'S', type:'conn', label:'TCP connect'},
-    {from:'C', to:'S', type:'tcp', label:'login {proto_major/minor/patch, device_id, token, resume[]}'},
+    {from:'C', to:'S', type:'tcp', label:'login {proto_major/minor/patch, max_security_level, suite_mask, device_id, token, resume[]}'},
     {from:'S', to:'S', type:'self', label:'校验认证与协议版本（21 章）'},
-    {from:'S', to:'C', type:'tcp', label:'login_ack {result, code, proto_major/minor/patch, sessions[] 权威快照}'},
+    {from:'S', to:'C', type:'tcp', label:'login_ack {result, code, proto_major/minor/patch, link_token, sessions[] 权威快照}'},
 
     {sep:'①-2 心跳（长连接保活）'},
     {from:'S', to:'C', type:'tcp', label:'ping {ts}'},
@@ -192,7 +192,7 @@
       chip:{side:'C', text:'Client: NEGOTIATING → TRANSFERRING'}, chip2:{side:'S', text:'Server: NEGOTIATING → TRANSFERRING'}},
 
     {sep:'③ UDP 可用性探测（数据面）'},
-    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {L='+PROBE_LEN+', session_id}'},
+    {from:'C', to:'S', type:'udp', label:'UDP_PROBE {L='+PROBE_LEN+', session_id + probe_token}'},
     {from:'S', to:'C', type:'udp', label:'UDP_PROBE_ACK {L='+PROBE_ACK_LEN+'}'},
     {from:'S', to:'C', type:'tcp', label:'udp_ready {session_id, udp_port}'},
     {note:'Server 以 PROBE 报文的源地址:端口作为该会话的对端数据面地址；udp_ready 只确认当前探测，不改变端口（见 14 章）'},
@@ -200,7 +200,7 @@
     {sep:'④ 数据传输（数据面 UDP，方向与上传相反）'},
     {from:'S', to:'C', type:'udp', label:'chunk #0 … #N（Server 批量发送，burst_size / batch_gap_us）',
       chip:{side:'S', text:'Server: 发送侧'}, chip2:{side:'C', text:'Client: 接收侧'}},
-    {from:'C', to:'C', type:'self', label:'校验头 + crc32 → 随机写盘 → 标记位图'},
+    {from:'C', to:'C', type:'self', label:'校验 trailer（lv1 crc32 / lv2·lv3 tag）→ 随机写盘 → 标记位图'},
 
     {sep:'⑤ 缺失裁决与重传（裁决方恒为接收方）'},
     {from:'C', to:'S', type:'tcp', label:'missing_chunks {mode=report, chunks=[]} —— 空列表也必须下发'},
@@ -562,17 +562,21 @@
 <pre class="codeblock"><code>Client                                        Server
   |------------ TCP connect ------------------&gt;|
   |--- login {proto_major/minor/patch,         |
+  |           max_security_level, suite_mask,  |
   |           device_id, token, resume[]} ----&gt;|
-  |                                            |  校验认证（21 章）
+  |                                            |  校验认证（21 章）/协商安全等级（20 章）
   |&lt;-- login_ack {result, code,                |
   |             proto_major/minor/patch,       |
-  |             sessions[]} ------------------&gt;|
+  |             link_token, sessions[]} ------&gt;|
   |                                            |
   |&lt;=========== 会话控制消息（长连接）==========&gt;|
 </code></pre>
 <ul>
 <li><code>login</code> <strong>必须</strong>是连接上的<strong>第一条</strong>消息；Server <strong>必须</strong>丢弃此前的任何消息。</li>
 <li><code>login_ack.sessions</code> 是<strong>权威快照</strong>（见 13 章）。</li>
+<li><code>login_ack.link_token</code> 是<strong>本次控制连接</strong>的 PROBE / 数据密钥根秘密；重连后更换，
+  恢复会话<strong>必须</strong>用新 token 重新 PROBE（见 07、13、20 章）。</li>
+<li>每个会话的安全等级/套件在 accept 类消息中下发；<strong>默认 lv1</strong>（见 20 章）。</li>
 <li>图中 <code>{...}</code> 为<strong>消息体字段名的列举</strong>，不表示线上表示形式；
   控制帧为二进制定长布局，各字段的偏移与大小见 06 章。</li>
 </ul>

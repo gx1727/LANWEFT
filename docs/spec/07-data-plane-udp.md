@@ -5,7 +5,7 @@
 - 无连接、无逐包 ACK、允许丢包与乱序
 - 一个数据报承载 `K` 个 symbol（`K × symbol_size` 字节，见 08 章）；
   `symbol_size` = 1200，`chunk_size` 为其整数倍（默认 64800，`S` = 54）
-- crc32 包级校验（见 08 章）
+- 包级校验：lv1 为 crc32，lv2/lv3 为 keyed MAC / AEAD tag（见 08、20 章）
 - 数据面端口**可以**被多个会话共用，`session_id`（u64）用于区分（见 08 章）
 
 ## 发送端
@@ -34,29 +34,37 @@
 ### PROBE 数据包
 
 - flags.bit3=1，flags.bit0（FLAG_DATA）**必须**为 0
-- payload 为 session_id（u64）的 **8 字节小端编码**
-- 载荷长度（由报文总长反推）= **8**
+- payload 为 `session_id`（u64，8 字节）‖ `probe_token`（16 字节），共 **24 字节**
+- 载荷长度（由报文总长反推）= **24**
+- `probe_token` 的来源：
+  - **lv1**：直接取本次控制连接的 `link_token`（`login_ack` 下发，见 06 章）。
+  - **lv2/lv3**：`probe_token = KDF(link_token, "probe", 16)`，**不得**在线上直接发送 `link_token`
+    （见 20 章）。
+- Server **必须**校验 `probe_token` 与 `session_id` 属于同一控制连接；失败按
+  `PEER_TOKEN_INVALID` 丢弃，不绑定端点。
 
 ### PROBE_ACK 数据包
 
 - flags.bit3=1，flags.bit0（FLAG_DATA）**必须**为 0
-- payload 为 session_id（u64）+ 1 字节状态码（0=成功，1=失败），共 **9 字节**
-- 载荷长度（由报文总长反推）= **9**
+- payload 为 `session_id`（u64）+ `probe_token`（16 字节）+ 1 字节状态码（0=成功，1=失败），共 **25 字节**
+- 载荷长度（由报文总长反推）= **25**
 - **判别规则（规范性）**：PROBE 与 PROBE_ACK 共用 `flags.bit3`，
-  接收方**必须**以**载荷长度**区分：`8` 为 PROBE，`9` 为 PROBE_ACK。
+  接收方**必须**以**载荷长度**区分：`24` 为 PROBE，`25` 为 PROBE_ACK。
   其余长度**必须**按 `INVALID_PACKET` 丢弃。
   - **判别前提（规范性）**：该规则**仅**适用于 `FLAG_PROBE` 置位且 `FLAG_DATA`
     **未**置位的包。`FLAG_DATA` 包一律按数据路径处理，
-    **不得**用载荷长度判别类型（数据报的 `K × symbol_size` 可能恰好为 8 或 9 字节）。
+    **不得**用载荷长度判别类型（数据报的 `K × symbol_size` 可能恰好为 24 或 25 字节）。
 
 ### C↔C peer PROBE（规范性）
 
 仅用于 `direction = peer` 的**直连**：发送方向接收方声明的数据端点发送探测。
 
 - `flags.bit7 = 1`（`FLAG_PEER_PROBE`）、`flags.bit0 = 0`；`chunk_id = 0`、`chunk_symbol = 0`。
-- **PROBE** 载荷 = `session_id`（u64，8 字节）‖ `transfer_token`（16 字节），`L = 24`。
+- **PROBE** 载荷 = `session_id`（u64，8 字节）‖ `probe_token`（16 字节），`L = 24`。
 - **PROBE_ACK** 载荷 = 上述 24 字节 ‖ 1 字节状态（0=成功，1=失败），`L = 25`。
-- 接收方**必须**校验 `transfer_token` 与 `session_id`，并从**同一数据面端口**回 ACK；
+- `probe_token`：lv1 直接取 `peer_accept.transfer_token`；lv2/lv3 为
+  `KDF(transfer_token, "probe", 16)`，**不得**在线上直接发送 `transfer_token`（见 20 章）。
+- 接收方**必须**校验 `probe_token` 与 `session_id`，并从**同一数据面端口**回 ACK；
   校验失败按 `PEER_TOKEN_INVALID` 丢弃（见 19 章）。
 - 接收方**必须**把 PROBE 的**源地址:端口**绑定为该会话的发送方端点；
   之后**只接受来自该端点**的数据包。发送方**必须**只接受来自接收方端点的 ACK。
@@ -70,7 +78,7 @@
 - **中转端点**：Server 为本会话分配 `relay_udp_port` / `relay_tcp_port`，
   经 `peer_accept` / `peer_transport_switch` 下发（见 06 章）。
 - **UDP**：
-  - C1 向 S 的中转端点发送 peer PROBE（携带 `session_id` + `transfer_token`）；
+  - C1 向 S 的中转端点发送 peer PROBE（携带 `session_id` + `probe_token`）；
     S 校验 token / session / 源地址后回 ACK。
   - C1 的数据包发往 S；S **必须**校验 token/源地址后转发到 C2 声明的接收端点。
   - C2 **只接受**来自 S 中转端点的数据；旧端点（直连对端）上的包**必须**丢弃。
@@ -148,9 +156,10 @@ Server 不得向未经 PROBE 确认的地址发送数据（见 20 章），
 
 ### 帧结构（小端序）
 
-TCP 是字节流，**必须**有帧边界；且 TCP 已提供字节流校验，
-因此 TCP 数据面帧**不重复载荷级** CRC32（与 06 章控制帧同理）；
-但帧头**必须**携带 `magic` 与 `header_crc32`（见 06 章「帧格式」与「帧同步与失步处理」）。
+TCP 是字节流，**必须**有帧边界；TCP 已提供字节流校验，
+因此 lv1 **不重复载荷级** CRC32（与 06 章控制帧同理）；
+lv2/lv3 仍**必须**在 payload 后追加 keyed MAC / AEAD tag（见 20 章）。
+帧头**必须**携带 `magic` 与 `header_crc32`（见 06 章「帧格式」与「帧同步与失步处理」）。
 
 | 字段 | 偏移 | 大小 | 类型 | 说明 |
 |------|------|------|------|------|
@@ -162,13 +171,15 @@ TCP 是字节流，**必须**有帧边界；且 TCP 已提供字节流校验，
 | chunk_symbol | 24-25 | 2 | u16 | `chunk_id` 块内的 symbol 起始索引 |
 | flags | 26-27 | 2 | u16 | 标志位（取值见 08 章；bit6 = FLAG_BIND） |
 | payload | 28.. | N | bytes | 文件数据（`K` 个 symbol） |
+| trailer | 28+N | 0/16 | bytes | lv1 无；lv2 为 keyed MAC 16B；lv3 为 AEAD tag 16B（见 20 章） |
 
 ```
 FRAME_HEADER_SIZE = 4 + 4 + 4 + 8 + 4 + 2 + 2 = 28 字节
+TRAILER_SIZE      = 0 (lv1) / 16 (lv2, lv3)
 ```
 
 **帧头校验码（规范性）**：`header_crc32` 使用 **CRC-32/ISO-HDLC**
-（与 08 章 `crc32`、06 章 `header_crc32` **同一变体**），
+（与 08 章 lv1 的 `trailer`、06 章 `header_crc32` **同一变体**），
 覆盖帧头中**除 `header_crc32` 字段自身之外**的 **24 字节**，按下列顺序拼接：
 
 ```
@@ -182,14 +193,15 @@ magic(4) ‖ frame_len(4) ‖ session_id(8) ‖ chunk_id(4) ‖ chunk_symbol(2) 
 **帧长核算（规范性）**：
 
 ```
-frame_len = 28 + L        // L 为载荷长度，由 frame_len 反推
+frame_len = 28 + L + TRAILER_SIZE   // lv1: TRAILER_SIZE=0；lv2/lv3: 16
 ```
 
+- lv2/lv3 的 `trailer` **必须**计入 `frame_len`；接收方按会话等级读取。
 - `magic` **必须**为 `0x574E414C`；不匹配即判定**失步**（见下）。
 - `frame_len` **必须** ≥ **28**
 - 接收方**必须**按 `frame_len` **读满**后再解析：
   **不得**假设一帧一次 `recv` 到达；**不得**按换行或任何字节模式切分。
-- 载荷长度 `L = frame_len − 28`，**必须** > 0（`FLAG_BIND` 除外）；
+- 载荷长度 `L = frame_len − 28 − TRAILER_SIZE`，**必须** > 0（`FLAG_BIND` 除外）；
   DATA 帧的 `chunk_symbol + K ≤ S`、长度对齐与末块规则与 08 章**完全一致**
   （`K = ceil(L / symbol_size)`）。不符不得写盘或标位，并关闭该数据连接。
   代号不匹配但边界合法的 DATA 只丢帧；`FLAG_BIND` 使用零载荷（`L = 0`，

@@ -90,9 +90,10 @@
       <div class="cell f-type">proto_major</div>
       <div class="cell f-type">proto_minor</div>
       <div class="cell f-type">proto_patch</div>
-      <div class="cell f-muted">reserved</div>
+      <div class="cell f-len">max_security_level</div>
       <div class="cell span2 f-len">resume_count (u16)</div>
-      <div class="cell span2 f-muted">reserved</div>
+      <div class="cell f-len">suite_mask</div>
+      <div class="cell f-muted">reserved</div>
       <div class="cell wide f-body">变长区：device_id (str) ‖ token (str) ‖ resume[] (每条 20 字节)</div>
     </div>
   </div>
@@ -146,7 +147,7 @@
       <thead><tr><th>编号</th><th>消息</th><th>方向</th><th>定长区</th><th>变长区</th><th>用途</th></tr></thead>
       <tbody>
         <tr><td class="num">0x01</td><td class="mono">login</td><td>Client→Server</td><td class="num">8 B</td><td class="mono">device_id, token, resume[]</td><td>连接握手、认证与恢复请求</td></tr>
-        <tr><td class="num">0x02</td><td class="mono">login_ack</td><td>Server→Client</td><td class="num">10 B</td><td class="mono">code, sessions[]</td><td>握手结果与权威快照</td></tr>
+        <tr><td class="num">0x02</td><td class="mono">login_ack</td><td>Server→Client</td><td class="num">10 B</td><td class="mono">code, link_token, sessions[]</td><td>握手结果与权威快照</td></tr>
         <tr><td class="num">0x03</td><td class="mono">upload_start</td><td>Client→Server</td><td class="num">28 B</td><td class="mono">file_hash, file_name</td><td>发起上传</td></tr>
         <tr><td class="num">0x04</td><td class="mono">upload_accept</td><td>Server→Client</td><td class="num">32 B</td><td class="mono">file_hash</td><td>接受上传，返回会话参数</td></tr>
         <tr><td class="num">0x05</td><td class="mono">download_start</td><td>Client→Server</td><td class="num">28 B</td><td class="mono">file_hash, file_name</td><td>发起下载</td></tr>
@@ -1213,9 +1214,9 @@ RESYNC（仅诊断，不恢复协议状态机）
 <tr>
 <td>3</td>
 <td>1</td>
-<td>reserved</td>
-<td>u8</td>
-<td>保留</td>
+<td>max_security_level</td>
+<td>enum8</td>
+<td>Client 支持的<strong>最高</strong>安全等级（<code>1</code> = lv1，<code>2</code> = lv2，<code>3</code> = lv3，见 20 章）；<strong>必须</strong> ≥ <code>1</code></td>
 </tr>
 <tr>
 <td>4</td>
@@ -1226,9 +1227,16 @@ RESYNC（仅诊断，不恢复协议状态机）
 </tr>
 <tr>
 <td>6</td>
-<td>2</td>
+<td>1</td>
+<td>security_suite_mask</td>
+<td>u8</td>
+<td>lv3 套件位图：bit0 = AES-256-GCM，bit1 = ChaCha20-Poly1305；<code>max_security_level &lt; 3</code> 时可置 0</td>
+</tr>
+<tr>
+<td>7</td>
+<td>1</td>
 <td>reserved</td>
-<td>u16</td>
+<td>u8</td>
 <td>保留</td>
 </tr>
 </tbody>
@@ -1387,6 +1395,8 @@ RESYNC（仅诊断，不恢复协议状态机）
 <ol>
 <li><code>code</code>：<code>str</code>。失败时的机器可判定错误码（取值见 19 章，如 <code>LOGIN_FAILED</code> /
    <code>PROTO_VERSION_UNSUPPORTED</code> / <code>CLIENT_ID_INVALID</code>）；成功时<strong>必须</strong>为空串。</li>
+<li><code>link_token</code>：<code>token16</code>。<strong>本次控制连接</strong>的数据面 PROBE 秘密；成功时<strong>必须</strong>非零，失败时全 0。
+   见 07、20 章。</li>
 <li><code>sessions[]</code>：<code>sessions_count</code> 条快照记录，每条 = <strong>42 字节定长</strong> + <code>code_len</code> 字节内联字符串。</li>
 </ol>
 <p><strong>快照记录定长区（42 字节）</strong></p>
@@ -1432,9 +1442,9 @@ RESYNC（仅诊断，不恢复协议状态机）
 <tr>
 <td>11</td>
 <td>1</td>
-<td>reserved</td>
-<td>u8</td>
-<td>保留</td>
+<td>security</td>
+<td>enum8</td>
+<td>bit0–1 = 安全等级（<code>1</code>/<code>2</code>/<code>3</code>），bit2–3 = lv3 套件（<code>0</code> = 无，<code>1</code> = AES-256-GCM，<code>2</code> = ChaCha20-Poly1305），bit4–7 保留</td>
 </tr>
 <tr>
 <td>12</td>
@@ -1512,6 +1522,13 @@ RESYNC（仅诊断，不恢复协议状态机）
 <li><strong>权威快照的效力（规范性）</strong>：快照确定会话关联、协商参数和端口；续传字段是接收方持久化位图的摘要，<strong>不得</strong>据此覆盖位图或接收方的本地提交阶段。<code>state = COMPLETED</code> 的回执交付见 13 章。</li>
 <li>Client 若不支持 Server 选定的 <code>proto_version</code>，<strong>必须</strong>关闭连接（见 08 章版本比较规则）。</li>
 </ul>
+<blockquote>
+<p><strong>安全等级字段的共性（规范性）</strong>：<code>security_level</code> / <code>security_suite</code> 出现在
+<code>upload_accept</code> / <code>download_accept</code> / <code>delivery_offer</code> / <code>peer_offer</code> / <code>peer_accept</code>，
+表示<strong>本会话</strong>选定的等级与 lv3 套件；默认 <code>security_level = 1</code>（lv1）。
+等级在会话生命周期内<strong>不可变</strong>；恢复时<strong>必须</strong>与快照记录 <code>security</code> 字节一致。
+协商规则、密钥派生与 PROBE token 见 20、07 章。</p>
+</blockquote>
 <h3>upload_start（<code>0x03</code>）</h3>
 <p><strong>定长区（28 字节）</strong></p>
 <div class="card"><table>
@@ -1638,9 +1655,23 @@ RESYNC（仅诊断，不恢复协议状态机）
 </tr>
 <tr>
 <td>29</td>
-<td>3</td>
+<td>1</td>
+<td>security_level</td>
+<td>enum8</td>
+<td>本会话选定的安全等级（<code>1</code>/<code>2</code>/<code>3</code>，见 20 章）</td>
+</tr>
+<tr>
+<td>30</td>
+<td>1</td>
+<td>security_suite</td>
+<td>enum8</td>
+<td>lv3 套件：<code>0</code> = 无（lv1/lv2），<code>1</code> = AES-256-GCM，<code>2</code> = ChaCha20-Poly1305</td>
+</tr>
+<tr>
+<td>31</td>
+<td>1</td>
 <td>reserved</td>
-<td>—</td>
+<td>u8</td>
 <td>保留</td>
 </tr>
 </tbody>
@@ -1775,9 +1806,23 @@ RESYNC（仅诊断，不恢复协议状态机）
 </tr>
 <tr>
 <td>29</td>
-<td>3</td>
+<td>1</td>
+<td>security_level</td>
+<td>enum8</td>
+<td>本会话选定的安全等级（<code>1</code>/<code>2</code>/<code>3</code>，见 20 章）</td>
+</tr>
+<tr>
+<td>30</td>
+<td>1</td>
+<td>security_suite</td>
+<td>enum8</td>
+<td>lv3 套件：<code>0</code> = 无（lv1/lv2），<code>1</code> = AES-256-GCM，<code>2</code> = ChaCha20-Poly1305</td>
+</tr>
+<tr>
+<td>31</td>
+<td>1</td>
 <td>reserved</td>
-<td>—</td>
+<td>u8</td>
 <td>保留</td>
 </tr>
 </tbody>
@@ -1788,8 +1833,8 @@ RESYNC（仅诊断，不恢复协议状态机）
 </ol>
 <p><strong>与 <code>upload_accept</code> 的字段对称性（规范性）</strong>：<code>upload_accept</code> 与 <code>download_accept</code> <strong>必须</strong>携带
 同构的字段集合 —— <code>file_hash</code> / <code>session_id</code> / <code>chunk_count</code> / <code>window</code> /
-<code>connection_window</code> / <code>udp_port</code> / <code>tcp_port</code> / <code>chunk_size</code> / <code>file_exists</code>；
-下载方向的 <code>file_exists</code> <strong>必须</strong>为 0。
+<code>connection_window</code> / <code>udp_port</code> / <code>tcp_port</code> / <code>chunk_size</code> / <code>file_exists</code> /
+<code>security_level</code> / <code>security_suite</code>；下载方向的 <code>file_exists</code> <strong>必须</strong>为 0。
 数据面端口与 <code>chunk_size</code> <strong>必须</strong>出现在两个 accept 消息中：
 缺端口则数据通路无法建立（Server 不得向未知端口发送 UDP，见 20 章），
 缺 <code>chunk_size</code> 则接收方无法核算 <code>chunk_count = ceil(size / chunk_size)</code>。</p>
@@ -2652,7 +2697,7 @@ Client 是会话对端，Server 不主动发起恢复。</p>
 <td>16</td>
 <td>transfer_token</td>
 <td>token16</td>
-<td>Server 签发的一次性令牌</td>
+<td>会话秘密：lv1 直接作为 PROBE token；lv2/lv3 作为 PROBE/数据密钥的派生根（见 07、20 章）</td>
 </tr>
 <tr>
 <td>56</td>
@@ -2670,10 +2715,17 @@ Client 是会话对端，Server 不主动发起恢复。</p>
 </tr>
 <tr>
 <td>58</td>
-<td>2</td>
-<td>reserved</td>
-<td>u16</td>
-<td>保留</td>
+<td>1</td>
+<td>security_level</td>
+<td>enum8</td>
+<td>本会话选定的安全等级（<code>1</code>/<code>2</code>/<code>3</code>）</td>
+</tr>
+<tr>
+<td>59</td>
+<td>1</td>
+<td>security_suite</td>
+<td>enum8</td>
+<td>lv3 套件：<code>0</code> = 无，<code>1</code> = AES-256-GCM，<code>2</code> = ChaCha20-Poly1305</td>
 </tr>
 <tr>
 <td>60</td>
@@ -2824,7 +2876,7 @@ Client 是会话对端，Server 不主动发起恢复。</p>
 <td>16</td>
 <td>transfer_token</td>
 <td>token16</td>
-<td>一次性令牌</td>
+<td>会话秘密：lv1 直接作为 PROBE token；lv2/lv3 作为 PROBE/数据密钥的派生根</td>
 </tr>
 <tr>
 <td>56</td>
@@ -2850,9 +2902,9 @@ Client 是会话对端，Server 不主动发起恢复。</p>
 <tr>
 <td>59</td>
 <td>1</td>
-<td>reserved</td>
-<td>u8</td>
-<td>保留</td>
+<td>security_level</td>
+<td>enum8</td>
+<td>本会话选定的安全等级（<code>1</code>/<code>2</code>/<code>3</code>）</td>
 </tr>
 <tr>
 <td>60</td>
@@ -2877,9 +2929,16 @@ Client 是会话对端，Server 不主动发起恢复。</p>
 </tr>
 <tr>
 <td>80</td>
-<td>8</td>
+<td>1</td>
+<td>security_suite</td>
+<td>enum8</td>
+<td>lv3 套件：<code>0</code> = 无，<code>1</code> = AES-256-GCM，<code>2</code> = ChaCha20-Poly1305</td>
+</tr>
+<tr>
+<td>81</td>
+<td>7</td>
 <td>reserved</td>
-<td>u64</td>
+<td>—</td>
 <td>保留</td>
 </tr>
 <tr>
@@ -2900,7 +2959,8 @@ Client 是会话对端，Server 不主动发起恢复。</p>
 <p><strong>发布方（规范性）</strong>：恒由 <strong>Server</strong> 发布给<strong>双方</strong>；双方各自收到 <code>role</code> 不同的同一布局。
 Server <strong>必须</strong>校验端点来源（见 07 章）。
 本消息<strong>也用于恢复</strong>：成功 <code>login</code> 后，Server <strong>必须</strong>对每个恢复的 peer 会话重发本条，
-携带最新端点与 <code>transfer_token</code>（见 13 章）。</p>
+携带最新端点、<code>transfer_token</code> 与已选定的 <code>security_level</code> / <code>security_suite</code>（见 13 章）。
+<strong>安全等级在会话生命周期内不可变</strong>；恢复时<strong>必须</strong>与首次 <code>peer_accept</code> 一致，否则会话失败。</p>
 <p><strong>端点的含义（规范性）</strong>：</p>
 <ul>
 <li><code>transport = direct</code>：<code>peer_addr</code> / <code>peer_udp_port</code> / <code>peer_tcp_port</code> 是<strong>对端设备</strong>的数据端点。</li>
@@ -3773,9 +3833,23 @@ Client 可用 <code>file_hash</code> 单独定位，也可用 <code>asset_id</co
 </tr>
 <tr>
 <td>45</td>
-<td>3</td>
+<td>1</td>
+<td>security_level</td>
+<td>enum8</td>
+<td>本会话选定的安全等级（<code>1</code>/<code>2</code>/<code>3</code>）</td>
+</tr>
+<tr>
+<td>46</td>
+<td>1</td>
+<td>security_suite</td>
+<td>enum8</td>
+<td>lv3 套件：<code>0</code> = 无，<code>1</code> = AES-256-GCM，<code>2</code> = ChaCha20-Poly1305</td>
+</tr>
+<tr>
+<td>47</td>
+<td>1</td>
 <td>reserved</td>
-<td>—</td>
+<td>u8</td>
 <td>保留</td>
 </tr>
 </tbody>

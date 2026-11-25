@@ -8,17 +8,21 @@
 Client                                        Server
   |------------ TCP connect ------------------>|
   |--- login {proto_major/minor/patch,         |
+  |           max_security_level, suite_mask,  |
   |           device_id, token, resume[]} ---->|
-  |                                            |  校验认证（21 章）
+  |                                            |  校验认证（21 章）/协商安全等级（20 章）
   |<-- login_ack {result, code,                |
   |             proto_major/minor/patch,       |
-  |             sessions[]} ------------------>|
+  |             link_token, sessions[]} ------>|
   |                                            |
   |<=========== 会话控制消息（长连接）==========>|
 ```
 
 - `login` **必须**是连接上的**第一条**消息；Server **必须**丢弃此前的任何消息。
 - `login_ack.sessions` 是**权威快照**（见 13 章）。
+- `login_ack.link_token` 是**本次控制连接**的 PROBE / 数据密钥根秘密；重连后更换，
+  恢复会话**必须**用新 token 重新 PROBE（见 07、13、20 章）。
+- 每个会话的安全等级/套件在 accept 类消息中下发；**默认 lv1**（见 20 章）。
 - 图中 `{...}` 为**消息体字段名的列举**，不表示线上表示形式；
   控制帧为二进制定长布局，各字段的偏移与大小见 06 章。
 

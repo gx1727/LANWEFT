@@ -4,7 +4,7 @@
   <div class="fields" style="--cols:4">
     <div class="cell wide ruler-title">接收方的写入顺序：先校验 → 再写盘 → 最后标记位图</div>
 
-    <div class="cell f-crc">① 校验 crc32</div>
+    <div class="cell f-crc">① 校验包级 trailer</div>
     <div class="cell f-muted">校验失败 → <strong>写盘前丢弃</strong>，不得让未通过校验的数据进入临时文件（见 12 章）</div>
     <div class="cell f-payload">② 写盘（偏移 = chunk_id × chunk_size + chunk_symbol × symbol_size）</div>
     <div class="cell f-muted">重复写同一 symbol <strong>必须</strong>幂等（允许重复覆盖）</div>
@@ -15,5 +15,5 @@
 
 <div class="caption">
   三步顺序取自源文「写入语义（规范性）」中的<strong>写入顺序（规范性）</strong>一段；
-  图中不含手敲的规范数值（校验算法为 <code>crc32</code>，见 08 章）。
+  图中不含手敲的规范数值（包级校验按会话等级为 crc32 / keyed MAC / AEAD，见 08、20 章）。
 </div>

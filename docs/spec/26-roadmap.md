@@ -182,12 +182,15 @@
   chunk 粒度约 0.67%）的收益 —— 它能把定位成本降到一次哈希，
   代价是多一个协议产物与存储开销。当前**不纳入**规范。
 
-### 数据面的身份认证
+### 数据面的身份认证（已结项）
 
-- **现状**：数据面只有 CRC32，它**不提供**身份认证
-  （见 20 章）。当前安全模型以「可信局域网」为前提。
-- **待办**：若部署场景扩展到不可信网络，引入基于会话密钥的 AEAD
-  （如 AES-GCM / ChaCha20-Poly1305）与 nonce / 代际机制。
+- **结论**：**已实施**。数据面新增会话级安全等级：lv1 = CRC32（默认）、
+  lv2 = BLAKE3 keyed MAC、lv3 = AES-256-GCM / ChaCha20-Poly1305（见 20 章）。
+- **PROBE token**：C↔S 的 PROBE 载荷由 8 字节扩为 `session_id + probe_token`（24/25），
+  token 来自 `login_ack.link_token`；peer 的 `transfer_token` 同时作为根秘密。
+  lv1 直接使用根秘密，lv2/lv3 使用派生 token 与 `traffic_key`。
+- **代价**：lv2/lv3 的尾部由 4B 变 16B，lv2/lv3 要求控制面 TLS 分发密钥；
+  默认 lv1 保持兼容。
 
 ### 恢复列表与权威快照的帧长上限（已结项）
 
@@ -228,6 +231,7 @@
 
 | 日期 | 修订内容 | 章节 |
 |------|---------|------|
+| — | **PROBE token 与数据面安全等级**：①C↔S 的 PROBE/PROBE_ACK 载荷由 8/9 扩为 `session_id + probe_token`（24/25），`login_ack` 新增 `link_token`（每连接 16B）；peer PROBE 统一为 24/25，`transfer_token` 定义为根秘密。②新增会话级 `security_level`（lv1 CRC32 / lv2 BLAKE3 keyed MAC / lv3 AEAD）与 `security_suite`（AES-256-GCM / ChaCha20-Poly1305）；**默认 lv1**；等级写入 accept/offer 消息与快照 `security` 字节。③`trailer` 由固定 4B CRC 改为 lv1 4B / lv2·lv3 16B；TCP 数据面 lv2/lv3 追加 16B 尾部并计入 `frame_len`；新增 `AUTH_TAG_INVALID` 与 `SECURITY_LEVEL_UNSUPPORTED`。④新增 Server 配置 `security_min_level` / `security_default_level`（默认 1）/ `security_max_level` / `security_suites`，协商禁止静默降级；lv2/lv3 要求控制面 TLS。⑤密钥派生：`probe_token` / `traffic_key` 由 `link_token` 或 `transfer_token` 经 KDF 派生；AEAD 单元为数据报载荷（K 个 symbol），明文长度不变。**版本号不变** | 02、06、07、08、11、13、19、20、24、26、99、site |
 | — | **C↔C R2 会话内中转与 transport 切换**：新增 `peer_transport_switch`（`0x23`，Server→Client，36 字节），支持 `direct ⇄ relay_r2` **中途切换**；S 在**同一 peer 会话**内转发数据（有界队列、不存整文件），校验两段 leg 的 `transfer_token`/源地址，K 规范化为 `K = 1`；端到端信用不变，S 队列计入在途并做中转入量控制（`relay_capacity`）；切换清空在途、重建信用基线、保留位图/临时文件、从第一个缺失 symbol 继续；新增 `switch_reason` 枚举。R1 仍为预选中转。**版本号不变** | 02、06、07、09、11、13、19、20、24、26、99、site |
 | — | **C↔C peer 传输（Stage 1：直连 + R1 预选中转）**：新增 `direction = peer` 与 `peer_start` / `peer_offer` / `peer_response` / `peer_accept` / `peer_relay_plan` / `peer_complete`；两端复用与 Server 的既有 `login`，**无 C↔C login**；Server 做 share grant 授权、控制消息中继与会话仲裁；数据面直连（peer PROBE + `transfer_token` + 源地址绑定），直连失败走 R1（C1→S upload + S→C2 download，临时中转素材）。新增错误码 `PEER_DECLINED` / `PEER_UNREACHABLE` / `PEER_RELAY_UNAVAILABLE` / `PEER_TOKEN_INVALID`；数据面 `FLAG_PEER_PROBE`。Stage 2 预留 `relay_r2` 与中途切换。**版本号不变** | 00、01、02、06、07、08、09、10、11、12、13、19、20、21、24、26、99、site |
 | — | **统一掩码语义**：块内位图与 `missing_chunks.partial[]` 统一为「**bit=1 已收到**」，字段 `missing_mask` 更名为 `received_mask`；发送方以 `missing = full_mask ^ received_mask` 求缺失，并校验 `received_mask` 非零、非满、无越界位（`bit ≥ S_chunk` 即 `SERIALIZATION_ERROR`）。避免「已收到 / 缺失」两套相反语义导致实现错误。**版本号不变**（变更以本记录为准） | 02、06、12、14、18、26、99、site |

@@ -10,7 +10,9 @@
 | sender_device_id | str | **仅 peer**：发送方 Client 的 `device_id` |
 | receiver_device_id | str | **仅 peer**：接收方 Client 的 `device_id` |
 | transport | enum8 | **仅 peer**：`0` = direct，`1` = relay_r2（S 转发）；R1 不是 peer transport |
-| transfer_token | token16 | **仅 peer**：Server 签发的一次性令牌 |
+| transfer_token | token16 | **仅 peer**：会话根秘密（lv1 直接作 PROBE token；lv2/lv3 派生 `probe_token` / `traffic_key`） |
+| security_level | enum8 | 会话安全等级（`1`/`2`/`3`，默认 `1`，见 20 章）；生命周期内不可变 |
+| security_suite | enum8 | lv3 套件（`0` = 无，`1` = AES-256-GCM，`2` = ChaCha20-Poly1305） |
 | transfer_id | u64 | **仅 R1**：两段会话的关联 id |
 | file_hash | hash32 | 文件哈希（**32 字节原始 Blake3 摘要**） |
 | file_name | str | 文件名 |

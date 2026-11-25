@@ -26,13 +26,20 @@
   `K = ceil(L / symbol_size)`，**不单独编码**
 - `S`：块内 symbol 数 = `chunk_size / symbol_size`（≤ 64），**结构上限**
 - `K_nofrag`：不分片的 `K` 上限 =
-  `min(S, floor(min(路径 MTU − overhead, 65487) / symbol_size))`；
-  `overhead` = IPv4 **48** / IPv6 **68**（见 08 章）
+  `min(S, floor(min(路径 MTU − overhead, 65507 − 16 − TRAILER_SIZE) / symbol_size))`；
+  `overhead`：lv1 IPv4 **48** / IPv6 **68**，lv2/lv3 IPv4 **60** / IPv6 **80**
+  （见 08、11 章）
 - `K_cap`：**策略上限**，`K_nofrag ≤ K_cap ≤ S`；默认 `K_nofrag`（不分片），
   **信任模式**取 `S`（显式允许 IP 分片，见 11 章）
 - `frag_loss_budget`：信任模式下整报文丢失率的建议预算（0.05%–0.1%）
 - `L`：数据报载荷长度；**不**在应用头中编码，由传输层长度反推
-  （UDP：`总长 − 20`；TCP 数据面：`frame_len − 28`，见 07、08 章）
+  （UDP：`总长 − 16 − TRAILER_SIZE`；TCP 数据面：`frame_len − 28 − TRAILER_SIZE`，
+  见 07、08 章）
+- `TRAILER_SIZE`：数据包尾部校验/标签长度；lv1 **4**，lv2/lv3 **16**
+- `security_level`（enum8）：会话安全等级，`1` = lv1（CRC32，默认）、`2` = lv2（BLAKE3 keyed MAC）、
+  `3` = lv3（AEAD），见 20 章
+- `security_suite`（enum8）：lv3 套件，`0` = 无、`1` = AES-256-GCM、`2` = ChaCha20-Poly1305
+- `traffic_key`：lv2/lv3 的数据面密钥，由会话根秘密派生（见 20 章）
 - `flags`（u16）：标志位
 - `client_id`（device_id，str）：客户端设备 ID（见 23 章）
 
@@ -58,8 +65,10 @@
 - `peer_transport_switch`：direct ⇄ relay_r2 的**中途切换**（S 发布，携带新端点）；
   不改变 `session_id`、方向或 generation
 - `switch_reason`（enum8）：切换原因（direct 不可达/停滞、策略、direct 恢复）
-- `transfer_token`（token16）：Server 为 peer 传输签发的一次性令牌；
-  用于 peer PROBE/端点确认；每包 keyed MAC 属于后续安全增强
+- `transfer_token`（token16）：Server 为 peer 会话签发的**根秘密**；lv1 直接作为
+  `probe_token`，lv2/lv3 用于派生 `probe_token` / `traffic_key`（见 07、20 章）
+- `link_token`（token16）：Server 在 `login_ack` 中为**本次控制连接**签发的根秘密；
+  C↔S 的 PROBE / 数据密钥由它派生（lv1 直接作为 PROBE token）
 - **share grant**：`(sender_device_id, receiver_device_id, file_hash, expiry)`，
   由 Server 维护；peer 传输必须在授权范围内
 - `sender_device_id` / `receiver_device_id`：peer 会话的两个 Client；

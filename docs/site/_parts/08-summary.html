@@ -1,9 +1,10 @@
 <div class="note blue">
-    <strong>本章要点</strong>：数据面数据包为<strong>小端序定长头 + 载荷 + CRC32</strong>；
-    头部 <strong>16 字节</strong>，尾部 <strong>4 字节</strong> CRC（覆盖头 + 载荷，不含 CRC 自身）。
-    CRC 变体固定为 <strong>CRC-32/ISO-HDLC</strong>（zlib <code>crc32</code>），两端各选一种会导致
-    <strong>所有包校验失败</strong>，故本规范不留实现选择空间。
+    <strong>本章要点</strong>：数据面数据包为<strong>小端序定长头 + 载荷 + 尾部 trailer</strong>；
+    头部 <strong>16 字节</strong>，尾部长度由会话安全等级决定：lv1 <strong>4 字节</strong> CRC32，
+    lv2/lv3 <strong>16 字节</strong> keyed MAC / AEAD tag（<strong>默认 lv1</strong>）。
+    lv1 的 CRC 变体固定为 <strong>CRC-32/ISO-HDLC</strong>（zlib <code>crc32</code>），
+    两端各选一种会导致<strong>所有包校验失败</strong>，故本规范不留实现选择空间。
     一个数据报承载 <code>K</code> 个 symbol（<code>symbol_size</code> = <strong>1200</strong>），
-    载荷长度由报文总长反推（头 16 + 载荷 + CRC 4）；头里带 <code>chunk_symbol</code> 而非长度。
+    载荷长度由报文总长反推（头 16 + 载荷 + trailer）；头里带 <code>chunk_symbol</code> 而非长度。
     校验失败的包<strong>不得</strong>标记任何 symbol —— 代价是<strong>K 个 symbol</strong>，与文件大小无关。
   </div>

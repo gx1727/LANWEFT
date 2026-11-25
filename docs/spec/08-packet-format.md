@@ -13,22 +13,24 @@
 | chunk_symbol | 12-13 | 2 | u16 | `chunk_id` 块内的 **symbol 起始索引**（从 0 开始） |
 | flags | 14-15 | 2 | u16 | 标志位 |
 | payload | 16.. | N | bytes | 文件数据（`K` 个 symbol） |
-| crc32 | 16+N | 4 | u32 | CRC32 校验码（覆盖 header+payload） |
+| trailer | 16+N | 4/16 | bytes | lv1：CRC32（4B）；lv2：keyed MAC（16B）；lv3：AEAD tag（16B） |
 
 ## 头部大小
 
 ```
-HEADER_SIZE = 8 + 4 + 2 + 2 = 16 字节
-CRC_SIZE    = 4 字节
+HEADER_SIZE   = 8 + 4 + 2 + 2 = 16 字节
+TRAILER_SIZE  = 4 (lv1) / 16 (lv2, lv3)
 ```
 
 **载荷长度由传输层反推（规范性）**：数据报**不**携带 `payload_len` ——
-UDP 报文长度已给出总长。接收方**必须**按 `L = 数据报总长 − 16 − 4`
-求得载荷长度，并要求 `L > 0`。
+UDP 报文长度已给出总长。接收方**必须**按 `L = 数据报总长 − 16 − TRAILER_SIZE`
+求得载荷长度，并要求 `L > 0`。`TRAILER_SIZE` 由**会话级安全等级**决定（见 20 章）；
+未知会话**必须**先按 `session_id` 丢弃，**不得**猜测等级。
 
-**包长核算**：以 `symbol_size = 1200`、`K = 1` 为例，一个数据报的线上长度为
-`16 + 1200 + 4 = 1220` 字节；叠加 IPv4 + UDP 的 28 字节头部为 1248 字节，
-**小于** 1500 字节的以太网 MTU，**不会**产生 IP 分片。
+**包长核算**：以 `symbol_size = 1200`、`K = 1` 为例：
+- lv1：`16 + 1200 + 4 = 1220` 字节，叠加 IPv4 + UDP 的 28 字节头部为 1248 字节；
+- lv2/lv3：`16 + 1200 + 16 = 1232` 字节，叠加后为 1260 字节。
+两者均**小于** 1500 字节的以太网 MTU，**不会**产生 IP 分片。
 
 ## 两级单位与长度规则（规范性）
 
@@ -63,9 +65,11 @@ UDP 报文长度已给出总长。接收方**必须**按 `L = 数据报总长 �
 - **MTU** = 一条链路能承载的最大 **IP 包**（含 IP 头）。常见取值：以太网 **1500**、
   巨帧 **9000**、环回 **65536**；VPN / 隧道 / 部分 IPv6 路径可能更小（如 1280）。
 - 本协议一个数据报对应的 IP 包长度为
-  `L + 16 + 4 + 8 + IP头` = **`L + 48`（IPv4）/ `L + 68`（IPv6）**。
-- 若要**避免 IP 分片**：`L ≤ 路径 MTU − 48/68`，且 `L ≤ 65487`
-  （UDP 载荷上限 `20 + L ≤ 65507`）。
+  `L + 16 + TRAILER_SIZE + 8 + IP头`
+  = **`L + 48`（lv1, IPv4）/ `L + 68`（lv1, IPv6）**
+  / **`L + 60`（lv2/lv3, IPv4）/ `L + 80`（lv2/lv3, IPv6）**。
+- 若要**避免 IP 分片**：`L ≤ 路径 MTU − (16 + TRAILER_SIZE + 8 + IP头)`，且
+  `L ≤ 65507 − 16 − TRAILER_SIZE`（lv1 `65487`，lv2/lv3 `65475`）。
 - 允许分片时 `L` 可以更大（至多 `S × symbol_size`，默认 64800）。是否允许由发送端
   策略决定：`K ≤ K_nofrag` 为不分片模式，`K ≤ K_cap = S` 为**信任模式**
   （见 11 章「变长数据报与 K」）。
@@ -74,9 +78,14 @@ UDP 报文长度已给出总长。接收方**必须**按 `L = 数据报总长 �
 - **判断路径 MTU 必须用 DF/PMTUD**：`max_ok_payload` 报告的是「曾成功到达的载荷长度」，
   分片重组成功也会报告完整长度，**不能**据此推断「没有分片」。
 
-## CRC32 变体（规范性）
+## 包级校验（规范性）
 
-本协议的 `crc32` 字段使用 **CRC-32/ISO-HDLC**（又称 CRC-32、zlib `crc32`）：
+数据包尾部的 `trailer` 由**会话级安全等级**决定；接收方**必须**按会话表选定的等级解析，
+**不得**在同一会话内混用不同长度。
+
+### lv1：CRC32
+
+本协议的 lv1 `trailer` 使用 **CRC-32/ISO-HDLC**（又称 CRC-32、zlib `crc32`）：
 
 | 参数 | 取值 |
 |------|------|
@@ -90,7 +99,7 @@ UDP 报文长度已给出总长。接收方**必须**按 `L = 数据报总长 �
 
 **覆盖区间（规范性）**：被校验的字节是数据包的
 **第 0 字节到第 `16 + L − 1` 字节**，即 **16 字节头部 + payload**，
-**不含**尾部 4 字节 `crc32` 字段本身。
+**不含**尾部 4 字节 CRC 字段本身。
 
 **为何必须固定变体（说明）**：CRC-32/ISO-HDLC 与 CRC-32C（Castagnoli，
 多项式 0x1EDC6F41 / 反射 0x82F63B78）**互不兼容** —— 两端各选一种会导致
@@ -98,13 +107,31 @@ UDP 报文长度已给出总长。接收方**必须**按 `L = 数据报总长 �
 该故障表现为「传输永远无法完成」，极难定位。
 因此本协议显式固定变体，不留实现选择空间。
 
+### lv2：BLAKE3 keyed MAC
+
+- `trailer` = **16 字节** keyed MAC（`BLAKE3-keyed`，密钥见 20 章）。
+- 覆盖区间与 lv1 相同：**16 字节头部 + payload**；tag 不覆盖自身。
+- 校验失败 → `AUTH_TAG_INVALID`，丢弃且不标位。
+- lv2 **不提供机密性**，只提供密码学完整性与对端认证。
+
+### lv3：AEAD
+
+- `trailer` = **16 字节** AEAD tag（AES-256-GCM 或 ChaCha20-Poly1305，由 `security_suite` 选定）。
+- `payload` 为**密文**，长度与明文**完全相等**；`header` 保持明文。
+- AAD = **16 字节头部**；tag 覆盖 AAD + 密文。
+- nonce 由 `(generation, chunk_id, chunk_symbol, K)` 构造，**必须**在同一 `traffic_key` 下唯一
+  （见 20 章）。
+- 解密/校验失败 → `AUTH_TAG_INVALID`，丢弃且不标位。
+
 ## 包级校验与块级补救（规范性）
 
-- **接收端必须**在**写盘前**校验 `crc32`；校验失败即丢弃该包，
+- **接收端必须**在**写盘前**校验 `trailer`；校验失败即丢弃该包，
   **不得**标记任何 symbol（见 12 章「包级校验」）。
 - 该包覆盖的 `K` 个 symbol 因此保持「**未收到**」状态，会在随后的缺失裁决中被精确报告，
   发送方**只补发这些 symbol**。
   **单次校验失败的代价是 `K` 个 symbol，与文件大小无关**（见 12 章）。
+- lv2/lv3 的认证标签只保证「包来自持有会话密钥的对端且未被篡改」；
+  **不改变**可靠性模型：丢包/坏包仍由 `missing_chunks` 驱动重传。
 
 ## Flags 位定义
 
@@ -113,7 +140,7 @@ UDP 报文长度已给出总长。接收方**必须**按 `L = 数据报总长 �
 | bit0 | FLAG_DATA | 0x0001 | 数据包标志 |
 | bit1 | FLAG_RESEND | 0x0002 | 重传包标志；接收方**无需**区别处理（重传是幂等的） |
 | bit2 | FLAG_LAST_CHUNK | 0x0004 | 最后一个块标志，置位时该包的 `chunk_id` = `chunk_count - 1`；**可选**，接收方**不得**依赖它判断完成（完成以块内 symbol 掩码为准） |
-| bit3 | FLAG_PROBE | 0x0008 | 探测包标志；PROBE 与 PROBE_ACK 共用，以**载荷长度**（由报文总长反推）区分（8 / 9） |
+| bit3 | FLAG_PROBE | 0x0008 | 探测包标志；PROBE 与 PROBE_ACK 共用，以**载荷长度**（由报文总长反推）区分（24 / 25） |
 | bit4-5 | DATA_GENERATION | 0x0030 | DATA 修复代号：`(flags >> 4) & 3`，0 初传、1 摘要对帐后的定点修复、2 全量复核；3 非法。非 DATA 帧必须为 0 |
 | bit6 | FLAG_BIND | 0x0040 | **仅用于 TCP 数据面帧**的绑定帧（见 07 章）；UDP 包**必须**为 0 |
 | bit7 | FLAG_PEER_PROBE | 0x0080 | **C↔C 直连探测**；UDP 包**必须**同时满足 `FLAG_DATA` = 0；PROBE / PROBE_ACK 载荷长度 24 / 25（见 07 章） |
@@ -128,7 +155,7 @@ chunk_id:   0x00000010
 chunk_symbol: 0            // 该块第 0 个 symbol（K=1，L=1200）
 flags:      0x0001 (FLAG_DATA)
 payload:    [1200 bytes data]
-crc32:      [4 bytes checksum]
+trailer:    [lv1: 4B CRC32 / lv2: 16B MAC / lv3: 16B AEAD tag]
 ```
 
 **探测包（PROBE）**:
@@ -137,11 +164,12 @@ session_id: 0x0000000000000001
 chunk_id:   0x00000000
 chunk_symbol: 0
 flags:      0x0008 (FLAG_PROBE)
-payload:    [session_id in little-endian, 8 bytes]   // L = 8
-crc32:      [4 bytes checksum]
+payload:    [session_id 8 bytes][probe_token 16 bytes]   // L = 24
+trailer:    [lv1 CRC32 / lv2/lv3 tag]
 ```
 
-> 探测包 payload 为 `session_id`（u64）的 **8 字节小端编码**。
+> 探测包 payload 为 `session_id`（u64）‖ `probe_token`（16 字节），共 **24 字节**。
+> token 的取值与派生见 07、20 章。
 
 **探测应答包（PROBE_ACK）**:
 ```
@@ -149,13 +177,13 @@ session_id: 0x0000000000000001
 chunk_id:   0x00000000
 chunk_symbol: 0
 flags:      0x0008 (FLAG_PROBE)
-payload:    [session_id in little-endian, 8 bytes][status: 0x00]   // L = 9
-crc32:      [4 bytes checksum]
+payload:    [session_id 8 bytes][probe_token 16 bytes][status: 0x00]   // L = 25
+trailer:    [lv1 CRC32 / lv2/lv3 tag]
 ```
 
-PROBE_ACK 的 payload 为 9 字节：8 字节 session_id + 1 字节状态码
+PROBE_ACK 的 payload 为 25 字节：8 字节 session_id + 16 字节 probe_token + 1 字节状态码
 （0 = 成功，1 = 失败）。
-**PROBE 与 PROBE_ACK 共用 `flags.bit3`，以载荷长度区分**（8 / 9）。
+**PROBE 与 PROBE_ACK 共用 `flags.bit3`，以载荷长度区分**（24 / 25）。
 
 ## 错误处理
 
@@ -167,7 +195,7 @@ PROBE_ACK 的 payload 为 9 字节：8 字节 session_id + 1 字节状态码
   （`CHUNK_ALREADY_RECEIVED`，见 19 章）
 - `chunk_id` 越界（≥ `chunk_count`）→ `INVALID_CHUNK`，丢弃
 - `session_id` 不匹配 → `SESSION_ID_MISMATCH`，丢弃
-- CRC32 校验失败 → `CRC32_INVALID`，丢弃
+- `trailer` 校验失败 → lv1 `CRC32_INVALID` / lv2·lv3 `AUTH_TAG_INVALID`，丢弃
 
 ## 扩展
 

@@ -34,8 +34,12 @@
 - 每个设备的 `resume[]` **必须**只包含它在其中担任 sender 或 receiver 的 peer 会话；
   `login_ack.sessions[]` 的 `state`/参数按该设备视角返回。
 - 恢复后数据端点可能变化：Server **必须**在成功 `login` 后，对每个恢复的 peer 会话
-  **重发** `peer_accept`（含最新端点与 `transfer_token`）；双方**必须**重新 peer PROBE。
+  **重发** `peer_accept`（含最新端点、`transfer_token`、`security_level` / `security_suite`）；
+  双方**必须**重新 peer PROBE，并按原安全等级重新派生 `traffic_key`。
   接收方的位图/临时文件**必须**保留，续传起点仍是第一个缺失 symbol。
+- **安全等级不可变**：恢复的 peer 会话**必须**使用首次建立的等级/套件；
+  若 Server 配置已不再允许该等级，会话**必须**失败（`SECURITY_LEVEL_UNSUPPORTED`），
+  **不得**静默降级或升级。
 - R1 的中转由两段既有会话组成：分别按 upload/download 恢复；
   `transfer_id` 关联两段结果。
 - **会话内 transport 切换（relay_r2）**：Server 通过 `peer_transport_switch` 切换
@@ -90,7 +94,8 @@
   二进制表示：定长区 `sessions_count`（`u16`）给出条目数，
   变长区按顺序给出 `sessions_count` 条**快照记录**，每条 =
   **42 字节定长**（`session_id`(u64) / `result`(enum8) / `direction`(enum8) /
-  `state`(enum8) / `chunk_count`(u32) / `chunk_size`(u32) / `window`(u32) /
+  `state`(enum8) / `security`(enum8：bit0-1 等级，bit2-3 套件) /
+  `chunk_count`(u32) / `chunk_size`(u32) / `window`(u32) /
   `connection_window`(u32) / `next_chunk_id`(u32) / `missing_count`(u32) /
   `udp_port`(u16) / `tcp_port`(u16) / `code_len`(u16)）+
   紧随其后的 `code_len` 字节内联 `code` 字符串。
@@ -99,6 +104,12 @@
   **不得**用于重建或覆盖它。下载时 Server 必须回显 Client 提供的续传摘要；
   Client 保留本地 VERIFY / COMMIT 阶段。位图丢失且无法可靠重建时不得凭摘要续传。
 - 恢复成功后，发送方**必须**丢弃恢复前推导的在途量估计并重建（见 11 章判据第 3 条）。
+- **C↔S 的安全状态恢复（规范性）**：成功 `login` 的 `login_ack.link_token`
+  **必须**是本次连接的新值；Client 与 Server **必须**用它重新派生 `probe_token`
+  （以及 lv2/lv3 的 `traffic_key`），并对每个恢复会话重新 PROBE。
+  旧连接上的 `link_token` / 数据密钥**必须**失效；旧密钥的在途包**必须**丢弃并按缺失重传。
+  快照的 `security` 字节给出恢复会话的等级/套件，**必须**与断线前一致；
+  若 Server 配置不再允许该等级，按 `SECURITY_LEVEL_UNSUPPORTED` 失败，**不得**静默变更。
 
 ### 上传方向（Client = 发送方，Server = 接收方）
 

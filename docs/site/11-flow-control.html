@@ -274,7 +274,7 @@
 </tr>
 <tr>
 <td><code>K_nofrag</code></td>
-<td><code>min(S, floor(min(路径 MTU − overhead, 65487) / symbol_size))</code></td>
+<td><code>min(S, floor(min(路径 MTU − overhead, 65507 − 16 − TRAILER_SIZE) / symbol_size))</code></td>
 <td><strong>不分片上限</strong></td>
 </tr>
 <tr>
@@ -289,12 +289,17 @@
 </tr>
 </tbody>
 </table></div>
-<p>其中 <code>overhead = 16（本协议头）+ 4（crc）+ 8（UDP）+ IP 头</code>：IPv4 为 <strong>48</strong>，
-IPv6 为 <strong>68</strong>；<code>65487 = 65507 − 20</code> 是 UDP 载荷上限（<code>20 + L ≤ 65507</code>）对应的 <code>L</code> 上限。</p>
+<p>其中 <code>overhead = 16（本协议头）+ TRAILER_SIZE + 8（UDP）+ IP 头</code>：</p>
+<ul>
+<li>lv1：<code>TRAILER_SIZE = 4</code> → IPv4 <strong>48</strong>，IPv6 <strong>68</strong>；</li>
+<li>lv2/lv3：<code>TRAILER_SIZE = 16</code> → IPv4 <strong>60</strong>，IPv6 <strong>80</strong>。</li>
+</ul>
+<p><code>TRAILER_SIZE</code> 由会话安全等级决定（见 20 章）；<strong>默认 lv1</strong>。
+<code>65507 − 16 − TRAILER_SIZE</code> 是 UDP 载荷上限对应的 <code>L</code> 上限（lv1 <code>65487</code>，lv2/lv3 <code>65475</code>）。</p>
 <ul>
 <li><strong>不分片模式（默认，规范性）</strong>：<code>K_cap = K_nofrag</code>。</li>
-<li>1500 MTU（IPv4）→ <code>(1500 − 48) / 1200 = 1</code>，故 <code>K_nofrag = 1</code>；</li>
-<li>9000 巨帧 → <code>(9000 − 48) / 1200 = 7</code>；</li>
+<li>1500 MTU（IPv4）→ lv1 <code>(1500 − 48) / 1200 = 1</code>；lv2/lv3 <code>(1500 − 60) / 1200 = 1</code>；</li>
+<li>9000 巨帧 → lv1 <code>(9000 − 48) / 1200 = 7</code>；lv2/lv3 <code>(9000 − 60) / 1200 = 7</code>；</li>
 <li>环回 65536 → <code>54</code>（受 <code>S</code> 约束）。</li>
 <li><strong>信任模式（推荐性，显式允许分片）</strong>：<code>K_cap = S</code>（可到 54）。
   一个 64800 字节载荷的数据报在 1500 MTU 上约分成 <strong>44 个 IP 分片</strong>。

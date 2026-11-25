@@ -21,7 +21,8 @@
   <!-- ============ 本章要点（导读文案，手写片段） ============ -->
   <div class="note blue">
   <strong>本章要点</strong>：数据面以 <strong>UDP</strong> 为默认传输，原则是
-  <strong>无连接、无逐包 ACK、允许丢包与乱序</strong>，并以 <code>crc32</code> 做包级完整性校验；
+  <strong>无连接、无逐包 ACK、允许丢包与乱序</strong>，并按会话安全等级做包级校验
+  （lv1 <code>crc32</code>，lv2/lv3 keyed MAC / AEAD tag，默认 lv1）；
   UDP 不可用时回退到<strong>数据面</strong> TCP 通道（与 06 章的控制面 TCP 长连接<strong>完全无关</strong>）。
   数据面<strong>不得</strong>改变会话状态，只更新接收侧位图。
 </div>
@@ -47,7 +48,7 @@
 
       <div class="cell wide f-payload">payload (Variable Length)</div>
 
-      <div class="cell wide f-crc">crc32</div>
+      <div class="cell wide f-crc">trailer（lv1 crc32 / lv2·lv3 tag）</div>
     </div>
   </div>
 
@@ -57,9 +58,9 @@
     <span><i class="swatch" style="background:var(--b-len)"></i>chunk_symbol</span>
     <span><i class="swatch" style="background:var(--b-flags)"></i>flags</span>
     <span><i class="swatch" style="background:var(--b-payload)"></i>payload</span>
-    <span><i class="swatch" style="background:var(--b-crc)"></i>crc32</span>
+    <span><i class="swatch" style="background:var(--b-crc)"></i>trailer</span>
   </div>
-  <div class="caption">头部长度 = 8 + 4 + 2 + 2 = 16 字节，随后是 payload 与尾部 crc32；字段级定义见 08 章。</div>
+  <div class="caption">头部长度 = 8 + 4 + 2 + 2 = 16 字节，随后是 payload 与尾部 trailer（lv1 CRC32 4B；lv2/lv3 tag 16B）；字段级定义见 08、20 章。</div>
 
 
   <!-- ============ 两条通道的对比 ============ -->
@@ -79,7 +80,7 @@
       <div class="cell half f-payload">无连接、无逐包 ACK、允许丢包与乱序</div>
 
       <div class="cell half f-body">承载控制面消息（如 <code>udp_ready</code>）</div>
-      <div class="cell half f-payload">承载 chunk 数据包（crc32 包级校验）</div>
+      <div class="cell half f-payload">承载 chunk 数据包（lv1 crc32 / lv2·lv3 tag）</div>
 
       <div class="cell half f-muted">消息集：控制面消息</div>
       <div class="cell half f-muted">消息集：数据面数据包 / 数据面 TCP 降级帧</div>
@@ -166,7 +167,7 @@
 <li>无连接、无逐包 ACK、允许丢包与乱序</li>
 <li>一个数据报承载 <code>K</code> 个 symbol（<code>K × symbol_size</code> 字节，见 08 章）；
   <code>symbol_size</code> = 1200，<code>chunk_size</code> 为其整数倍（默认 64800，<code>S</code> = 54）</li>
-<li>crc32 包级校验（见 08 章）</li>
+<li>包级校验：lv1 为 crc32，lv2/lv3 为 keyed MAC / AEAD tag（见 08、20 章）</li>
 <li>数据面端口<strong>可以</strong>被多个会话共用，<code>session_id</code>（u64）用于区分（见 08 章）</li>
 </ul>
 <h2>发送端</h2>
@@ -194,28 +195,36 @@
 <h3>PROBE 数据包</h3>
 <ul>
 <li>flags.bit3=1，flags.bit0（FLAG_DATA）<strong>必须</strong>为 0</li>
-<li>payload 为 session_id（u64）的 <strong>8 字节小端编码</strong></li>
-<li>载荷长度（由报文总长反推）= <strong>8</strong></li>
+<li>payload 为 <code>session_id</code>（u64，8 字节）‖ <code>probe_token</code>（16 字节），共 <strong>24 字节</strong></li>
+<li>载荷长度（由报文总长反推）= <strong>24</strong></li>
+<li><code>probe_token</code> 的来源：</li>
+<li><strong>lv1</strong>：直接取本次控制连接的 <code>link_token</code>（<code>login_ack</code> 下发，见 06 章）。</li>
+<li><strong>lv2/lv3</strong>：<code>probe_token = KDF(link_token, "probe", 16)</code>，<strong>不得</strong>在线上直接发送 <code>link_token</code>
+    （见 20 章）。</li>
+<li>Server <strong>必须</strong>校验 <code>probe_token</code> 与 <code>session_id</code> 属于同一控制连接；失败按
+  <code>PEER_TOKEN_INVALID</code> 丢弃，不绑定端点。</li>
 </ul>
 <h3>PROBE_ACK 数据包</h3>
 <ul>
 <li>flags.bit3=1，flags.bit0（FLAG_DATA）<strong>必须</strong>为 0</li>
-<li>payload 为 session_id（u64）+ 1 字节状态码（0=成功，1=失败），共 <strong>9 字节</strong></li>
-<li>载荷长度（由报文总长反推）= <strong>9</strong></li>
+<li>payload 为 <code>session_id</code>（u64）+ <code>probe_token</code>（16 字节）+ 1 字节状态码（0=成功，1=失败），共 <strong>25 字节</strong></li>
+<li>载荷长度（由报文总长反推）= <strong>25</strong></li>
 <li><strong>判别规则（规范性）</strong>：PROBE 与 PROBE_ACK 共用 <code>flags.bit3</code>，
-  接收方<strong>必须</strong>以<strong>载荷长度</strong>区分：<code>8</code> 为 PROBE，<code>9</code> 为 PROBE_ACK。
+  接收方<strong>必须</strong>以<strong>载荷长度</strong>区分：<code>24</code> 为 PROBE，<code>25</code> 为 PROBE_ACK。
   其余长度<strong>必须</strong>按 <code>INVALID_PACKET</code> 丢弃。</li>
 <li><strong>判别前提（规范性）</strong>：该规则<strong>仅</strong>适用于 <code>FLAG_PROBE</code> 置位且 <code>FLAG_DATA</code>
     <strong>未</strong>置位的包。<code>FLAG_DATA</code> 包一律按数据路径处理，
-    <strong>不得</strong>用载荷长度判别类型（数据报的 <code>K × symbol_size</code> 可能恰好为 8 或 9 字节）。</li>
+    <strong>不得</strong>用载荷长度判别类型（数据报的 <code>K × symbol_size</code> 可能恰好为 24 或 25 字节）。</li>
 </ul>
 <h3>C↔C peer PROBE（规范性）</h3>
 <p>仅用于 <code>direction = peer</code> 的<strong>直连</strong>：发送方向接收方声明的数据端点发送探测。</p>
 <ul>
 <li><code>flags.bit7 = 1</code>（<code>FLAG_PEER_PROBE</code>）、<code>flags.bit0 = 0</code>；<code>chunk_id = 0</code>、<code>chunk_symbol = 0</code>。</li>
-<li><strong>PROBE</strong> 载荷 = <code>session_id</code>（u64，8 字节）‖ <code>transfer_token</code>（16 字节），<code>L = 24</code>。</li>
+<li><strong>PROBE</strong> 载荷 = <code>session_id</code>（u64，8 字节）‖ <code>probe_token</code>（16 字节），<code>L = 24</code>。</li>
 <li><strong>PROBE_ACK</strong> 载荷 = 上述 24 字节 ‖ 1 字节状态（0=成功，1=失败），<code>L = 25</code>。</li>
-<li>接收方<strong>必须</strong>校验 <code>transfer_token</code> 与 <code>session_id</code>，并从<strong>同一数据面端口</strong>回 ACK；
+<li><code>probe_token</code>：lv1 直接取 <code>peer_accept.transfer_token</code>；lv2/lv3 为
+  <code>KDF(transfer_token, "probe", 16)</code>，<strong>不得</strong>在线上直接发送 <code>transfer_token</code>（见 20 章）。</li>
+<li>接收方<strong>必须</strong>校验 <code>probe_token</code> 与 <code>session_id</code>，并从<strong>同一数据面端口</strong>回 ACK；
   校验失败按 <code>PEER_TOKEN_INVALID</code> 丢弃（见 19 章）。</li>
 <li>接收方<strong>必须</strong>把 PROBE 的<strong>源地址:端口</strong>绑定为该会话的发送方端点；
   之后<strong>只接受来自该端点</strong>的数据包。发送方<strong>必须</strong>只接受来自接收方端点的 ACK。</li>
@@ -228,7 +237,7 @@
 <li><strong>中转端点</strong>：Server 为本会话分配 <code>relay_udp_port</code> / <code>relay_tcp_port</code>，
   经 <code>peer_accept</code> / <code>peer_transport_switch</code> 下发（见 06 章）。</li>
 <li><strong>UDP</strong>：</li>
-<li>C1 向 S 的中转端点发送 peer PROBE（携带 <code>session_id</code> + <code>transfer_token</code>）；
+<li>C1 向 S 的中转端点发送 peer PROBE（携带 <code>session_id</code> + <code>probe_token</code>）；
     S 校验 token / session / 源地址后回 ACK。</li>
 <li>C1 的数据包发往 S；S <strong>必须</strong>校验 token/源地址后转发到 C2 声明的接收端点。</li>
 <li>C2 <strong>只接受</strong>来自 S 中转端点的数据；旧端点（直连对端）上的包<strong>必须</strong>丢弃。</li>
@@ -304,9 +313,10 @@ Server 不得向未经 PROBE 确认的地址发送数据（见 20 章），
 </ul>
 <h2>TCP 数据面线路格式（规范性）</h2>
 <h3>帧结构（小端序）</h3>
-<p>TCP 是字节流，<strong>必须</strong>有帧边界；且 TCP 已提供字节流校验，
-因此 TCP 数据面帧<strong>不重复载荷级</strong> CRC32（与 06 章控制帧同理）；
-但帧头<strong>必须</strong>携带 <code>magic</code> 与 <code>header_crc32</code>（见 06 章「帧格式」与「帧同步与失步处理」）。</p>
+<p>TCP 是字节流，<strong>必须</strong>有帧边界；TCP 已提供字节流校验，
+因此 lv1 <strong>不重复载荷级</strong> CRC32（与 06 章控制帧同理）；
+lv2/lv3 仍<strong>必须</strong>在 payload 后追加 keyed MAC / AEAD tag（见 20 章）。
+帧头<strong>必须</strong>携带 <code>magic</code> 与 <code>header_crc32</code>（见 06 章「帧格式」与「帧同步与失步处理」）。</p>
 <div class="card"><table>
 <thead>
 <tr>
@@ -374,12 +384,20 @@ Server 不得向未经 PROBE 确认的地址发送数据（见 20 章），
 <td>bytes</td>
 <td>文件数据（<code>K</code> 个 symbol）</td>
 </tr>
+<tr>
+<td>trailer</td>
+<td>28+N</td>
+<td>0/16</td>
+<td>bytes</td>
+<td>lv1 无；lv2 为 keyed MAC 16B；lv3 为 AEAD tag 16B（见 20 章）</td>
+</tr>
 </tbody>
 </table></div>
 <pre class="codeblock"><code>FRAME_HEADER_SIZE = 4 + 4 + 4 + 8 + 4 + 2 + 2 = 28 字节
+TRAILER_SIZE      = 0 (lv1) / 16 (lv2, lv3)
 </code></pre>
 <p><strong>帧头校验码（规范性）</strong>：<code>header_crc32</code> 使用 <strong>CRC-32/ISO-HDLC</strong>
-（与 08 章 <code>crc32</code>、06 章 <code>header_crc32</code> <strong>同一变体</strong>），
+（与 08 章 lv1 的 <code>trailer</code>、06 章 <code>header_crc32</code> <strong>同一变体</strong>），
 覆盖帧头中<strong>除 <code>header_crc32</code> 字段自身之外</strong>的 <strong>24 字节</strong>，按下列顺序拼接：</p>
 <pre class="codeblock"><code>magic(4) ‖ frame_len(4) ‖ session_id(8) ‖ chunk_id(4) ‖ chunk_symbol(2) ‖ flags(2)
 </code></pre>
@@ -389,14 +407,15 @@ Server 不得向未经 PROBE 确认的地址发送数据（见 20 章），
 <li><code>magic</code> 在线路上的<strong>四个字节</strong>为 <code>4C 41 4E 57</code>（"LANW"，小端序），与控制帧一致。</li>
 </ul>
 <p><strong>帧长核算（规范性）</strong>：</p>
-<pre class="codeblock"><code>frame_len = 28 + L        // L 为载荷长度，由 frame_len 反推
+<pre class="codeblock"><code>frame_len = 28 + L + TRAILER_SIZE   // lv1: TRAILER_SIZE=0；lv2/lv3: 16
 </code></pre>
 <ul>
+<li>lv2/lv3 的 <code>trailer</code> <strong>必须</strong>计入 <code>frame_len</code>；接收方按会话等级读取。</li>
 <li><code>magic</code> <strong>必须</strong>为 <code>0x574E414C</code>；不匹配即判定<strong>失步</strong>（见下）。</li>
 <li><code>frame_len</code> <strong>必须</strong> ≥ <strong>28</strong></li>
 <li>接收方<strong>必须</strong>按 <code>frame_len</code> <strong>读满</strong>后再解析：
   <strong>不得</strong>假设一帧一次 <code>recv</code> 到达；<strong>不得</strong>按换行或任何字节模式切分。</li>
-<li>载荷长度 <code>L = frame_len − 28</code>，<strong>必须</strong> &gt; 0（<code>FLAG_BIND</code> 除外）；
+<li>载荷长度 <code>L = frame_len − 28 − TRAILER_SIZE</code>，<strong>必须</strong> &gt; 0（<code>FLAG_BIND</code> 除外）；
   DATA 帧的 <code>chunk_symbol + K ≤ S</code>、长度对齐与末块规则与 08 章<strong>完全一致</strong>
   （<code>K = ceil(L / symbol_size)</code>）。不符不得写盘或标位，并关闭该数据连接。
   代号不匹配但边界合法的 DATA 只丢帧；<code>FLAG_BIND</code> 使用零载荷（<code>L = 0</code>，

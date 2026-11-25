@@ -56,13 +56,20 @@
   <code>K = ceil(L / symbol_size)</code>，<strong>不单独编码</strong></li>
 <li><code>S</code>：块内 symbol 数 = <code>chunk_size / symbol_size</code>（≤ 64），<strong>结构上限</strong></li>
 <li><code>K_nofrag</code>：不分片的 <code>K</code> 上限 =
-  <code>min(S, floor(min(路径 MTU − overhead, 65487) / symbol_size))</code>；
-  <code>overhead</code> = IPv4 <strong>48</strong> / IPv6 <strong>68</strong>（见 08 章）</li>
+  <code>min(S, floor(min(路径 MTU − overhead, 65507 − 16 − TRAILER_SIZE) / symbol_size))</code>；
+  <code>overhead</code>：lv1 IPv4 <strong>48</strong> / IPv6 <strong>68</strong>，lv2/lv3 IPv4 <strong>60</strong> / IPv6 <strong>80</strong>
+  （见 08、11 章）</li>
 <li><code>K_cap</code>：<strong>策略上限</strong>，<code>K_nofrag ≤ K_cap ≤ S</code>；默认 <code>K_nofrag</code>（不分片），
   <strong>信任模式</strong>取 <code>S</code>（显式允许 IP 分片，见 11 章）</li>
 <li><code>frag_loss_budget</code>：信任模式下整报文丢失率的建议预算（0.05%–0.1%）</li>
 <li><code>L</code>：数据报载荷长度；<strong>不</strong>在应用头中编码，由传输层长度反推
-  （UDP：<code>总长 − 20</code>；TCP 数据面：<code>frame_len − 28</code>，见 07、08 章）</li>
+  （UDP：<code>总长 − 16 − TRAILER_SIZE</code>；TCP 数据面：<code>frame_len − 28 − TRAILER_SIZE</code>，
+  见 07、08 章）</li>
+<li><code>TRAILER_SIZE</code>：数据包尾部校验/标签长度；lv1 <strong>4</strong>，lv2/lv3 <strong>16</strong></li>
+<li><code>security_level</code>（enum8）：会话安全等级，<code>1</code> = lv1（CRC32，默认）、<code>2</code> = lv2（BLAKE3 keyed MAC）、
+  <code>3</code> = lv3（AEAD），见 20 章</li>
+<li><code>security_suite</code>（enum8）：lv3 套件，<code>0</code> = 无、<code>1</code> = AES-256-GCM、<code>2</code> = ChaCha20-Poly1305</li>
+<li><code>traffic_key</code>：lv2/lv3 的数据面密钥，由会话根秘密派生（见 20 章）</li>
 <li><code>flags</code>（u16）：标志位</li>
 <li><code>client_id</code>（device_id，str）：客户端设备 ID（见 23 章）</li>
 </ul>
@@ -88,8 +95,10 @@
 <li><code>peer_transport_switch</code>：direct ⇄ relay_r2 的<strong>中途切换</strong>（S 发布，携带新端点）；
   不改变 <code>session_id</code>、方向或 generation</li>
 <li><code>switch_reason</code>（enum8）：切换原因（direct 不可达/停滞、策略、direct 恢复）</li>
-<li><code>transfer_token</code>（token16）：Server 为 peer 传输签发的一次性令牌；
-  用于 peer PROBE/端点确认；每包 keyed MAC 属于后续安全增强</li>
+<li><code>transfer_token</code>（token16）：Server 为 peer 会话签发的<strong>根秘密</strong>；lv1 直接作为
+  <code>probe_token</code>，lv2/lv3 用于派生 <code>probe_token</code> / <code>traffic_key</code>（见 07、20 章）</li>
+<li><code>link_token</code>（token16）：Server 在 <code>login_ack</code> 中为<strong>本次控制连接</strong>签发的根秘密；
+  C↔S 的 PROBE / 数据密钥由它派生（lv1 直接作为 PROBE token）</li>
 <li><strong>share grant</strong>：<code>(sender_device_id, receiver_device_id, file_hash, expiry)</code>，
   由 Server 维护；peer 传输必须在授权范围内</li>
 <li><code>sender_device_id</code> / <code>receiver_device_id</code>：peer 会话的两个 Client；

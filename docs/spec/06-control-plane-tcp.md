@@ -482,9 +482,10 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | 0 | 1 | proto_major | u8 | Client 支持的**最高**协议版本 major |
 | 1 | 1 | proto_minor | u8 | 同上 minor |
 | 2 | 1 | proto_patch | u8 | 同上 patch |
-| 3 | 1 | reserved | u8 | 保留 |
+| 3 | 1 | max_security_level | enum8 | Client 支持的**最高**安全等级（`1` = lv1，`2` = lv2，`3` = lv3，见 20 章）；**必须** ≥ `1` |
 | 4 | 2 | resume_count | u16 | 待恢复会话条目数；**无待恢复会话时为 0**；**必须** ≤ `max_sessions_per_connection`（64，见 09 章） |
-| 6 | 2 | reserved | u16 | 保留 |
+| 6 | 1 | security_suite_mask | u8 | lv3 套件位图：bit0 = AES-256-GCM，bit1 = ChaCha20-Poly1305；`max_security_level < 3` 时可置 0 |
+| 7 | 1 | reserved | u8 | 保留 |
 
 **变长区（顺序固定）**
 
@@ -530,7 +531,9 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 
 1. `code`：`str`。失败时的机器可判定错误码（取值见 19 章，如 `LOGIN_FAILED` /
    `PROTO_VERSION_UNSUPPORTED` / `CLIENT_ID_INVALID`）；成功时**必须**为空串。
-2. `sessions[]`：`sessions_count` 条快照记录，每条 = **42 字节定长** + `code_len` 字节内联字符串。
+2. `link_token`：`token16`。**本次控制连接**的数据面 PROBE 秘密；成功时**必须**非零，失败时全 0。
+   见 07、20 章。
+3. `sessions[]`：`sessions_count` 条快照记录，每条 = **42 字节定长** + `code_len` 字节内联字符串。
 
 **快照记录定长区（42 字节）**
 
@@ -540,7 +543,7 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | 8 | 1 | result | enum8 | 该会话的恢复结果 |
 | 9 | 1 | direction | enum8 | 会话方向 |
 | 10 | 1 | state | enum8 | 会话当前状态（见 10 章）；`result` = fail 时**必须**为 ABORTED |
-| 11 | 1 | reserved | u8 | 保留 |
+| 11 | 1 | security | enum8 | bit0–1 = 安全等级（`1`/`2`/`3`），bit2–3 = lv3 套件（`0` = 无，`1` = AES-256-GCM，`2` = ChaCha20-Poly1305），bit4–7 保留 |
 | 12 | 4 | chunk_count | u32 | 会话参数 |
 | 16 | 4 | chunk_size | u32 | 逻辑块大小（`symbol_size` 的整数倍，`1 ≤ S ≤ 64`） |
 | 20 | 4 | window | u32 | 会话级在途 **symbol** 上限 |
@@ -561,6 +564,12 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
   因此「快照必须一帧内完整」**始终可编码**。
 - **权威快照的效力（规范性）**：快照确定会话关联、协商参数和端口；续传字段是接收方持久化位图的摘要，**不得**据此覆盖位图或接收方的本地提交阶段。`state = COMPLETED` 的回执交付见 13 章。
 - Client 若不支持 Server 选定的 `proto_version`，**必须**关闭连接（见 08 章版本比较规则）。
+
+> **安全等级字段的共性（规范性）**：`security_level` / `security_suite` 出现在
+> `upload_accept` / `download_accept` / `delivery_offer` / `peer_offer` / `peer_accept`，
+> 表示**本会话**选定的等级与 lv3 套件；默认 `security_level = 1`（lv1）。
+> 等级在会话生命周期内**不可变**；恢复时**必须**与快照记录 `security` 字节一致。
+> 协商规则、密钥派生与 PROBE token 见 20、07 章。
 
 ### upload_start（`0x03`）
 
@@ -593,7 +602,9 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | 24 | 2 | udp_port | u16 | 数据面 UDP 端口；Client **必须**以该端口作为数据面目的端口 |
 | 26 | 2 | tcp_port | u16 | **数据面** TCP 降级通道端口；**0 表示不支持 TCP 降级**。**不是**控制面端口 |
 | 28 | 1 | file_exists | bool | 秒传标志：当前设备有引用权且既有内容校验通过时为 `1`（见 09、10 章） |
-| 29 | 3 | reserved | — | 保留 |
+| 29 | 1 | security_level | enum8 | 本会话选定的安全等级（`1`/`2`/`3`，见 20 章） |
+| 30 | 1 | security_suite | enum8 | lv3 套件：`0` = 无（lv1/lv2），`1` = AES-256-GCM，`2` = ChaCha20-Poly1305 |
+| 31 | 1 | reserved | u8 | 保留 |
 
 **变长区（顺序固定）**
 
@@ -630,7 +641,9 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 | 24 | 2 | udp_port | u16 | 数据面 UDP 端口；Server 向该端口推送 chunk，Client **必须**以它作为数据面端口 |
 | 26 | 2 | tcp_port | u16 | **数据面** TCP 降级通道端口；**0 表示不支持 TCP 降级**。**不是**控制面端口 |
 | 28 | 1 | file_exists | bool | 秒传标志；下载方向**必须**为 0（假） |
-| 29 | 3 | reserved | — | 保留 |
+| 29 | 1 | security_level | enum8 | 本会话选定的安全等级（`1`/`2`/`3`，见 20 章） |
+| 30 | 1 | security_suite | enum8 | lv3 套件：`0` = 无（lv1/lv2），`1` = AES-256-GCM，`2` = ChaCha20-Poly1305 |
+| 31 | 1 | reserved | u8 | 保留 |
 
 **变长区（顺序固定）**
 
@@ -638,8 +651,8 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
 
 **与 `upload_accept` 的字段对称性（规范性）**：`upload_accept` 与 `download_accept` **必须**携带
 同构的字段集合 —— `file_hash` / `session_id` / `chunk_count` / `window` /
-`connection_window` / `udp_port` / `tcp_port` / `chunk_size` / `file_exists`；
-下载方向的 `file_exists` **必须**为 0。
+`connection_window` / `udp_port` / `tcp_port` / `chunk_size` / `file_exists` /
+`security_level` / `security_suite`；下载方向的 `file_exists` **必须**为 0。
 数据面端口与 `chunk_size` **必须**出现在两个 accept 消息中：
 缺端口则数据通路无法建立（Server 不得向未知端口发送 UDP，见 20 章），
 缺 `chunk_size` 则接收方无法核算 `chunk_count = ceil(size / chunk_size)`。
@@ -976,10 +989,11 @@ Client 是会话对端，Server 不主动发起恢复。
 | 28 | 4 | window | u32 | 会话级在途 **symbol** 上限 |
 | 32 | 4 | connection_window | u32 | 连接级在途 **symbol** 上限 |
 | 36 | 4 | chunk_size | u32 | 逻辑块大小 |
-| 40 | 16 | transfer_token | token16 | Server 签发的一次性令牌 |
+| 40 | 16 | transfer_token | token16 | 会话秘密：lv1 直接作为 PROBE token；lv2/lv3 作为 PROBE/数据密钥的派生根（见 07、20 章） |
 | 56 | 1 | transport | enum8 | `0` = direct；`1` = relay_r2（S 转发） |
 | 57 | 1 | role | enum8 | **接收方**在本会话中的角色：`0` = sender，`1` = receiver |
-| 58 | 2 | reserved | u16 | 保留 |
+| 58 | 1 | security_level | enum8 | 本会话选定的安全等级（`1`/`2`/`3`） |
+| 59 | 1 | security_suite | enum8 | lv3 套件：`0` = 无，`1` = AES-256-GCM，`2` = ChaCha20-Poly1305 |
 | 60 | 4 | reserved | u32 | 保留 |
 
 **变长区（顺序固定）**
@@ -1026,15 +1040,16 @@ Client 是会话对端，Server 不主动发起恢复。
 | 28 | 4 | window | u32 | 会话级在途 **symbol** 上限 |
 | 32 | 4 | connection_window | u32 | 连接级在途 **symbol** 上限 |
 | 36 | 4 | chunk_size | u32 | 逻辑块大小 |
-| 40 | 16 | transfer_token | token16 | 一次性令牌 |
+| 40 | 16 | transfer_token | token16 | 会话秘密：lv1 直接作为 PROBE token；lv2/lv3 作为 PROBE/数据密钥的派生根 |
 | 56 | 1 | transport | enum8 | `0` = direct；`1` = relay_r2（S 转发） |
 | 57 | 1 | role | enum8 | 本端角色：`0` = sender，`1` = receiver |
 | 58 | 1 | peer_addr_family | u8 | `4` / `6`；`0` = 未知（relay 时可为 0） |
-| 59 | 1 | reserved | u8 | 保留 |
+| 59 | 1 | security_level | enum8 | 本会话选定的安全等级（`1`/`2`/`3`） |
 | 60 | 2 | peer_udp_port | u16 | 对端数据面 UDP 端口 |
 | 62 | 2 | peer_tcp_port | u16 | 对端数据面 TCP 端口；`0` = 不支持 |
 | 64 | 16 | peer_addr | bytes | 对端数据面地址（IPv4 用前 4 字节，其余 0） |
-| 80 | 8 | reserved | u64 | 保留 |
+| 80 | 1 | security_suite | enum8 | lv3 套件：`0` = 无，`1` = AES-256-GCM，`2` = ChaCha20-Poly1305 |
+| 81 | 7 | reserved | — | 保留 |
 | 88 | 8 | reserved | u64 | 保留 |
 
 **变长区（顺序固定）**
@@ -1046,7 +1061,8 @@ Client 是会话对端，Server 不主动发起恢复。
 **发布方（规范性）**：恒由 **Server** 发布给**双方**；双方各自收到 `role` 不同的同一布局。
 Server **必须**校验端点来源（见 07 章）。
 本消息**也用于恢复**：成功 `login` 后，Server **必须**对每个恢复的 peer 会话重发本条，
-携带最新端点与 `transfer_token`（见 13 章）。
+携带最新端点、`transfer_token` 与已选定的 `security_level` / `security_suite`（见 13 章）。
+**安全等级在会话生命周期内不可变**；恢复时**必须**与首次 `peer_accept` 一致，否则会话失败。
 
 **端点的含义（规范性）**：
 
@@ -1387,7 +1403,9 @@ Client 可用 `file_hash` 单独定位，也可用 `asset_id` 精确定位到某
 | 40 | 2 | udp_port | u16 | 数据面 UDP 端口；Client **必须**向它发出 PROBE |
 | 42 | 2 | tcp_port | u16 | **数据面** TCP 降级通道端口；`0` 表示不支持。**不是**控制面端口 |
 | 44 | 1 | flags | u8 | bit0-7 保留（接收方**必须**忽略未知位） |
-| 45 | 3 | reserved | — | 保留 |
+| 45 | 1 | security_level | enum8 | 本会话选定的安全等级（`1`/`2`/`3`） |
+| 46 | 1 | security_suite | enum8 | lv3 套件：`0` = 无，`1` = AES-256-GCM，`2` = ChaCha20-Poly1305 |
+| 47 | 1 | reserved | u8 | 保留 |
 
 **变长区（顺序固定）**
 

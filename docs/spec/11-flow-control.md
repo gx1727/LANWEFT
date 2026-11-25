@@ -125,16 +125,21 @@ throughput ≈ min(D, window / (d + C / D))     // 单位：symbol/秒
 | 名称 | 定义 | 作用 |
 |------|------|------|
 | `S` | `chunk_size / symbol_size`（≤ 64） | **结构上限**：一个块最多多少 symbol |
-| `K_nofrag` | `min(S, floor(min(路径 MTU − overhead, 65487) / symbol_size))` | **不分片上限** |
+| `K_nofrag` | `min(S, floor(min(路径 MTU − overhead, 65507 − 16 − TRAILER_SIZE) / symbol_size))` | **不分片上限** |
 | `K_cap` | 策略上限，`K_nofrag ≤ K_cap ≤ S` | 是否允许分片（发送端策略） |
 | `K` | 本数据报实际值，`1 ≤ K ≤ K_cap` | —— |
 
-其中 `overhead = 16（本协议头）+ 4（crc）+ 8（UDP）+ IP 头`：IPv4 为 **48**，
-IPv6 为 **68**；`65487 = 65507 − 20` 是 UDP 载荷上限（`20 + L ≤ 65507`）对应的 `L` 上限。
+其中 `overhead = 16（本协议头）+ TRAILER_SIZE + 8（UDP）+ IP 头`：
+
+- lv1：`TRAILER_SIZE = 4` → IPv4 **48**，IPv6 **68**；
+- lv2/lv3：`TRAILER_SIZE = 16` → IPv4 **60**，IPv6 **80**。
+
+`TRAILER_SIZE` 由会话安全等级决定（见 20 章）；**默认 lv1**。
+`65507 − 16 − TRAILER_SIZE` 是 UDP 载荷上限对应的 `L` 上限（lv1 `65487`，lv2/lv3 `65475`）。
 
 - **不分片模式（默认，规范性）**：`K_cap = K_nofrag`。
-  - 1500 MTU（IPv4）→ `(1500 − 48) / 1200 = 1`，故 `K_nofrag = 1`；
-  - 9000 巨帧 → `(9000 − 48) / 1200 = 7`；
+  - 1500 MTU（IPv4）→ lv1 `(1500 − 48) / 1200 = 1`；lv2/lv3 `(1500 − 60) / 1200 = 1`；
+  - 9000 巨帧 → lv1 `(9000 − 48) / 1200 = 7`；lv2/lv3 `(9000 − 60) / 1200 = 7`；
   - 环回 65536 → `54`（受 `S` 约束）。
 - **信任模式（推荐性，显式允许分片）**：`K_cap = S`（可到 54）。
   一个 64800 字节载荷的数据报在 1500 MTU 上约分成 **44 个 IP 分片**。

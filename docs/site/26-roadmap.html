@@ -390,12 +390,15 @@
   chunk 粒度约 0.67%）的收益 —— 它能把定位成本降到一次哈希，
   代价是多一个协议产物与存储开销。当前<strong>不纳入</strong>规范。</li>
 </ul>
-<h3>数据面的身份认证</h3>
+<h3>数据面的身份认证（已结项）</h3>
 <ul>
-<li><strong>现状</strong>：数据面只有 CRC32，它<strong>不提供</strong>身份认证
-  （见 20 章）。当前安全模型以「可信局域网」为前提。</li>
-<li><strong>待办</strong>：若部署场景扩展到不可信网络，引入基于会话密钥的 AEAD
-  （如 AES-GCM / ChaCha20-Poly1305）与 nonce / 代际机制。</li>
+<li><strong>结论</strong>：<strong>已实施</strong>。数据面新增会话级安全等级：lv1 = CRC32（默认）、
+  lv2 = BLAKE3 keyed MAC、lv3 = AES-256-GCM / ChaCha20-Poly1305（见 20 章）。</li>
+<li><strong>PROBE token</strong>：C↔S 的 PROBE 载荷由 8 字节扩为 <code>session_id + probe_token</code>（24/25），
+  token 来自 <code>login_ack.link_token</code>；peer 的 <code>transfer_token</code> 同时作为根秘密。
+  lv1 直接使用根秘密，lv2/lv3 使用派生 token 与 <code>traffic_key</code>。</li>
+<li><strong>代价</strong>：lv2/lv3 的尾部由 4B 变 16B，lv2/lv3 要求控制面 TLS 分发密钥；
+  默认 lv1 保持兼容。</li>
 </ul>
 <h3>恢复列表与权威快照的帧长上限（已结项）</h3>
 <ul>
@@ -443,6 +446,11 @@
 </tr>
 </thead>
 <tbody>
+<tr>
+<td>—</td>
+<td><strong>PROBE token 与数据面安全等级</strong>：①C↔S 的 PROBE/PROBE_ACK 载荷由 8/9 扩为 <code>session_id + probe_token</code>（24/25），<code>login_ack</code> 新增 <code>link_token</code>（每连接 16B）；peer PROBE 统一为 24/25，<code>transfer_token</code> 定义为根秘密。②新增会话级 <code>security_level</code>（lv1 CRC32 / lv2 BLAKE3 keyed MAC / lv3 AEAD）与 <code>security_suite</code>（AES-256-GCM / ChaCha20-Poly1305）；<strong>默认 lv1</strong>；等级写入 accept/offer 消息与快照 <code>security</code> 字节。③<code>trailer</code> 由固定 4B CRC 改为 lv1 4B / lv2·lv3 16B；TCP 数据面 lv2/lv3 追加 16B 尾部并计入 <code>frame_len</code>；新增 <code>AUTH_TAG_INVALID</code> 与 <code>SECURITY_LEVEL_UNSUPPORTED</code>。④新增 Server 配置 <code>security_min_level</code> / <code>security_default_level</code>（默认 1）/ <code>security_max_level</code> / <code>security_suites</code>，协商禁止静默降级；lv2/lv3 要求控制面 TLS。⑤密钥派生：<code>probe_token</code> / <code>traffic_key</code> 由 <code>link_token</code> 或 <code>transfer_token</code> 经 KDF 派生；AEAD 单元为数据报载荷（K 个 symbol），明文长度不变。<strong>版本号不变</strong></td>
+<td>02、06、07、08、11、13、19、20、24、26、99、site</td>
+</tr>
 <tr>
 <td>—</td>
 <td><strong>C↔C R2 会话内中转与 transport 切换</strong>：新增 <code>peer_transport_switch</code>（<code>0x23</code>，Server→Client，36 字节），支持 <code>direct ⇄ relay_r2</code> <strong>中途切换</strong>；S 在<strong>同一 peer 会话</strong>内转发数据（有界队列、不存整文件），校验两段 leg 的 <code>transfer_token</code>/源地址，K 规范化为 <code>K = 1</code>；端到端信用不变，S 队列计入在途并做中转入量控制（<code>relay_capacity</code>）；切换清空在途、重建信用基线、保留位图/临时文件、从第一个缺失 symbol 继续；新增 <code>switch_reason</code> 枚举。R1 仍为预选中转。<strong>版本号不变</strong></td>

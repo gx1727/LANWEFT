@@ -62,7 +62,8 @@
 
 ### INTEGRITY
 
-- `CRC32_INVALID`：包级校验失败（丢弃该包，不标记位图）
+- `CRC32_INVALID`：包级校验失败（lv1；丢弃该包，不标记位图）
+- `AUTH_TAG_INVALID`：包级 keyed MAC / AEAD 校验失败（lv2/lv3；丢弃该包，不标记位图）
 - `FILE_HASH_MISMATCH`：文件级内容哈希不一致（**必须**按恢复阶梯处理：
   摘要对帐 → 复核轮 → 仍失配才以 `session_abort` 终止会话，见 12 章）
 - `SOURCE_FILE_MISMATCH`：发送方的源文件与请求的 `file_hash` 不符
@@ -77,6 +78,9 @@
 - `CLIENT_ID_INVALID`：client_id 非法
 - `LOGIN_FAILED`：登录认证失败
 - `PROTO_VERSION_UNSUPPORTED`：协议版本不受支持（见 06 章 `login` / `login_ack`）
+- `SECURITY_LEVEL_UNSUPPORTED`：Client 支持的最高安全等级 / 套件低于 Server 的
+  `security_min_level` 或 `security_suites`，无法协商（见 20 章）；Server **必须**以
+  `login_ack`（fail）或对应拒绝消息终止，**不得**静默降级
 - `FILE_TOO_LARGE`：声明的文件大小超出 `chunk_count` / `symbol_count` 的 u32 上限，
   或 `chunk_size` 不是 `symbol_size` 的整数倍 / `S` 超出 `[1, 64]`
   （见 09 章「文件大小上限与块参数校验」）；Server **必须**以 `session_abort`
@@ -110,7 +114,8 @@
 - `INVALID_PACKET`：数据包格式非法（长度不足、越界等）
 - `SESSION_ID_MISMATCH`：session_id 不匹配
 - `SERIALIZATION_ERROR`：控制帧解码失败（定长区长度不足、变长区越界、取值违反约束等）
-- `PEER_TOKEN_INVALID`：peer 数据面的 `transfer_token` 不匹配（丢弃该 PROBE/数据包）
+- `PEER_TOKEN_INVALID`：PROBE token 不匹配（C↔S 的 `link_token` 或 peer 的 `transfer_token`；
+  丢弃该 PROBE，不绑定端点）
 - `CONTROL_ERROR`：控制面错误
 - `UNKNOWN_ERROR`：未分类错误
 
@@ -127,6 +132,7 @@
 `SESSION_NOT_FOUND`、`SESSION_ABORTED`、`FILE_NOT_FOUND`、`DELIVERY_DECLINED`、
 `INVALID_STATE`、`TOO_MANY_SESSIONS`、`FILE_HASH_MISMATCH`、`SOURCE_FILE_MISMATCH`、
 `ACL_DENY`、`CLIENT_ID_INVALID`、`LOGIN_FAILED`、`PROTO_VERSION_UNSUPPORTED`、
+`SECURITY_LEVEL_UNSUPPORTED`、
 `FILE_TOO_LARGE`、`TIMEOUT_NO_ACTIVITY`、`TRANSFER_STALLED`、`DATABASE_ERROR`、
 `STORAGE_FULL`、`FILESYSTEM_ERROR`、`SOURCE_READ_ERROR`、`PEER_DECLINED`、
 `PEER_UNREACHABLE`、`PEER_RELAY_UNAVAILABLE`。
@@ -134,7 +140,7 @@
 **其余错误码一律为过程类**，即：
 `UDP_UNAVAILABLE`、`TIMEOUT_PROBE`、`TCP_ERROR`、`BIND_FAILED`、
 `CONNECTION_FAILED`、`CONNECTION_CLOSED`、`NETWORK_ERROR`、
-`TIMEOUT_HEARTBEAT`、`CRC32_INVALID`、`INVALID_CHUNK`、
+`TIMEOUT_HEARTBEAT`、`CRC32_INVALID`、`AUTH_TAG_INVALID`、`INVALID_CHUNK`、
 `CHUNK_ALREADY_RECEIVED`、`INVALID_PACKET`、`SESSION_ID_MISMATCH`、
 `SERIALIZATION_ERROR`、`MAGIC_MISMATCH`、`HEADER_CRC_INVALID`、
 `FRAME_LEN_INVALID`、`CONTROL_ERROR`、`PEER_TOKEN_INVALID`、`UNKNOWN_ERROR`。
