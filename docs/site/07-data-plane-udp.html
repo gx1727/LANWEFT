@@ -174,8 +174,9 @@
 </ul>
 <h2>发送端</h2>
 <ul>
-<li><strong>按批次发送</strong>：连续发送 <code>burst_size</code> 个 chunk，批间隔 <code>batch_gap_us</code>
-  （初值 2000µs；<code>burst_size</code> 初值 = <code>min(256, window)</code>）。详见 11 章「发送节奏」。</li>
+<li><strong>按批次发送</strong>：连续发送 <code>burst_size</code> 个 <strong>symbol</strong>（按数据报封装，每个数据报承载 <code>K</code> 个 symbol），
+  批间隔 <code>batch_gap_us</code>（初值 2000µs；<code>burst_size</code> 初值 = <code>min(256, window)</code>）。
+  详见 11 章「发送节奏」。</li>
 <li>批<strong>内</strong>不逐包停顿；间隔施加在<strong>批与批之间</strong>，而非包与包之间。</li>
 <li><strong>仅对 <code>missing_chunks</code>（<code>mode=report</code>）报告的缺失块重传</strong>，重传优先级高于新数据</li>
 <li><strong>数据面不得改变会话状态</strong>，只能更新接收侧位图（见 10 章「推进规则」）</li>
@@ -239,17 +240,25 @@
 <li><strong>中转端点</strong>：Server 为本会话分配 <code>relay_udp_port</code> / <code>relay_tcp_port</code>，
   经 <code>peer_accept</code> / <code>peer_transport_switch</code> 下发（见 06 章）。</li>
 <li><strong>UDP</strong>：</li>
-<li>C1 向 S 的中转端点发送 peer PROBE（携带 <code>session_id</code> + <code>probe_token</code>）；
+<li><strong>C1→S leg</strong>：C1 向 S 的中转端点发送 peer PROBE（携带 <code>session_id</code> + <code>probe_token</code>）；
     S 校验 token / session / 源地址后回 ACK。</li>
-<li>C1 的数据包发往 S；S <strong>必须</strong>校验 token/源地址后转发到 C2 声明的接收端点。</li>
+<li><strong>C2 端点确认（规范性）</strong>：C2 <strong>必须</strong>同样向 S 的 <code>relay_udp_port</code> 发送一条 peer PROBE
+    （携带 <code>session_id</code> + <code>probe_token</code>）；S 校验后把 C2 的<strong>源地址:端口</strong>绑定为
+    S→C2 leg 的接收端点并回 ACK。<strong>在收到 C2 的 PROBE 之前，S 不得向 C2 发送数据面数据</strong>。</li>
+<li>C1 的数据包发往 S；S <strong>必须</strong>校验 token/源地址后，<strong>按字节原样</strong>转发到 C2 已确认的接收端点。</li>
 <li>C2 <strong>只接受</strong>来自 S 中转端点的数据；旧端点（直连对端）上的包<strong>必须</strong>丢弃。</li>
 <li><strong>TCP</strong>：C1 连接 S 的中转 <code>tcp_port</code> 并发送 <code>FLAG_BIND</code>；S 作为连接方连接 C2 的
   <code>tcp_port</code> 并发送 <code>FLAG_BIND</code>。两条 leg 分别校验会话、角色、源地址与 token。</li>
 <li><strong>不存整文件</strong>：S 只需<strong>有界转发队列</strong>；队列溢出/丢包由 C2 的 <code>missing_chunks</code>
   驱动 C1 重传，可靠性模型不变。</li>
-<li><strong>K 与分片</strong>：两段链路 MTU 可能不同，S <strong>应当</strong>把转发载荷规范化为 <code>K = 1</code>
-  （或按其配置重新分段）；direct 模式的 <code>K_nofrag</code>/信任模式策略<strong>不</strong>直接套用到 relay 两段。
-  <code>max_ok_payload</code> 按 leg 分别反馈。</li>
+<li><strong>载荷透明性（规范性）</strong>：S <strong>不得</strong>重新分段、重新封装或修改转发数据报的
+  <strong>载荷与其尾部（tag）</strong> —— lv2/lv3 的 MAC/AEAD tag 由 <strong>C1 生成、C2 校验</strong>（端到端），
+  S 只改写外层 UDP/IP 头。因此 <code>K</code> 与 nonce 由 C1 决定，C2 按 C1 的<strong>原始封装</strong>校验，
+  S <strong>不得</strong>把载荷改写成 <code>K = 1</code> 或任何其它分段。</li>
+<li>两段链路的 MTU 差异由 IP 分片，或由 C1 侧选择更小的 <code>K</code> 承担；
+    <strong>不得</strong>以「重新分段」为名破坏端到端 tag。</li>
+<li>direct 模式的 <code>K_nofrag</code> / 信任模式策略<strong>不</strong>直接套用到 relay 两段；
+    <code>max_ok_payload</code> 按 leg 分别反馈（仅用于 C1 的节奏决策）。</li>
 <li><strong>容量</strong>：S <strong>必须</strong>做中转入量控制（连接数、队列、带宽）；不足时<strong>不得</strong>建立/切换 R2，
   以 <code>PEER_RELAY_UNAVAILABLE</code> 拒绝或保持 direct。</li>
 <li><strong>切换</strong>：由 <code>peer_transport_switch</code> 完成；切换后按新端点重新绑定，
@@ -415,6 +424,10 @@ TRAILER_SIZE      = 0 (lv1) / 16 (lv2, lv3)
 <li>lv2/lv3 的 <code>trailer</code> <strong>必须</strong>计入 <code>frame_len</code>；接收方按会话等级读取。</li>
 <li><code>magic</code> <strong>必须</strong>为 <code>0x574E414C</code>；不匹配即判定<strong>失步</strong>（见下）。</li>
 <li><code>frame_len</code> <strong>必须</strong> ≥ <strong>28</strong></li>
+<li><code>frame_len</code> <strong>必须</strong> ≤ <code>28 + chunk_size + TRAILER_SIZE</code>
+  —— lv1 为 <code>28 + chunk_size</code>，lv2/lv3 为 <code>28 + chunk_size + 16</code>
+  （记该上界为 <code>max_data_frame_len</code>；<code>16</code> 为 lv2/lv3 <code>trailer</code> 长度）。
+  接收方读到 <code>frame_len</code> 超出该上界时<strong>必须</strong>判定<strong>失步</strong>。</li>
 <li>接收方<strong>必须</strong>按 <code>frame_len</code> <strong>读满</strong>后再解析：
   <strong>不得</strong>假设一帧一次 <code>recv</code> 到达；<strong>不得</strong>按换行或任何字节模式切分。</li>
 <li>载荷长度 <code>L = frame_len − 28 − TRAILER_SIZE</code>，<strong>必须</strong> &gt; 0（<code>FLAG_BIND</code> 除外）；
@@ -431,7 +444,8 @@ TRAILER_SIZE      = 0 (lv1) / 16 (lv2, lv3)
 <ol>
 <li><code>magic</code> == <code>0x574E414C</code>；</li>
 <li><code>header_crc32</code> 校验通过；</li>
-<li><code>frame_len</code> ∈ <code>[28, 28 + chunk_size]</code>。</li>
+<li><code>frame_len</code> ∈ <code>[28, 28 + chunk_size + TRAILER_SIZE]</code>（lv1 上界 <code>28 + chunk_size</code>；
+   lv2/lv3 上界 <code>28 + chunk_size + 16</code>）。</li>
 </ol>
 <p><strong>失步的处置（规范性）</strong>：</p>
 <ul>
@@ -467,7 +481,7 @@ TRAILER_SIZE      = 0 (lv1) / 16 (lv2, lv3)
 <tr>
 <td><code>frame_len</code> 上界</td>
 <td><code>max_frame_len</code>（1 MiB）</td>
-<td><code>28 + chunk_size</code></td>
+<td><code>max_data_frame_len</code> = <code>28 + chunk_size + 16</code></td>
 </tr>
 <tr>
 <td>失步后的数据处置</td>

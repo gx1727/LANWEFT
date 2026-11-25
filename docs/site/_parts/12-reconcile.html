@@ -17,7 +17,7 @@
     <div class="cell f-type">不一致 → 每个区间二等分为左半 / 右半，逐层下降</div>
     <div class="cell f-type">reconcile_request {ranges=[左半,右半]} —— 同一轮所有区间同层</div>
 
-    <div class="cell f-chunk">chunk_count 达到 1 → 定位可疑块 → 位图清零</div>
+    <div class="cell f-chunk">chunk_count 达到 1 → 定位可疑块 → 仅清可疑块的完成位</div>
     <div class="cell f-muted">（根区间一致时改判 <code>SOURCE_FILE_MISMATCH</code>，不再进入复核轮）</div>
 
     <div class="cell f-type">missing_chunks {mode=report, chunks=可疑块}</div>

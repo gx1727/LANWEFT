@@ -447,6 +447,16 @@
 </thead>
 <tbody>
 <tr>
+<td>2026-11-25</td>
+<td><strong>协议走查修订（P0+P1）</strong>：①20 章：<code>KDF</code> 固定为 <strong>BLAKE3 derive-key</strong> 的<strong>单一</strong>构造（<code>context = "LANWEFT/" ‖ label</code>），删去「或等强度 HKDF」的二选一；明确 lv3 nonce = <code>(generation, chunk_id, chunk_symbol, K)</code> 的 <strong>12 字节</strong>规范编码与<strong>复用规则</strong>（同代重传同明文，nonce 复用无泄露，禁止同 nonce 封不同明文）；新增<strong>等级隔离</strong>——同一 <code>link_token</code> 不得同时承载 lv1 与 lv2/lv3 会话，否则 lv1 明文 <code>probe_token</code> 危及派生密钥。②07 章：数据面 TCP 帧长上界由 <code>28 + chunk_size</code> 修正为 <strong><code>28 + chunk_size + TRAILER_SIZE</code></strong>（<code>max_data_frame_len</code>），消除满块 lv3 帧（64844 B）被误判失步；R2 中转改为<strong>载荷透明</strong>——S 不得重新分段/改载荷（删除「规范化为 <code>K = 1</code>」），lv2/lv3 tag 由 C1 生成、C2 校验（端到端），并补 <strong>C2 向 S 发送 peer PROBE</strong> 的 S→C2 leg 端点确认。③06 章：<code>missing_chunks.missing_count</code> 的<strong>完全缺失块</strong>一项由满块 <code>S</code> 改为<strong>实际 <code>S_chunk</code></strong>（修正短末块、1 字节文件高估）；<code>login</code> 帧头示例消息体 offset 3 <code>max_security_level</code> 由 <code>00</code> 改为 <strong><code>01</code></strong>（满足「必须 ≥ 1」）。④11 章：新增<strong>传输硬上限</strong> <code>K_udp_max = floor((65507 − 16 − TRAILER_SIZE) / symbol_size)</code>（=54），并约束 <code>K_cap ≤ min(S, K_udp_max)</code>（原信任模式 <code>K_cap = S</code> 在 <code>S</code> &gt; 54 时放不进单个 UDP 数据报）。⑤12/18 章：<strong>清位语义分级</strong> —— 定点修复（摘要对帐，generation 1）<strong>只</strong>清<strong>可疑块</strong>、其余完成位保留；全量复核（复核轮，generation 2）才全部清零。⑥13 章：定义 peer 任一端断开的中断<strong>通知</strong>（Server 向仍在线的另一端发布 <code>session_pause</code>）与<strong>恢复路径</strong>（两端重发 <code>peer_accept</code>、在线端<strong>不</strong>重复 <code>login</code>），与「显式暂停经 <code>resume_session</code> 解除」区分。⑦02/14 章：<code>missing_count</code> 与 <code>progress_update.received</code> / <code>total</code> 单位统一为 <strong>symbol</strong>。<strong>版本号不变</strong></td>
+<td>02、06、07、11、12、13、14、18、20、26、site</td>
+</tr>
+<tr>
+<td>—</td>
+<td><strong>13 章拆两层恢复判定</strong>：断线重连分为「数据传输恢复」与「结果交付恢复」两张表。前者按 Client 断线前本地状态决定是否进入 <code>resume[]</code>；<code>COMPLETED</code> 不恢复数据传输。后者规定已完成但回执/<code>complete_ack</code> 未送达时，接收方先发完成消息、发送方后回确认；Server 对本地仍为 <code>TRANSFERRING</code> 但已完成的会话必须返回 <code>state=COMPLETED</code> 快照。补充「谁先发」：Client 先 <code>login</code> → Server <code>login_ack</code> → 数据阶段接收方先 <code>missing_chunks</code> → 发送方 DATA；结果阶段接收方先完成消息 → 发送方 <code>complete_ack</code>。新增非规范性 <code>docs/implementation-mapping.md</code>，区分消息模型 / 算法 / 服务接入 / E2E 四层。<strong>版本号不变</strong></td>
+<td>13、24、26、README、implementation-mapping</td>
+</tr>
+<tr>
 <td>—</td>
 <td><strong>安全等级的旧措辞清理</strong>：把 00/01/05/06/07/12/21 章仍写成「包级只有 CRC32 / 数据面不加密」的表述同步为 lv1/lv2/lv3；21 章明确未启用 TLS 时<strong>不得</strong>启用 lv2/lv3；20 章站点手写片段（要点 / 假设 / 加密示意 / 完整性 / 陷阱）同步到「AEAD 单元 = 数据报载荷、默认 lv1」。无线路格式变更。<strong>版本号不变</strong></td>
 <td>00、01、05、06、07、12、20、21、26、site</td>
@@ -752,12 +762,17 @@
 <td></td>
 </tr>
 <tr>
-<td>①13 章补「<strong>待恢复会话的判定</strong>」表，定义哪些状态进入 <code>resume[]</code></td>
+<td>①13 章补「<strong>数据传输的恢复判定</strong> / <strong>结果交付的恢复判定</strong>」两张表，定义哪些状态进入 <code>resume[]</code></td>
 <td></td>
 <td></td>
 </tr>
 <tr>
-<td>（<code>INIT</code> / <code>NEGOTIATING</code> / <code>COMPLETED</code> / <code>ABORTED</code> <strong>不</strong>恢复）；</td>
+<td>（<code>INIT</code> / <code>NEGOTIATING</code> / <code>COMPLETED</code> / <code>ABORTED</code> <strong>不</strong>恢复数据传输；</td>
+<td></td>
+<td></td>
+</tr>
+<tr>
+<td><code>COMPLETED</code> 的结果交付仍必须恢复）；</td>
 <td></td>
 <td></td>
 </tr>

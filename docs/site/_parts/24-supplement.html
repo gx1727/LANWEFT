@@ -27,7 +27,7 @@
       <div class="cell f-type">→ reconcile_request {ranges=[左半, 右半]}（逐层二分，同轮同层）</div>
       <div class="cell f-type">← reconcile_response {digests[]}（每个子区间的摘要）</div>
 
-      <div class="cell f-chunk">逐层下降直到 chunk_count = 1 → 定位可疑块 → 位图清零</div>
+      <div class="cell f-chunk">逐层下降直到 chunk_count = 1 → 定位可疑块 → 仅清可疑块的完成位</div>
       <div class="cell f-muted">（二等分规则由 (first_chunk, chunk_count) 唯一确定，双方无须协商）</div>
 
       <div class="cell f-type">→ missing_chunks {mode=report, chunks=可疑块}</div>

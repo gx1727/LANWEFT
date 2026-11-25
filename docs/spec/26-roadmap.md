@@ -231,6 +231,8 @@
 
 | 日期 | 修订内容 | 章节 |
 |------|---------|------|
+| 2026-11-25 | **协议走查修订（P0+P1）**：①20 章：`KDF` 固定为 **BLAKE3 derive-key** 的**单一**构造（`context = "LANWEFT/" ‖ label`），删去「或等强度 HKDF」的二选一；明确 lv3 nonce = `(generation, chunk_id, chunk_symbol, K)` 的 **12 字节**规范编码与**复用规则**（同代重传同明文，nonce 复用无泄露，禁止同 nonce 封不同明文）；新增**等级隔离**——同一 `link_token` 不得同时承载 lv1 与 lv2/lv3 会话，否则 lv1 明文 `probe_token` 危及派生密钥。②07 章：数据面 TCP 帧长上界由 `28 + chunk_size` 修正为 **`28 + chunk_size + TRAILER_SIZE`**（`max_data_frame_len`），消除满块 lv3 帧（64844 B）被误判失步；R2 中转改为**载荷透明**——S 不得重新分段/改载荷（删除「规范化为 `K = 1`」），lv2/lv3 tag 由 C1 生成、C2 校验（端到端），并补 **C2 向 S 发送 peer PROBE** 的 S→C2 leg 端点确认。③06 章：`missing_chunks.missing_count` 的**完全缺失块**一项由满块 `S` 改为**实际 `S_chunk`**（修正短末块、1 字节文件高估）；`login` 帧头示例消息体 offset 3 `max_security_level` 由 `00` 改为 **`01`**（满足「必须 ≥ 1」）。④11 章：新增**传输硬上限** `K_udp_max = floor((65507 − 16 − TRAILER_SIZE) / symbol_size)`（=54），并约束 `K_cap ≤ min(S, K_udp_max)`（原信任模式 `K_cap = S` 在 `S` > 54 时放不进单个 UDP 数据报）。⑤12/18 章：**清位语义分级** —— 定点修复（摘要对帐，generation 1）**只**清**可疑块**、其余完成位保留；全量复核（复核轮，generation 2）才全部清零。⑥13 章：定义 peer 任一端断开的中断**通知**（Server 向仍在线的另一端发布 `session_pause`）与**恢复路径**（两端重发 `peer_accept`、在线端**不**重复 `login`），与「显式暂停经 `resume_session` 解除」区分。⑦02/14 章：`missing_count` 与 `progress_update.received` / `total` 单位统一为 **symbol**。**版本号不变** | 02、06、07、11、12、13、14、18、20、26、site |
+| — | **13 章拆两层恢复判定**：断线重连分为「数据传输恢复」与「结果交付恢复」两张表。前者按 Client 断线前本地状态决定是否进入 `resume[]`；`COMPLETED` 不恢复数据传输。后者规定已完成但回执/`complete_ack` 未送达时，接收方先发完成消息、发送方后回确认；Server 对本地仍为 `TRANSFERRING` 但已完成的会话必须返回 `state=COMPLETED` 快照。补充「谁先发」：Client 先 `login` → Server `login_ack` → 数据阶段接收方先 `missing_chunks` → 发送方 DATA；结果阶段接收方先完成消息 → 发送方 `complete_ack`。新增非规范性 `docs/implementation-mapping.md`，区分消息模型 / 算法 / 服务接入 / E2E 四层。**版本号不变** | 13、24、26、README、implementation-mapping |
 | — | **安全等级的旧措辞清理**：把 00/01/05/06/07/12/21 章仍写成「包级只有 CRC32 / 数据面不加密」的表述同步为 lv1/lv2/lv3；21 章明确未启用 TLS 时**不得**启用 lv2/lv3；20 章站点手写片段（要点 / 假设 / 加密示意 / 完整性 / 陷阱）同步到「AEAD 单元 = 数据报载荷、默认 lv1」。无线路格式变更。**版本号不变** | 00、01、05、06、07、12、20、21、26、site |
 | — | **PROBE token 与数据面安全等级**：①C↔S 的 PROBE/PROBE_ACK 载荷由 8/9 扩为 `session_id + probe_token`（24/25），`login_ack` 新增 `link_token`（每连接 16B）；peer PROBE 统一为 24/25，`transfer_token` 定义为根秘密。②新增会话级 `security_level`（lv1 CRC32 / lv2 BLAKE3 keyed MAC / lv3 AEAD）与 `security_suite`（AES-256-GCM / ChaCha20-Poly1305）；**默认 lv1**；等级写入 accept/offer 消息与快照 `security` 字节。③`trailer` 由固定 4B CRC 改为 lv1 4B / lv2·lv3 16B；TCP 数据面 lv2/lv3 追加 16B 尾部并计入 `frame_len`；新增 `AUTH_TAG_INVALID` 与 `SECURITY_LEVEL_UNSUPPORTED`。④新增 Server 配置 `security_min_level` / `security_default_level`（默认 1）/ `security_max_level` / `security_suites`，协商禁止静默降级；lv2/lv3 要求控制面 TLS。⑤密钥派生：`probe_token` / `traffic_key` 由 `link_token` 或 `transfer_token` 经 KDF 派生；AEAD 单元为数据报载荷（K 个 symbol），明文长度不变。**版本号不变** | 02、06、07、08、11、13、19、20、24、26、99、site |
 | — | **C↔C R2 会话内中转与 transport 切换**：新增 `peer_transport_switch`（`0x23`，Server→Client，36 字节），支持 `direct ⇄ relay_r2` **中途切换**；S 在**同一 peer 会话**内转发数据（有界队列、不存整文件），校验两段 leg 的 `transfer_token`/源地址，K 规范化为 `K = 1`；端到端信用不变，S 队列计入在途并做中转入量控制（`relay_capacity`）；切换清空在途、重建信用基线、保留位图/临时文件、从第一个缺失 symbol 继续；新增 `switch_reason` 枚举。R1 仍为预选中转。**版本号不变** | 02、06、07、09、11、13、19、20、24、26、99、site |
@@ -292,8 +294,9 @@
   摘要对帐、秒传、主动投递、TCP 降级、断线重连、失步断连等异常分支
   逐条比对 06、09、10、11、12、13、14、19、21、23、24 十章，
   发现并修复 6 项语义问题：
-  ①13 章补「**待恢复会话的判定**」表，定义哪些状态进入 `resume[]`
-  （`INIT` / `NEGOTIATING` / `COMPLETED` / `ABORTED` **不**恢复）；
+  ①13 章补「**数据传输的恢复判定** / **结果交付的恢复判定**」两张表，定义哪些状态进入 `resume[]`
+  （`INIT` / `NEGOTIATING` / `COMPLETED` / `ABORTED` **不**恢复数据传输；
+  `COMPLETED` 的结果交付仍必须恢复）；
   ②明确**断线不解除显式暂停** —— `PAUSED` 会话重连后**保持 `PAUSED`**，
   恢复仍走 `resume_session` / `resume_ack`；
   ③恢复后的状态改为「**各视角各自回到断线前状态**」

@@ -3,7 +3,8 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>LANWEFT · 规范可视化</title>
+<title>LANWEFT · 大文件同步协议规范</title>
+<meta name="description" content="LANWEFT 是一套面向大文件同步的传输协议规范：TCP 控制面 + UDP 数据面，支持断点续传、C↔C 直传与中转、分级数据面安全。">
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
@@ -22,6 +23,128 @@
   <div class="note blue">
     <strong>说明</strong>：本页把 <code>docs/spec/</code> 下的 26 篇规范做成同风格的静态网页（纯 HTML + CSS，无外部依赖，可离线打开）。
     每页底部均链接回对应<strong>规范源文</strong>；页面内容为规范正文的可视化整理，<strong>以源文为准</strong>。
+  </div>
+
+  <h2>LANWEFT 是什么</h2>
+
+  <div class="note blue">
+    <strong>一句话</strong>：LANWEFT 是一套面向<strong>大文件同步</strong>的传输协议规范 ——
+    用 <strong>TCP 控制面</strong>承载会话、裁决与恢复，用 <strong>UDP 数据面</strong>承载高吞吐传输，
+    并提供 <strong>TCP 数据面</strong>作为兜底。
+  </div>
+
+  <p>
+    LANWEFT 不绑定具体实现、框架或应用。它规定的是<strong>线路格式、状态机、流控、可靠性、恢复、安全等级与错误码</strong>，
+    因此同一套协议可以由 PC、手机、NAS 或服务端各自实现并互通。
+    当前版本为 <strong>v0.3.0（Draft，设计阶段）</strong>，线路格式仍在演进；
+    本页及站点各章是规范的<strong>可视化导读</strong>，发生冲突时以
+    <a href="../spec/">docs/spec/</a> 源文为准。
+  </p>
+
+  <h2>解决什么问题（用途）</h2>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>场景</th><th>LANWEFT 提供的能力</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>局域网大文件同步</strong></td>
+          <td>照片、视频、安装包、备份等大文件的高吞吐传输；控制与数据分离，避免逐包 ACK 与固定墙钟周期成为吞吐天花板。</td>
+        </tr>
+        <tr>
+          <td><strong>PC ↔ 手机 / 多设备互传</strong></td>
+          <td>上传、下载与 <strong>C↔C peer</strong> 三种方向；两端各自与 Server 保持既有登录，数据可直连，也可走 Server 的 R1 预选中转或 R2 会话内转发。</td>
+        </tr>
+        <tr>
+          <td><strong>服务端素材分发</strong></td>
+          <td>Server 维护素材与共享清单，支持主动投递、秒传与按需下载；接收方可以接受或拒绝投递。</td>
+        </tr>
+        <tr>
+          <td><strong>弱网、中断与移动端</strong></td>
+          <td>位图 + 缺失裁决、乱序写盘、断线重连、暂停恢复、停滞检测与复核轮；适配 Android / iOS 后台限制。</td>
+        </tr>
+        <tr>
+          <td><strong>可信 LAN 之外的传输</strong></td>
+          <td>会话级安全等级：lv1 CRC32（默认，可信 LAN）、lv2 BLAKE3 keyed MAC、lv3 AEAD；lv2/lv3 要求控制面 TLS，可用于不可信网络。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>核心功能与特性</h2>
+
+  <div class="card">
+    <table>
+      <thead><tr><th>特性</th><th>说明</th></tr></thead>
+      <tbody>
+        <tr>
+          <td><strong>控制面 / 数据面分离</strong></td>
+          <td>TCP 长连接负责认证、会话、状态机与缺失裁决；UDP 负责数据搬运；UDP 不可用时回退 TCP 数据面，可靠性语义不变。</td>
+        </tr>
+        <tr>
+          <td><strong>两级单位：chunk + symbol</strong></td>
+          <td>逻辑块 <code>chunk_size</code>（默认 64800）用于寻址与位图；线缆/修复单位 <code>symbol_size</code> = 1200 字节；一个数据报承载 <code>K</code> 个 symbol，<code>K</code> 由传输层长度反推。</td>
+        </tr>
+        <tr>
+          <td><strong>可变 K 与信任模式</strong></td>
+          <td><code>K_nofrag</code> 按路径 MTU 避免分片；显式开启信任模式后 <code>K</code> 可到 54（约 64KB 载荷），并按整报文丢失率自动回退。</td>
+        </tr>
+        <tr>
+          <td><strong>无逐包 ACK</strong></td>
+          <td>接收方维护位图并用 <code>missing_chunks</code> 精确上报缺失；窗口推进由 <code>window_update</code> 信用事件驱动，发送端只补缺失 symbol。</td>
+        </tr>
+        <tr>
+          <td><strong>可中断、可恢复</strong></td>
+          <td>断线重连走 <code>login</code> 恢复列表 + <code>login_ack</code> 权威快照；暂停恢复走 <code>resume_session</code>；空洞块永不重传，续传从第一个缺失 symbol 继续。</td>
+        </tr>
+        <tr>
+          <td><strong>乱序写盘与原子提交</strong></td>
+          <td>按 <code>chunk_id × chunk_size + chunk_symbol × symbol_size</code> 随机写临时文件，内存与文件大小解耦；校验通过后同一目录内 <code>rename(2)</code> 原子提交。</td>
+        </tr>
+        <tr>
+          <td><strong>C↔C 直传与中转</strong></td>
+          <td>两个 Client 复用各自与 Server 的登录；Server 做授权与控制中继，数据面可 direct，也可 R1（两段既有会话 + 临时素材）或 R2（同一 peer 会话内转发）。</td>
+        </tr>
+        <tr>
+          <td><strong>完整性恢复阶梯</strong></td>
+          <td>包级 trailer（lv1 CRC32 / lv2·lv3 tag）+ 文件级 Blake3；失配后依次尝试摘要对帐、复核轮，仍失败才终止。</td>
+        </tr>
+        <tr>
+          <td><strong>分级数据面安全</strong></td>
+          <td>会话级 lv1 / lv2 / lv3；PROBE 携带 <code>probe_token</code> 并绑定源端点；等级在会话内不可变，Server 可配置 <code>security_min/default/max</code>，禁止静默降级。</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <h2>适用边界</h2>
+
+  <div class="cols">
+    <section>
+      <h3 style="margin-top:0">适合</h3>
+      <ul class="spec">
+        <li>可信局域网内的大文件高速同步（lv1 默认）</li>
+        <li>PC、手机、NAS 等多设备之间的上传 / 下载 / C↔C 互传</li>
+        <li>需要断点续传、弱网恢复、移动端后台切换的传输</li>
+        <li>需要服务端素材管理、主动投递或中转的部署</li>
+        <li>需要密码学完整性或机密性的不可信网络（lv2 / lv3）</li>
+      </ul>
+    </section>
+    <section>
+      <h3 style="margin-top:0">不是</h3>
+      <ul class="spec">
+        <li>不是通用互联网 NAT 穿透方案：跨网可达性依赖端点或 Server 中转</li>
+        <li>不是云端文件存储服务：Server 存储与配额由部署方定义</li>
+        <li>不是 lv1 下的防伪方案：CRC32 只能发现损坏，不能阻止伪造</li>
+        <li>不是已冻结的实现标准：v0.3.0 仍处于设计阶段，线格式可能继续演进</li>
+      </ul>
+    </section>
+  </div>
+
+  <div class="note warn">
+    <strong>当前状态</strong>：规范为 <strong>v0.3.0 Draft</strong>，不承诺跨实现兼容；
+    阅读与实现请以 <a href="00-overview.html">00 概览</a>、<a href="03-design-goals.html">03 设计目标</a>、
+    <a href="04-non-goals.html">04 非目标</a> 和 <a href="20-security-model.html">20 安全模型</a> 的正文为准。
   </div>
 
   <h2>图示页</h2>

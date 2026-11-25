@@ -61,11 +61,12 @@ bit=1 表示已收到）；
 
 ### 5. 进度上报
 
-Client 每 500ms 发布 `progress_update`（`received` / `total` 为 chunk 数，
-均为 `u64`），Server 据此估算链路丢包率并驱动 AIMD（见 11 章）。
+Client 每 500ms 发布 `progress_update`（`received` = 已接收的 **symbol 数量**、
+`total` = 本会话的 `symbol_count`，均为 `u64`），Server 据此估算链路丢包率并驱动 AIMD
+（见 06 章「progress_update」、11 章）。
 
 **进度消息由接收方发布**：下载方向的接收方是 Client，
-只有它知道本端已接收的 chunk 数。
+只有它知道本端已接收的 **symbol 数**。
 
 ### 6. 完成与终止
 

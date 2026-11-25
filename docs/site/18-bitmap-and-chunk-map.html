@@ -144,9 +144,14 @@
   校验失败（<code>crc32</code>）的报文<strong>必须</strong>不标记其覆盖的任何 symbol
   （见 12 章「缺失块的定点补发」）。</li>
 <li>一个块的 symbol 掩码全 1 时，接收方<strong>必须</strong>置其块完成位并<strong>丢弃</strong>该掩码；
-  块完成位为 1 后<strong>不得</strong>再回退为 0（除复核轮/对帐清位外）。</li>
-<li><strong>复核轮 / 对帐清位（规范性）</strong>：清位时接收方<strong>必须</strong>把块完成位图<strong>全部</strong>置 0，
-  并<strong>丢弃所有</strong> symbol 掩码，然后<strong>必须</strong>重新计数（见 12 章）。</li>
+  块完成位为 1 后<strong>不得</strong>再回退为 0（除下述两级清位外）。</li>
+<li><strong>清位语义分级（规范性）</strong>：清位<strong>必须</strong>按恢复阶段区分两档，<strong>不得</strong>混用：</li>
+<li><strong>定点修复（摘要对帐，generation 1）</strong>：接收方<strong>只</strong>把<strong>可疑块</strong>的块完成位清零，
+    并<strong>丢弃这些块的</strong> symbol 掩码；<strong>其余已完成块的完成位与掩码必须保留</strong>。
+    随后按常规缺失裁决上报这些块（见 12 章「摘要对帐」第 7 步）。</li>
+<li><strong>全量复核（复核轮，generation 2）</strong>：接收方<strong>必须</strong>把块完成位图<strong>全部</strong>置 0、
+    <strong>丢弃所有</strong> symbol 掩码，然后<strong>必须</strong>重新计数（见 12 章「复核轮」）。
+  两档清位后都<strong>必须</strong>按新代号从基线重新计数（见下「信用计数的可导出性」）。</li>
 <li>位图的<strong>内部组织方式</strong>（字长、原子类型、内存布局）由实现决定，
   <strong>不构成</strong>互操作要求；但<strong>必须</strong>支持按 <code>chunk_id</code> / symbol 索引<strong>升序</strong>枚举
   —— 缺失列表的分批下发依赖升序（见本章「缺失列表的下发上限」）。</li>

@@ -10,8 +10,9 @@
 
 ## 发送端
 
-- **按批次发送**：连续发送 `burst_size` 个 chunk，批间隔 `batch_gap_us`
-  （初值 2000µs；`burst_size` 初值 = `min(256, window)`）。详见 11 章「发送节奏」。
+- **按批次发送**：连续发送 `burst_size` 个 **symbol**（按数据报封装，每个数据报承载 `K` 个 symbol），
+  批间隔 `batch_gap_us`（初值 2000µs；`burst_size` 初值 = `min(256, window)`）。
+  详见 11 章「发送节奏」。
   - 批**内**不逐包停顿；间隔施加在**批与批之间**，而非包与包之间。
 - **仅对 `missing_chunks`（`mode=report`）报告的缺失块重传**，重传优先级高于新数据
 - **数据面不得改变会话状态**，只能更新接收侧位图（见 10 章「推进规则」）
@@ -78,17 +79,25 @@
 - **中转端点**：Server 为本会话分配 `relay_udp_port` / `relay_tcp_port`，
   经 `peer_accept` / `peer_transport_switch` 下发（见 06 章）。
 - **UDP**：
-  - C1 向 S 的中转端点发送 peer PROBE（携带 `session_id` + `probe_token`）；
+  - **C1→S leg**：C1 向 S 的中转端点发送 peer PROBE（携带 `session_id` + `probe_token`）；
     S 校验 token / session / 源地址后回 ACK。
-  - C1 的数据包发往 S；S **必须**校验 token/源地址后转发到 C2 声明的接收端点。
+  - **C2 端点确认（规范性）**：C2 **必须**同样向 S 的 `relay_udp_port` 发送一条 peer PROBE
+    （携带 `session_id` + `probe_token`）；S 校验后把 C2 的**源地址:端口**绑定为
+    S→C2 leg 的接收端点并回 ACK。**在收到 C2 的 PROBE 之前，S 不得向 C2 发送数据面数据**。
+  - C1 的数据包发往 S；S **必须**校验 token/源地址后，**按字节原样**转发到 C2 已确认的接收端点。
   - C2 **只接受**来自 S 中转端点的数据；旧端点（直连对端）上的包**必须**丢弃。
 - **TCP**：C1 连接 S 的中转 `tcp_port` 并发送 `FLAG_BIND`；S 作为连接方连接 C2 的
   `tcp_port` 并发送 `FLAG_BIND`。两条 leg 分别校验会话、角色、源地址与 token。
 - **不存整文件**：S 只需**有界转发队列**；队列溢出/丢包由 C2 的 `missing_chunks`
   驱动 C1 重传，可靠性模型不变。
-- **K 与分片**：两段链路 MTU 可能不同，S **应当**把转发载荷规范化为 `K = 1`
-  （或按其配置重新分段）；direct 模式的 `K_nofrag`/信任模式策略**不**直接套用到 relay 两段。
-  `max_ok_payload` 按 leg 分别反馈。
+- **载荷透明性（规范性）**：S **不得**重新分段、重新封装或修改转发数据报的
+  **载荷与其尾部（tag）** —— lv2/lv3 的 MAC/AEAD tag 由 **C1 生成、C2 校验**（端到端），
+  S 只改写外层 UDP/IP 头。因此 `K` 与 nonce 由 C1 决定，C2 按 C1 的**原始封装**校验，
+  S **不得**把载荷改写成 `K = 1` 或任何其它分段。
+  - 两段链路的 MTU 差异由 IP 分片，或由 C1 侧选择更小的 `K` 承担；
+    **不得**以「重新分段」为名破坏端到端 tag。
+  - direct 模式的 `K_nofrag` / 信任模式策略**不**直接套用到 relay 两段；
+    `max_ok_payload` 按 leg 分别反馈（仅用于 C1 的节奏决策）。
 - **容量**：S **必须**做中转入量控制（连接数、队列、带宽）；不足时**不得**建立/切换 R2，
   以 `PEER_RELAY_UNAVAILABLE` 拒绝或保持 direct。
 - **切换**：由 `peer_transport_switch` 完成；切换后按新端点重新绑定，
@@ -199,6 +208,10 @@ frame_len = 28 + L + TRAILER_SIZE   // lv1: TRAILER_SIZE=0；lv2/lv3: 16
 - lv2/lv3 的 `trailer` **必须**计入 `frame_len`；接收方按会话等级读取。
 - `magic` **必须**为 `0x574E414C`；不匹配即判定**失步**（见下）。
 - `frame_len` **必须** ≥ **28**
+- `frame_len` **必须** ≤ `28 + chunk_size + TRAILER_SIZE`
+  —— lv1 为 `28 + chunk_size`，lv2/lv3 为 `28 + chunk_size + 16`
+  （记该上界为 `max_data_frame_len`；`16` 为 lv2/lv3 `trailer` 长度）。
+  接收方读到 `frame_len` 超出该上界时**必须**判定**失步**。
 - 接收方**必须**按 `frame_len` **读满**后再解析：
   **不得**假设一帧一次 `recv` 到达；**不得**按换行或任何字节模式切分。
 - 载荷长度 `L = frame_len − 28 − TRAILER_SIZE`，**必须** > 0（`FLAG_BIND` 除外）；
@@ -216,7 +229,8 @@ frame_len = 28 + L + TRAILER_SIZE   // lv1: TRAILER_SIZE=0；lv2/lv3: 16
 
 1. `magic` == `0x574E414C`；
 2. `header_crc32` 校验通过；
-3. `frame_len` ∈ `[28, 28 + chunk_size]`。
+3. `frame_len` ∈ `[28, 28 + chunk_size + TRAILER_SIZE]`（lv1 上界 `28 + chunk_size`；
+   lv2/lv3 上界 `28 + chunk_size + 16`）。
 
 **失步的处置（规范性）**：
 
@@ -239,7 +253,7 @@ frame_len = 28 + L + TRAILER_SIZE   // lv1: TRAILER_SIZE=0；lv2/lv3: 16
 | 项 | 控制面（06 章） | 数据面 TCP（本章） |
 |----|-----------------|------------------|
 | 帧体内容 | 消息体（定长区 + 变长区） | chunk 载荷 |
-| `frame_len` 上界 | `max_frame_len`（1 MiB） | `28 + chunk_size` |
+| `frame_len` 上界 | `max_frame_len`（1 MiB） | `max_data_frame_len` = `28 + chunk_size + 16` |
 | 失步后的数据处置 | 丢弃未解析数据 | 丢弃未解析数据，且**不得**写入位图 |
 | 恢复路径 | 13 章「断线重连」（`login` / `login_ack` 权威快照） | 13 章恢复流程，由控制面重新裁决缺失块后重传 |
 | 候选判据 / 扫描上限 | 见 06 章 | 同 06 章（同一 `resync_max_scan`） |

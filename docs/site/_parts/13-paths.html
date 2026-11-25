@@ -45,3 +45,11 @@
     </div>
   </section>
 </div>
+
+<div class="note warn">
+  <strong>结果交付 ≠ 数据传输恢复</strong>：<code>COMPLETED</code> 会话不进入 <code>resume[]</code> 的数据续传，
+  但接收方仍<strong>必须</strong>先发 <code>upload_complete</code> / <code>download_complete</code>，
+  发送方再回 <code>complete_ack</code>。重连后恒由 Client 先发 <code>login</code>；
+  数据阶段接收方先发 <code>missing_chunks</code>，发送方后发 DATA。
+  详见源文「数据传输的恢复判定」与「结果交付的恢复判定」两张表。
+</div>

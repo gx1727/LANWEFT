@@ -35,7 +35,7 @@
     </div>
     <div class="cell wide f-muted dl-msg">
       <b>5 进度上报</b>：Client 每 {{VAR:progress_interval}} 发布 <code>progress_update</code>
-      （<code>received</code> / <code>total</code> 为 chunk 数，均为 <code>u64</code>），
+      （<code>received</code> = 已接收 <b>symbol 数</b>、<code>total</code> = <code>symbol_count</code>，均为 <code>u64</code>），
       Server 据此估算链路丢包率并驱动 AIMD（见 11 章）
     </div>
     <div class="cell wide f-muted dl-msg">

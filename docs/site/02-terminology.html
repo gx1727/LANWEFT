@@ -59,8 +59,11 @@
   <code>min(S, floor(min(路径 MTU − overhead, 65507 − 16 − TRAILER_SIZE) / symbol_size))</code>；
   <code>overhead</code>：lv1 IPv4 <strong>48</strong> / IPv6 <strong>68</strong>，lv2/lv3 IPv4 <strong>60</strong> / IPv6 <strong>80</strong>
   （见 08、11 章）</li>
-<li><code>K_cap</code>：<strong>策略上限</strong>，<code>K_nofrag ≤ K_cap ≤ S</code>；默认 <code>K_nofrag</code>（不分片），
-  <strong>信任模式</strong>取 <code>S</code>（显式允许 IP 分片，见 11 章）</li>
+<li><code>K_udp_max</code>：<strong>传输硬上限</strong>（传输层约束，非策略）=
+  <code>floor((65507 − 16 − TRAILER_SIZE) / symbol_size)</code>；<code>symbol_size</code> = 1200 时恒为 <strong>54</strong>
+  （见 11 章）</li>
+<li><code>K_cap</code>：<strong>策略上限</strong>，<code>K_nofrag ≤ K_cap ≤ min(S, K_udp_max)</code>；默认 <code>K_nofrag</code>（不分片），
+  <strong>信任模式</strong>取 <code>min(S, K_udp_max)</code>（显式允许 IP 分片，见 11 章）</li>
 <li><code>frag_loss_budget</code>：信任模式下整报文丢失率的建议预算（0.05%–0.1%）</li>
 <li><code>L</code>：数据报载荷长度；<strong>不</strong>在应用头中编码，由传输层长度反推
   （UDP：<code>总长 − 16 − TRAILER_SIZE</code>；TCP 数据面：<code>frame_len − 28 − TRAILER_SIZE</code>，
@@ -148,7 +151,9 @@
   接收方<strong>应当</strong>按文件规模放宽，超时按「对帐不可用」处理并转入复核轮（见 12 章）</li>
 <li><strong>定点重读</strong>：停滞升级时接收方置 <code>missing_chunks.flags.bit6</code>，
   要求发送方重新读取源文件的对应块（不复用缓存）后重发；每会话<strong>至多一次</strong>（见 06、12 章）</li>
-<li><code>missing_count</code>（u32）：位图中<strong>未收到</strong>的 chunk 总数（精确值）；
+<li><code>missing_count</code>（u32）：位图中<strong>未收到</strong>的 <strong>symbol 精确总数</strong>；
+  <code>login.resume[].missing_count</code> 与 <code>missing_chunks.missing_count</code> <strong>同义</strong>，
+  均<strong>必须</strong>按各块<strong>实际</strong> <code>S_chunk</code> 累加（末块<strong>不得</strong>套用满块 <code>S</code>）；
   未携带时由<strong>存在标志位</strong>表示（见 06 章、18 章）</li>
 <li><code>udp_ready</code>：UDP 就绪通知</li>
 <li><code>resume_session</code> / <code>resume_ack</code>：暂停后的会话恢复请求 / 应答（见 13 章）</li>

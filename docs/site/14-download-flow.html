@@ -73,7 +73,7 @@
     </div>
     <div class="cell wide f-muted dl-msg">
       <b>5 进度上报</b>：Client 每 500ms 发布 <code>progress_update</code>
-      （<code>received</code> / <code>total</code> 为 chunk 数，均为 <code>u64</code>），
+      （<code>received</code> = 已接收 <b>symbol 数</b>、<code>total</code> = <code>symbol_count</code>，均为 <code>u64</code>），
       Server 据此估算链路丢包率并驱动 AIMD（见 11 章）
     </div>
     <div class="cell wide f-muted dl-msg">
@@ -179,10 +179,11 @@ Server <strong>必须</strong>同时遵守连接级的 <code>connection_window</
 bit=1 表示已收到）；
 两者合起来恒为「发布方自己尚未收到的 symbol」（见 06 章「missing_chunks」）。</p>
 <h3>5. 进度上报</h3>
-<p>Client 每 500ms 发布 <code>progress_update</code>（<code>received</code> / <code>total</code> 为 chunk 数，
-均为 <code>u64</code>），Server 据此估算链路丢包率并驱动 AIMD（见 11 章）。</p>
+<p>Client 每 500ms 发布 <code>progress_update</code>（<code>received</code> = 已接收的 <strong>symbol 数量</strong>、
+<code>total</code> = 本会话的 <code>symbol_count</code>，均为 <code>u64</code>），Server 据此估算链路丢包率并驱动 AIMD
+（见 06 章「progress_update」、11 章）。</p>
 <p><strong>进度消息由接收方发布</strong>：下载方向的接收方是 Client，
-只有它知道本端已接收的 chunk 数。</p>
+只有它知道本端已接收的 <strong>symbol 数</strong>。</p>
 <h3>6. 完成与终止</h3>
 <p>Client 检测位图全真 → 校验 hash → 原子重命名 → 发送 download_complete
 （<strong>接收方发布完成消息</strong>，见 06 章）</p>

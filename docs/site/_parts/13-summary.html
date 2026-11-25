@@ -7,4 +7,7 @@
     恢复后<strong>各视角各自回到断线前的状态</strong>。
     续传起点 <code>next_chunk_id</code> <strong>必须</strong>是接收方位图中<strong>第一个尚未收到的块</strong>，
     位图中的空洞由周期下发的 <code>missing_chunks</code>（<code>mode=report</code>）负责指认。
+    断线重连分两层判定：<strong>数据传输恢复</strong>由 <code>resume[]</code> / 快照表达；
+    <strong>结果交付恢复</strong>由完成消息与 <code>complete_ack</code> 表达 ——
+    <code>COMPLETED</code> 不恢复数据传输，但仍<strong>必须</strong>恢复结果交付。
   </div>

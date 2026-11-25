@@ -28,6 +28,14 @@
 数据面支持三个**会话级**安全等级；**默认 lv1**。等级在会话建立时由 Server 选定，
 **会话生命周期内不可变**；配置变更只影响新会话。
 
+- **等级隔离（规范性）**：同一 `link_token`（即同一条控制连接）**不得**同时承载
+  lv1 会话与 lv2/lv3 会话。原因是 lv1 的 `probe_token` 就是根秘密本身，会**明文**
+  出现在数据面上；若与 lv2/lv3 会话共享同一根秘密，嗅探者即可据此派生 `traffic_key`。
+  实施方式：Server **必须**按**等级类别**（lv1 与「lv2/lv3」两类）隔离根秘密
+  —— 一条控制连接上同时存在两类会话时，为它们分别签发**不同的** `link_token`；
+  无法隔离时**必须**拒绝后到的会话（`SECURITY_LEVEL_UNSUPPORTED`），
+  **不得**让 lv1 与 lv2/lv3 共用同一个根秘密。
+
 | 等级 | 尾部 `trailer` | 完整性 | 对端认证 | 机密性 |
 |------|----------------|--------|----------|--------|
 | **lv1** | CRC32（4B） | 非密码学 | 无 | 无 |
@@ -40,8 +48,14 @@
   - `payload` 为密文，长度与明文**完全相等**；
   - `header` 保持明文，作为 **AAD**；
   - tag 覆盖 AAD + 密文；
-  - nonce = `(generation, chunk_id, chunk_symbol, K)` 的规范编码，**必须**在同一
-    `traffic_key` 下唯一（K 参与，避免「同起点不同长度」复用 nonce）。
+  - nonce = `(generation, chunk_id, chunk_symbol, K)` 的**规范编码**，固定 **12 字节**：
+    `00 00 00 ‖ generation(u8) ‖ chunk_id(u32 小端) ‖ chunk_symbol(u16 小端) ‖ K(u16 小端)`。
+  - **nonce 复用规则**：该编码唯一确定一段载荷区间 `(chunk_id, chunk_symbol, K)`；
+    由于同一 generation 内源文件**不可变**，同一 nonce 必然对应**字节完全相同**的明文，
+    因此同代重传复用 nonce **不**泄露信息。**禁止**在同一 `traffic_key` 下把**不同明文**
+    用同一 nonce 封装；`K` 参与编码，确保「同起点不同长度」得到不同 nonce。
+  - 同一会话的 UDP 数据报与 TCP 数据面帧**必须**共用该会话的 `traffic_key`
+    与上述 nonce 规则；切换通道后重发的同一区间明文相同，nonce 随之相同。
 - **AEAD/MAC 单元 = 数据报载荷（K 个 symbol）**，不是单个 symbol：
   - 允许信任模式 `K > 1`（一个 64KB 数据报一个 tag）；
   - 明文长度与 symbol 偏移映射均不变，接收方仍按 `chunk_symbol + K` 标位；
@@ -61,8 +75,17 @@
   - C↔S 的 `link_token` 每连接重新签发；重连后按新根秘密重新派生，
     旧密钥的数据包自然失效并走重传。
   - C↔C 的 `transfer_token` 随 `peer_accept` 恢复重发；同一会话密钥稳定。
-- `KDF` **必须**为 BLAKE3 的 keyed/derive-key 模式（或等强度的 HKDF）；
-  标签 `"probe"` / `"data"` **必须**参与派生，避免密钥复用。
+- `KDF` **固定为 BLAKE3 derive-key 模式**，唯一定义如下；
+  **不得**改用 HKDF 或其它 KDF 构造，**不得**保留多种等价选项：
+  - `KDF(root, label, n)` = 以 `context = "LANWEFT/" ‖ label`（UTF-8 字节）为派生上下文、
+    以 `root` 为 key material、经 **BLAKE3 derive-key** 得到的 XOF，取**前 `n` 字节**。
+    等价伪码：`blake3_derive_key(context).update(root).xof(n)`。
+  - 标签规范化（**必须**逐字节一致）：
+    - `probe_token = KDF(root, "probe", 16)`；
+    - `traffic_key = KDF(root, "data" ‖ session_id(u64 小端) ‖ direction(u8), 32)`
+      —— `direction`：`0` = upload、`1` = download、`2` = peer。
+  - 标签**必须**参与派生；不同用途、不同 `session_id`、不同方向**不得**共用同一派生结果，
+    以避免密钥复用。
 - lv2/lv3 **必须**在已认证的控制连接上分发根秘密；因此 **lv2/lv3 要求控制面 TLS**。
   Server 配置 `security_min_level ≥ 2` 而 TLS 未启用时，**必须**拒绝启动或拒绝会话。
 - Server 参与 C↔C 的密钥分发，因此 lv3 提供的是**路径保护**，
@@ -111,7 +134,8 @@ Server 配置：
 - **重放保护**：接收方**必须**拒绝 `chunk_id` **≥** 该会话 `chunk_count` 的包（越界，见 08 章），
   且**必须**校验 `session_id`（u64）与本会话一致；DATA 的修复代号也必须匹配。
   同一代内的重复由位图幂等性兜底（重复 chunk 静默丢弃）。
-  lv3 的 nonce 唯一性保证同一密钥下不会因重放而混淆不同明文。
+  lv3 的 nonce 编码唯一确定载荷区间，重放只可能命中**同一明文**；
+  同一密钥下**不同明文**不会共用 nonce（见上「nonce 复用规则」）。
 - **C↔C peer（规范性）**：`direction = peer` 的直连数据面**没有** C↔C 的 `login`；
   身份与授权来自双方与 Server 的既有登录 + share grant（见 21 章）。
   - 直连：`transfer_token` 是根秘密；lv1 直接作为 PROBE token，lv2/lv3 派生

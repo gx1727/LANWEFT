@@ -101,6 +101,15 @@
 <h2>数据面安全等级（规范性）</h2>
 <p>数据面支持三个<strong>会话级</strong>安全等级；<strong>默认 lv1</strong>。等级在会话建立时由 Server 选定，
 <strong>会话生命周期内不可变</strong>；配置变更只影响新会话。</p>
+<ul>
+<li><strong>等级隔离（规范性）</strong>：同一 <code>link_token</code>（即同一条控制连接）<strong>不得</strong>同时承载
+  lv1 会话与 lv2/lv3 会话。原因是 lv1 的 <code>probe_token</code> 就是根秘密本身，会<strong>明文</strong>
+  出现在数据面上；若与 lv2/lv3 会话共享同一根秘密，嗅探者即可据此派生 <code>traffic_key</code>。
+  实施方式：Server <strong>必须</strong>按<strong>等级类别</strong>（lv1 与「lv2/lv3」两类）隔离根秘密
+  —— 一条控制连接上同时存在两类会话时，为它们分别签发<strong>不同的</strong> <code>link_token</code>；
+  无法隔离时<strong>必须</strong>拒绝后到的会话（<code>SECURITY_LEVEL_UNSUPPORTED</code>），
+  <strong>不得</strong>让 lv1 与 lv2/lv3 共用同一个根秘密。</li>
+</ul>
 <div class="card"><table>
 <thead>
 <tr>
@@ -142,8 +151,14 @@
 <li><code>payload</code> 为密文，长度与明文<strong>完全相等</strong>；</li>
 <li><code>header</code> 保持明文，作为 <strong>AAD</strong>；</li>
 <li>tag 覆盖 AAD + 密文；</li>
-<li>nonce = <code>(generation, chunk_id, chunk_symbol, K)</code> 的规范编码，<strong>必须</strong>在同一
-    <code>traffic_key</code> 下唯一（K 参与，避免「同起点不同长度」复用 nonce）。</li>
+<li>nonce = <code>(generation, chunk_id, chunk_symbol, K)</code> 的<strong>规范编码</strong>，固定 <strong>12 字节</strong>：
+    <code>00 00 00 ‖ generation(u8) ‖ chunk_id(u32 小端) ‖ chunk_symbol(u16 小端) ‖ K(u16 小端)</code>。</li>
+<li><strong>nonce 复用规则</strong>：该编码唯一确定一段载荷区间 <code>(chunk_id, chunk_symbol, K)</code>；
+    由于同一 generation 内源文件<strong>不可变</strong>，同一 nonce 必然对应<strong>字节完全相同</strong>的明文，
+    因此同代重传复用 nonce <strong>不</strong>泄露信息。<strong>禁止</strong>在同一 <code>traffic_key</code> 下把<strong>不同明文</strong>
+    用同一 nonce 封装；<code>K</code> 参与编码，确保「同起点不同长度」得到不同 nonce。</li>
+<li>同一会话的 UDP 数据报与 TCP 数据面帧<strong>必须</strong>共用该会话的 <code>traffic_key</code>
+    与上述 nonce 规则；切换通道后重发的同一区间明文相同，nonce 随之相同。</li>
 <li><strong>AEAD/MAC 单元 = 数据报载荷（K 个 symbol）</strong>，不是单个 symbol：</li>
 <li>允许信任模式 <code>K &gt; 1</code>（一个 64KB 数据报一个 tag）；</li>
 <li>明文长度与 symbol 偏移映射均不变，接收方仍按 <code>chunk_symbol + K</code> 标位；</li>
@@ -163,8 +178,19 @@
 <li>C↔S 的 <code>link_token</code> 每连接重新签发；重连后按新根秘密重新派生，
     旧密钥的数据包自然失效并走重传。</li>
 <li>C↔C 的 <code>transfer_token</code> 随 <code>peer_accept</code> 恢复重发；同一会话密钥稳定。</li>
-<li><code>KDF</code> <strong>必须</strong>为 BLAKE3 的 keyed/derive-key 模式（或等强度的 HKDF）；
-  标签 <code>"probe"</code> / <code>"data"</code> <strong>必须</strong>参与派生，避免密钥复用。</li>
+<li><code>KDF</code> <strong>固定为 BLAKE3 derive-key 模式</strong>，唯一定义如下；
+  <strong>不得</strong>改用 HKDF 或其它 KDF 构造，<strong>不得</strong>保留多种等价选项：</li>
+<li><code>KDF(root, label, n)</code> = 以 <code>context = "LANWEFT/" ‖ label</code>（UTF-8 字节）为派生上下文、
+    以 <code>root</code> 为 key material、经 <strong>BLAKE3 derive-key</strong> 得到的 XOF，取<strong>前 <code>n</code> 字节</strong>。
+    等价伪码：<code>blake3_derive_key(context).update(root).xof(n)</code>。</li>
+<li>标签规范化（<strong>必须</strong>逐字节一致）：<ul>
+<li><code>probe_token = KDF(root, "probe", 16)</code>；</li>
+<li><code>traffic_key = KDF(root, "data" ‖ session_id(u64 小端) ‖ direction(u8), 32)</code>
+  —— <code>direction</code>：<code>0</code> = upload、<code>1</code> = download、<code>2</code> = peer。</li>
+</ul>
+</li>
+<li>标签<strong>必须</strong>参与派生；不同用途、不同 <code>session_id</code>、不同方向<strong>不得</strong>共用同一派生结果，
+    以避免密钥复用。</li>
 <li>lv2/lv3 <strong>必须</strong>在已认证的控制连接上分发根秘密；因此 <strong>lv2/lv3 要求控制面 TLS</strong>。
   Server 配置 <code>security_min_level ≥ 2</code> 而 TLS 未启用时，<strong>必须</strong>拒绝启动或拒绝会话。</li>
 <li>Server 参与 C↔C 的密钥分发，因此 lv3 提供的是<strong>路径保护</strong>，
@@ -236,7 +262,8 @@
 <li><strong>重放保护</strong>：接收方<strong>必须</strong>拒绝 <code>chunk_id</code> <strong>≥</strong> 该会话 <code>chunk_count</code> 的包（越界，见 08 章），
   且<strong>必须</strong>校验 <code>session_id</code>（u64）与本会话一致；DATA 的修复代号也必须匹配。
   同一代内的重复由位图幂等性兜底（重复 chunk 静默丢弃）。
-  lv3 的 nonce 唯一性保证同一密钥下不会因重放而混淆不同明文。</li>
+  lv3 的 nonce 编码唯一确定载荷区间，重放只可能命中<strong>同一明文</strong>；
+  同一密钥下<strong>不同明文</strong>不会共用 nonce（见上「nonce 复用规则」）。</li>
 <li><strong>C↔C peer（规范性）</strong>：<code>direction = peer</code> 的直连数据面<strong>没有</strong> C↔C 的 <code>login</code>；
   身份与授权来自双方与 Server 的既有登录 + share grant（见 21 章）。</li>
 <li>直连：<code>transfer_token</code> 是根秘密；lv1 直接作为 PROBE token，lv2/lv3 派生

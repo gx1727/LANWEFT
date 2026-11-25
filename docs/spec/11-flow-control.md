@@ -120,13 +120,14 @@ throughput ≈ min(D, window / (d + C / D))     // 单位：symbol/秒
 一个数据报承载 `K` 个连续 symbol（`1 ≤ K ≤ S`），载荷 `L = K × symbol_size`，
 由头部与传输层长度唯一确定（见 08 章）。
 
-**三个不同的上限（规范性）**：
+**四个不同的上限（规范性）**：
 
 | 名称 | 定义 | 作用 |
 |------|------|------|
 | `S` | `chunk_size / symbol_size`（≤ 64） | **结构上限**：一个块最多多少 symbol |
 | `K_nofrag` | `min(S, floor(min(路径 MTU − overhead, 65507 − 16 − TRAILER_SIZE) / symbol_size))` | **不分片上限** |
-| `K_cap` | 策略上限，`K_nofrag ≤ K_cap ≤ S` | 是否允许分片（发送端策略） |
+| `K_udp_max` | `floor((65507 − 16 − TRAILER_SIZE) / symbol_size)` | **传输硬上限**：单个 UDP 数据报可承载的 symbol 数 |
+| `K_cap` | 策略上限，`K_nofrag ≤ K_cap ≤ min(S, K_udp_max)` | 是否允许分片（发送端策略） |
 | `K` | 本数据报实际值，`1 ≤ K ≤ K_cap` | —— |
 
 其中 `overhead = 16（本协议头）+ TRAILER_SIZE + 8（UDP）+ IP 头`：
@@ -136,6 +137,12 @@ throughput ≈ min(D, window / (d + C / D))     // 单位：symbol/秒
 
 `TRAILER_SIZE` 由会话安全等级决定（见 20 章）；**默认 lv1**。
 `65507 − 16 − TRAILER_SIZE` 是 UDP 载荷上限对应的 `L` 上限（lv1 `65487`，lv2/lv3 `65475`）。
+
+- **传输硬上限（规范性）**：`K_udp_max = floor((65507 − 16 − TRAILER_SIZE) / symbol_size)`；
+  在 `symbol_size` = 1200 时，lv1/lv2/lv3 下 `K_udp_max` 均为 **54**。
+  `K_cap` **必须** ≤ `K_udp_max` —— 若配置的 `S` > `K_udp_max`（如 `chunk_size` 放大后 `S` = 64），
+  `K_cap` **必须**收敛到 `K_udp_max`，**不得**超过；否则单个数据报的载荷放不进一个 UDP 数据报。
+  回退时 `K` **必须**保持 `≥ 1`（见下「丢包预算」）。
 
 - **不分片模式（默认，规范性）**：`K_cap = K_nofrag`。
   - 1500 MTU（IPv4）→ lv1 `(1500 − 48) / 1200 = 1`；lv2/lv3 `(1500 − 60) / 1200 = 1`；

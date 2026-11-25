@@ -986,9 +986,10 @@ def check_walkthrough_rules(spec: dict[str, str], res: Result) -> None:
     nineteen = spec.get("19", "")
     problems: list[str] = []
 
-    # 1) 13 章必须有「待恢复会话的判定」表，且 PAUSED 保持 PAUSED
-    if "待恢复会话的判定" not in thirteen:
-        problems.append("13 章缺少「待恢复会话的判定」表")
+    # 1) 13 章必须有「数据传输恢复 / 结果交付恢复」两张判定表，
+    #    且 PAUSED 保持 PAUSED
+    if "数据传输的恢复判定" not in thirteen or "结果交付的恢复判定" not in thirteen:
+        problems.append("13 章缺少「数据传输的恢复判定」/「结果交付的恢复判定」两张表")
     else:
         # PAUSED 行（在判定表内）必须写明「保持 PAUSED」
         paused_rows = [ln for ln in thirteen.split("\n")

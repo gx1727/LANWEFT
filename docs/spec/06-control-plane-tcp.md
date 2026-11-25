@@ -102,7 +102,7 @@ magic(4) ‖ frame_len(4) ‖ msg_type(1) ‖ flags(1) ‖ body_version(1) ‖ r
 | `0x0D` | `00` | `flags` | 保留位 |
 | `0x0E` | `00` | `body_version` | 0 |
 | `0x0F` | `00` | `reserved` | 保留字节 |
-| `0x10–0x21` | `00 03 00 00 00 00 00 00 06 00 64 65 76 2D 41 31 00 00` | `body` | 18 字节：`login` 定长区 8 字节 ‖ `device_id`（`06 00` + "dev-A1"）‖ `token`（`00 00`，空串） |
+| `0x10–0x21` | `00 03 00 01 00 00 00 00 06 00 64 65 76 2D 41 31 00 00` | `body` | 18 字节：`login` 定长区 8 字节（offset 3 = `max_security_level` = `01`，满足「**必须** ≥ `1`」）‖ `device_id`（`06 00` + "dev-A1"）‖ `token`（`00 00`，空串） |
 
 **`magic` 的字节序陷阱（规范性）**：
 
@@ -703,7 +703,10 @@ body := 定长区（长度与偏移见各消息表） ‖ 变长区（按各消�
   （等于 `full_mask` 时应作为已完成块，不进入 `partial[]`）。
 - bit `i ≥ S_chunk` **必须**为 0；越界即按 `SERIALIZATION_ERROR` 丢弃该帧。
 - `missing_count`：二者合计的**缺失 symbol 精确总数** =
-  `Σ(完全缺失块的 S) + Σ(S_chunk − popcount(partial[].received_mask))`。
+  `Σ(完全缺失块的 S_chunk) + Σ(S_chunk − popcount(partial[].received_mask))`。
+  其中 `S_chunk` **必须**取该块**实际**的 symbol 数：非末块 = `S`（= `chunk_size / symbol_size`），
+  末块 = `ceil((size − chunk_id × chunk_size) / symbol_size)`（见上）。
+  **不得**对末块套用满块 `S`，否则短末块（如 1 字节文件）会被高估。
   发送方据此推算对端已收数与在途量（见 11 章），因此该值**不得**是估计值。
 
 **`chunks` / `partial[]` 的语义（规范性）**：二者恒为「**发布方自己尚未收到的部分**」，

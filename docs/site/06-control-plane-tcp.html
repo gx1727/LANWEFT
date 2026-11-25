@@ -426,9 +426,9 @@
 </tr>
 <tr>
 <td><code>0x10–0x21</code></td>
-<td><code>00 03 00 00 00 00 00 00 06 00 64 65 76 2D 41 31 00 00</code></td>
+<td><code>00 03 00 01 00 00 00 00 06 00 64 65 76 2D 41 31 00 00</code></td>
 <td><code>body</code></td>
-<td>18 字节：<code>login</code> 定长区 8 字节 ‖ <code>device_id</code>（<code>06 00</code> + "dev-A1"）‖ <code>token</code>（<code>00 00</code>，空串）</td>
+<td>18 字节：<code>login</code> 定长区 8 字节（offset 3 = <code>max_security_level</code> = <code>01</code>，满足「<strong>必须</strong> ≥ <code>1</code>」）‖ <code>device_id</code>（<code>06 00</code> + "dev-A1"）‖ <code>token</code>（<code>00 00</code>，空串）</td>
 </tr>
 </tbody>
 </table></div>
@@ -1955,7 +1955,10 @@ RESYNC（仅诊断，不恢复协议状态机）
   （等于 <code>full_mask</code> 时应作为已完成块，不进入 <code>partial[]</code>）。</li>
 <li>bit <code>i ≥ S_chunk</code> <strong>必须</strong>为 0；越界即按 <code>SERIALIZATION_ERROR</code> 丢弃该帧。</li>
 <li><code>missing_count</code>：二者合计的<strong>缺失 symbol 精确总数</strong> =
-  <code>Σ(完全缺失块的 S) + Σ(S_chunk − popcount(partial[].received_mask))</code>。
+  <code>Σ(完全缺失块的 S_chunk) + Σ(S_chunk − popcount(partial[].received_mask))</code>。
+  其中 <code>S_chunk</code> <strong>必须</strong>取该块<strong>实际</strong>的 symbol 数：非末块 = <code>S</code>（= <code>chunk_size / symbol_size</code>），
+  末块 = <code>ceil((size − chunk_id × chunk_size) / symbol_size)</code>（见上）。
+  <strong>不得</strong>对末块套用满块 <code>S</code>，否则短末块（如 1 字节文件）会被高估。
   发送方据此推算对端已收数与在途量（见 11 章），因此该值<strong>不得</strong>是估计值。</li>
 </ul>
 <p><strong><code>chunks</code> / <code>partial[]</code> 的语义（规范性）</strong>：二者恒为「<strong>发布方自己尚未收到的部分</strong>」，

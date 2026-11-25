@@ -29,8 +29,11 @@
   `min(S, floor(min(路径 MTU − overhead, 65507 − 16 − TRAILER_SIZE) / symbol_size))`；
   `overhead`：lv1 IPv4 **48** / IPv6 **68**，lv2/lv3 IPv4 **60** / IPv6 **80**
   （见 08、11 章）
-- `K_cap`：**策略上限**，`K_nofrag ≤ K_cap ≤ S`；默认 `K_nofrag`（不分片），
-  **信任模式**取 `S`（显式允许 IP 分片，见 11 章）
+- `K_udp_max`：**传输硬上限**（传输层约束，非策略）=
+  `floor((65507 − 16 − TRAILER_SIZE) / symbol_size)`；`symbol_size` = 1200 时恒为 **54**
+  （见 11 章）
+- `K_cap`：**策略上限**，`K_nofrag ≤ K_cap ≤ min(S, K_udp_max)`；默认 `K_nofrag`（不分片），
+  **信任模式**取 `min(S, K_udp_max)`（显式允许 IP 分片，见 11 章）
 - `frag_loss_budget`：信任模式下整报文丢失率的建议预算（0.05%–0.1%）
 - `L`：数据报载荷长度；**不**在应用头中编码，由传输层长度反推
   （UDP：`总长 − 16 − TRAILER_SIZE`；TCP 数据面：`frame_len − 28 − TRAILER_SIZE`，
@@ -118,7 +121,9 @@
   接收方**应当**按文件规模放宽，超时按「对帐不可用」处理并转入复核轮（见 12 章）
 - **定点重读**：停滞升级时接收方置 `missing_chunks.flags.bit6`，
   要求发送方重新读取源文件的对应块（不复用缓存）后重发；每会话**至多一次**（见 06、12 章）
-- `missing_count`（u32）：位图中**未收到**的 chunk 总数（精确值）；
+- `missing_count`（u32）：位图中**未收到**的 **symbol 精确总数**；
+  `login.resume[].missing_count` 与 `missing_chunks.missing_count` **同义**，
+  均**必须**按各块**实际** `S_chunk` 累加（末块**不得**套用满块 `S`）；
   未携带时由**存在标志位**表示（见 06 章、18 章）
 - `udp_ready`：UDP 就绪通知
 - `resume_session` / `resume_ack`：暂停后的会话恢复请求 / 应答（见 13 章）
